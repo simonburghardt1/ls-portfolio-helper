@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: hello_stack_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hello_user
+      POSTGRES_PASSWORD: hello_pass
+      POSTGRES_DB: hello_stack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

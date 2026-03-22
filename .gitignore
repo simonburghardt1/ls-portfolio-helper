@@ -1,4 +1,6 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# =========================
+# Frontend / Next.js
+# =========================
 
 # dependencies
 node_modules/
@@ -10,68 +12,32 @@ node_modules/
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
-# next.js
+# next.js build output
 .next/
 /out/
-
-# production
 /build
+
+# testing
+/coverage
 
 # misc
 .DS_Store
 *.pem
-
-# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
-
-# =========================
-# Python / Backend
-# =========================
-
-# virtual environment
-.venv/
-venv/
-env/
-
-# python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# logs
-*.log
-
-# local db (if you add sqlite later)
-*.db
-
-# mac / windows junk
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
+# vercel
+.vercel
 
 
 # =========================
-# Python / Backend
+# Backend / Python
 # =========================
 
 # virtual environment
@@ -88,12 +54,32 @@ __pycache__/
 # logs
 *.log
 
-# local db (if you add sqlite later)
+# local sqlite db
 *.db
 
-# mac / windows junk
-Thumbs.db
 
-# IDE
+# =========================
+# Environment / Secrets
+# =========================
+
+# all .env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+
+# =========================
+# OS / IDE
+# =========================
+
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
+
+
+# =========================
+# Claude Code
+# =========================
+
+.claude/

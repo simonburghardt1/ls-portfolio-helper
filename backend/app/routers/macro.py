@@ -56,7 +56,7 @@ def identity_series(dates: list[str], values: list[float]) -> dict:
 
 def yoy_series(dates: list[str], values: list[float]) -> dict:
     s = pd.Series(values, index=pd.to_datetime(dates)).sort_index()
-    m = s.resample("M").last()
+    m = s.resample("ME").last()
     yoy = (m / m.shift(12) - 1.0) * 100.0
     yoy = yoy.dropna()
 

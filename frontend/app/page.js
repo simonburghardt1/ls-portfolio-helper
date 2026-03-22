@@ -4,8 +4,15 @@ import { useEffect, useState } from "react";
 import KpiCard from "./components/KpiCard";
 import LineChart from "./components/LineChart";
 import Link from "next/link";
+import { useRequireAuth } from "./hooks/useRequireAuth";
+import { useAuthStore } from "./store/authStore";
+import { useRouter } from "next/navigation";
 
 export default function Page() {
+  const { isAuthenticated, user } = useRequireAuth();
+  const logout = useAuthStore((s) => s.logout);
+  const router = useRouter();
+
   const [kpis, setKpis] = useState([]);
   const [selectedSeriesId, setSelectedSeriesId] = useState("US_CPI_YOY");
   const [chartSeries, setChartSeries] = useState(null);
@@ -39,8 +46,8 @@ export default function Page() {
 }
 
   useEffect(() => {
-    loadData(selectedSeriesId);
-  }, []);
+    if (isAuthenticated) loadData(selectedSeriesId);
+  }, [isAuthenticated]);
 
   async function handleCardClick(seriesId) {
     setSelectedSeriesId(seriesId);
@@ -77,6 +84,8 @@ export default function Page() {
       setStatus("Backend not reachable");
     }
   }
+
+  if (!isAuthenticated) return null;
 
   return (
     <main
@@ -115,6 +124,9 @@ export default function Page() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {user && (
+              <span style={{ color: "#6b7280", fontSize: 13 }}>{user.full_name}</span>
+            )}
             <button
               onClick={() => loadData(selectedSeriesId)}
               style={{
@@ -128,6 +140,20 @@ export default function Page() {
               }}
             >
               Refresh
+            </button>
+            <button
+              onClick={() => { logout(); router.push("/login"); }}
+              style={{
+                background: "transparent",
+                color: "#9ca3af",
+                border: "1px solid #374151",
+                borderRadius: 10,
+                padding: "10px 16px",
+                cursor: "pointer",
+                fontWeight: 500,
+              }}
+            >
+              Logout
             </button>
 
             <div
@@ -255,9 +281,18 @@ export default function Page() {
 
           {chartSeries ? (
             <LineChart
-              title={chartSeries.name}
               dates={chartSeries.dates}
-              values={chartSeries.values}
+              datasets={[
+                {
+                  label: chartSeries.name,
+                  data: chartSeries.values,
+                  borderColor: "#3b82f6",
+                  backgroundColor: "rgba(59,130,246,0.08)",
+                  borderWidth: 2,
+                  pointRadius: 0,
+                  tension: 0.3,
+                },
+              ]}
             />
           ) : (
             <div style={{ color: "#9ca3af" }}>Loading chart...</div>
