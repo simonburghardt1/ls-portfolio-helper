@@ -8,16 +8,18 @@ export const useAuthStore = create(
     (set) => ({
       token: null,
       user: null,
+      _hasHydrated: false,
 
       setAuth: (token, user) => set({ token, user }),
-
-      logout: () => {
-        set({ token: null, user: null });
-      },
+      logout: () => set({ token: null, user: null }),
+      setHasHydrated: (val) => set({ _hasHydrated: val }),
     }),
     {
       name: "auth",
       partialize: (state) => ({ token: state.token, user: state.user }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

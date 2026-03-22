@@ -8,12 +8,13 @@ export function useRequireAuth() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
+  const hasHydrated = useAuthStore((s) => s._hasHydrated);
 
   useEffect(() => {
-    if (!token) {
+    if (hasHydrated && !token) {
       router.replace("/login");
     }
-  }, [token, router]);
+  }, [hasHydrated, token, router]);
 
-  return { token, user, isAuthenticated: !!token };
+  return { token, user, isAuthenticated: !!token, hasHydrated };
 }
