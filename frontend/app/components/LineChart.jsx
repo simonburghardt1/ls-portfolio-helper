@@ -3,13 +3,14 @@
 import { useEffect, useRef } from "react";
 import { createChart, ColorType, CrosshairMode, LineSeries } from "lightweight-charts";
 
-export default function LineChart({ dates, datasets, visibleRange }) {
+export default function LineChart({ dates, datasets, visibleRange, referenceLine }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
 
   // Recreate chart when data changes
   useEffect(() => {
-    if (!containerRef.current || !dates?.length || !datasets?.length) return;
+    if (!containerRef.current || !datasets?.length) return;
+    if (!dates?.length && !datasets.some((d) => d.dates?.length)) return;
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -35,16 +36,39 @@ export default function LineChart({ dates, datasets, visibleRange }) {
         lineWidth: ds.borderWidth ?? 2,
         priceLineVisible: false,
         lastValueVisible: true,
-        title: "",
+        title: ds.label ?? "",
       });
 
-      const data = dates
+      const dsDates = ds.dates ?? dates;
+      const data = dsDates
         .map((date, i) => ({ time: date, value: ds.data[i] }))
         .filter((p) => p.value != null && !isNaN(p.value))
         .sort((a, b) => (a.time < b.time ? -1 : 1));
 
       series.setData(data);
     });
+
+    // Draw horizontal reference line (e.g. 50-threshold)
+    if (referenceLine != null) {
+      const allDates = datasets.flatMap((ds) =>
+        (ds.dates ?? dates ?? []).filter(Boolean)
+      );
+      if (allDates.length >= 2) {
+        const sorted = [...allDates].sort();
+        const refSeries = chart.addSeries(LineSeries, {
+          color: "rgba(156,163,175,0.55)",
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          title: "",
+          lineStyle: 1, // dashed
+        });
+        refSeries.setData([
+          { time: sorted[0], value: referenceLine },
+          { time: sorted[sorted.length - 1], value: referenceLine },
+        ]);
+      }
+    }
 
     if (visibleRange) {
       chart.timeScale().setVisibleRange(visibleRange);

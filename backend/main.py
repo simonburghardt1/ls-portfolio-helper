@@ -5,6 +5,7 @@ from app.routers.health import router as health_router
 from app.routers.macro import router as macro_router
 from app.routers.portfolio import router as portfolio_router
 from app.routers.auth import router as auth_router
+from app.routers.ism import router as ism_router
 
 app = FastAPI(title="Macro Dashboard API")
 
@@ -21,6 +22,7 @@ app.include_router(health_router)
 app.include_router(macro_router)
 app.include_router(portfolio_router)
 app.include_router(auth_router)
+app.include_router(ism_router)
 
 
 # Keep your hello endpoint if you want

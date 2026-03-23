@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.db.session import Base
 import app.models.user        # noqa: F401
 import app.models.macro_cache  # noqa: F401
+import app.models.ism          # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
