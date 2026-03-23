@@ -18,3 +18,5 @@ cryptography==46.0.5
 httpx
 pandas
 yfinance
+beautifulsoup4
+apscheduler

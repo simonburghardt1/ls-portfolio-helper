@@ -4,7 +4,7 @@ from app.models.macro_cache import MacroCache
 from app.services.fred import FredClient
 
 CACHE_TTL_HOURS = 24
-FULL_HISTORY_START = "1990-01-01"
+FULL_HISTORY_START = "1950-01-01"
 
 
 async def get_series(db: Session, fred_client: FredClient, series_id: str) -> dict:

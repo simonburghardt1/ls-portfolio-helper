@@ -32,11 +32,12 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
 
     datasets.forEach((ds) => {
       const series = chart.addSeries(LineSeries, {
-        color: ds.borderColor ?? "#3b82f6",
-        lineWidth: ds.borderWidth ?? 2,
+        color:            ds.borderColor      ?? "#3b82f6",
+        lineWidth:        ds.borderWidth      ?? 2,
+        lineStyle:        ds.lineStyle        ?? 0,
         priceLineVisible: false,
-        lastValueVisible: true,
-        title: ds.label ?? "",
+        lastValueVisible: ds.lastValueVisible ?? true,
+        title:            ds.label            ?? "",
       });
 
       const dsDates = ds.dates ?? dates;
