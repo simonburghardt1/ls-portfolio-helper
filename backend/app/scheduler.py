@@ -22,7 +22,7 @@ from app.core.config import settings
 log = logging.getLogger(__name__)
 
 # Add series IDs here to include them in the daily FRED refresh
-FRED_SERIES = ["UMCSENT"]
+FRED_SERIES = ["UMCSENT", "PERMIT", "HOUST", "COMPUTSA"]
 
 
 async def _job_uom():
