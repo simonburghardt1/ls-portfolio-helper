@@ -50,7 +50,8 @@ const NAV = [
       {
         label: null,
         items: [
-          { label: "Ideas", href: "/portfolio/ideas", soon: true },
+          { label: "Ideas",   href: "/portfolio/ideas",   soon: true },
+          { label: "Heatmap", href: "/portfolio/heatmap" },
         ],
       },
       {

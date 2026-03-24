@@ -1,5 +1,91 @@
 import pandas as pd
 import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor
+
+
+def _fetch_ticker_meta(args: tuple) -> dict:
+    """Fetch market cap (and optionally sector) for a single ticker.
+
+    Runs inside a thread pool so all tickers are fetched in parallel.
+    Falls back gracefully on any error so one bad ticker doesn't break
+    the whole watchlist.
+    """
+    ticker, include_sector = args
+    try:
+        t = yf.Ticker(ticker)
+        if include_sector:
+            info    = t.info
+            mkt_cap = info.get("marketCap") or 1
+            sector  = info.get("sector") or "Unknown"
+        else:
+            mkt_cap = getattr(t.fast_info, "market_cap", None) or 1
+            sector  = None
+    except Exception:
+        mkt_cap = 1
+        sector  = "Unknown" if include_sector else None
+    return {"mkt_cap": mkt_cap, "sector": sector}
+
+
+def fetch_heatmap_data(tickers: list[str], include_sector: bool = False) -> list[dict]:
+    """
+    Fetch latest price, daily % change, market cap, and optionally sector
+    for a list of tickers.
+
+    Price data is fetched in a single batch call via yfinance. Metadata
+    (market cap / sector) is fetched in parallel via a thread pool so
+    the total latency is ~1–2s regardless of watchlist size.
+    """
+    if not tickers:
+        return []
+
+    # --- Price data (single batch download) ---
+    raw = yf.download(
+        tickers=tickers,
+        period="5d",
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+    )
+
+    # Normalise to a per-ticker DataFrame regardless of how many tickers were requested
+    if isinstance(raw.columns, pd.MultiIndex):
+        closes = raw["Close"]
+    else:
+        closes = raw[["Close"]].copy()
+        closes.columns = tickers
+
+    # --- Metadata (parallel per-ticker fetch) ---
+    with ThreadPoolExecutor(max_workers=min(10, len(tickers))) as pool:
+        metas = list(pool.map(_fetch_ticker_meta, [(t, include_sector) for t in tickers]))
+
+    # --- Combine ---
+    results = []
+    for ticker, meta in zip(tickers, metas):
+        try:
+            series = closes[ticker].dropna()
+            if len(series) >= 2:
+                price      = float(series.iloc[-1])
+                change_pct = float((series.iloc[-1] / series.iloc[-2] - 1) * 100)
+            elif len(series) == 1:
+                price      = float(series.iloc[-1])
+                change_pct = None
+            else:
+                price = change_pct = None
+        except Exception:
+            price = change_pct = None
+
+        entry = {
+            "ticker":     ticker,
+            "price":      price,
+            "change_pct": change_pct,
+            "market_cap": meta["mkt_cap"],
+        }
+        if include_sector:
+            entry["sector"] = meta["sector"]
+
+        results.append(entry)
+
+    return results
 
 
 def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:

@@ -13,6 +13,7 @@ from app.routers.consumer_confidence import router as consumer_confidence_router
 from app.routers.data_import import router as data_import_router
 from app.routers.building_permits import router as building_permits_router
 from app.routers.nfib import router as nfib_router
+from app.routers.heatmap import router as heatmap_router
 from app.scheduler import create_scheduler
 
 
@@ -44,6 +45,7 @@ app.include_router(consumer_confidence_router)
 app.include_router(data_import_router)
 app.include_router(building_permits_router)
 app.include_router(nfib_router)
+app.include_router(heatmap_router)
 
 
 # Keep your hello endpoint if you want
