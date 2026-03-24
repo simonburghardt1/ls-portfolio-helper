@@ -314,10 +314,16 @@ function ComponentsTab() {
   );
 }
 
-// ── Industries tab ─────────────────────────────────────────────────────────────
+// ── Shared geo breakdown tab (used by both Industries and Regions) ─────────────
+//
+// Props:
+//   indexUrl      – endpoint returning {series: {id → {dates,values,label,color}}}
+//   componentsUrl – function(selectedId) → endpoint returning same shape
+//   refreshUrl    – POST endpoint to force re-fetch
+//   emptyMessage  – string shown before first fetch
+//   groupLabel    – label for the dropdown header, e.g. "industry" / "region"
 
-function IndustriesTab() {
-  // ── OPT_INDEX by industry ──
+function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, groupLabel }) {
   const [series, setSeries]         = useState({});
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
@@ -325,23 +331,21 @@ function IndustriesTab() {
   const [visible, setVisible]       = useState({});
   const [refreshing, setRefreshing] = useState(false);
 
-  // ── Component breakdown for selected industry ──
-  const [selectedIndustry, setSelectedIndustry] = useState(null);
-  const [compSeries, setCompSeries]             = useState({});
-  const [compVisible, setCompVisible]           = useState({});
-  const [compLoading, setCompLoading]           = useState(false);
-  const [compError, setCompError]               = useState(null);
+  const [selected, setSelected]     = useState(null);
+  const [compSeries, setCompSeries] = useState({});
+  const [compVisible, setCompVisible] = useState({});
+  const [compLoading, setCompLoading] = useState(false);
+  const [compError, setCompError]   = useState(null);
 
   function load() {
     setLoading(true);
-    fetch(`${API}/api/nfib/industries`)
+    fetch(indexUrl)
       .then((r) => r.json())
       .then((d) => {
         const s = d.series ?? {};
         setSeries(s);
         setVisible(Object.fromEntries(Object.keys(s).map((k) => [k, true])));
-        // Auto-select first industry so the component chart loads immediately
-        setSelectedIndustry((prev) => prev ?? Object.keys(s)[0] ?? null);
+        setSelected((prev) => prev ?? Object.keys(s)[0] ?? null);
         setLoading(false);
       })
       .catch((e) => { setError(e.message); setLoading(false); });
@@ -349,12 +353,11 @@ function IndustriesTab() {
 
   useEffect(() => { load(); }, []);
 
-  // Fetch component breakdown whenever the selected industry changes
   useEffect(() => {
-    if (!selectedIndustry) return;
+    if (!selected) return;
     setCompLoading(true);
     setCompError(null);
-    fetch(`${API}/api/nfib/industries/${selectedIndustry}/components`)
+    fetch(componentsUrl(selected))
       .then((r) => r.json())
       .then((d) => {
         const s = d.series ?? {};
@@ -363,12 +366,12 @@ function IndustriesTab() {
         setCompLoading(false);
       })
       .catch((e) => { setCompError(e.message); setCompLoading(false); });
-  }, [selectedIndustry]);
+  }, [selected]);
 
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      const res = await fetch(`${API}/api/nfib/refresh-industries`, { method: "POST" });
+      const res = await fetch(refreshUrl, { method: "POST" });
       if (!res.ok) throw new Error("Refresh failed");
       load();
     } catch (e) {
@@ -381,21 +384,15 @@ function IndustriesTab() {
   if (loading) return <div style={{ color: "#4b5563", fontSize: 14 }}>Loading…</div>;
   if (error)   return <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>;
   if (!Object.keys(series).length)
-    return <EmptyState message="No industry data yet." onFetch={handleRefresh} fetching={refreshing} />;
+    return <EmptyState message={emptyMessage} onFetch={handleRefresh} fetching={refreshing} />;
 
   const datasets = Object.entries(series)
     .filter(([id]) => visible[id])
-    .map(([, s]) => ({
-      dates: s.dates, data: s.values,
-      borderColor: s.color, borderWidth: 2, label: s.label,
-    }));
+    .map(([, s]) => ({ dates: s.dates, data: s.values, borderColor: s.color, borderWidth: 2, label: s.label }));
 
   const compDatasets = Object.entries(compSeries)
     .filter(([id]) => compVisible[id])
-    .map(([, s]) => ({
-      dates: s.dates, data: s.values,
-      borderColor: s.color, borderWidth: 2, label: s.label,
-    }));
+    .map(([, s]) => ({ dates: s.dates, data: s.values, borderColor: s.color, borderWidth: 2, label: s.label }));
 
   const visibleRange = rangeFrom(RANGES.find((r) => r.label === range)?.years);
 
@@ -406,20 +403,14 @@ function IndustriesTab() {
       {/* ── OPT_INDEX comparison chart ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
         {Object.entries(series).map(([id, s]) => (
-          <SeriesToggle
-            key={id}
-            label={s.label}
-            color={s.color}
-            active={visible[id]}
-            onClick={() => setVisible((p) => ({ ...p, [id]: !p[id] }))}
-          />
+          <SeriesToggle key={id} label={s.label} color={s.color} active={visible[id]}
+            onClick={() => setVisible((p) => ({ ...p, [id]: !p[id] }))} />
         ))}
       </div>
-
       <ChartBox style={{ marginBottom: 20 }}>
         {datasets.length > 0
           ? <LineChart dates={null} datasets={datasets} visibleRange={visibleRange} referenceLine={100} />
-          : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>Select at least one industry</div>
+          : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>Select at least one {groupLabel}</div>
         }
       </ChartBox>
 
@@ -430,10 +421,7 @@ function IndustriesTab() {
           const prev   = s.values.at(-2);
           const diff   = latest != null && prev != null ? latest - prev : null;
           return (
-            <div key={id} style={{
-              background: "#0f172a", border: `1px solid ${s.color}33`,
-              borderRadius: 10, padding: "12px 16px", minWidth: 140,
-            }}>
+            <div key={id} style={{ background: "#0f172a", border: `1px solid ${s.color}33`, borderRadius: 10, padding: "12px 16px", minWidth: 140 }}>
               <div style={{ fontSize: 10, color: s.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{s.label}</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#e5e7eb" }}>{latest?.toFixed(1)}</div>
               {diff != null && (
@@ -446,18 +434,14 @@ function IndustriesTab() {
         })}
       </div>
 
-      {/* ── Component breakdown for selected industry ── */}
+      {/* ── Component breakdown for selected group ── */}
       <div style={{ borderTop: "1px solid #1f2937", paddingTop: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>Component Breakdown</span>
-          <select
-            value={selectedIndustry ?? ""}
-            onChange={(e) => setSelectedIndustry(e.target.value)}
-            style={{
-              background: "#0f172a", border: "1px solid #374151", borderRadius: 6,
-              color: "#e5e7eb", fontSize: 12, padding: "4px 10px", cursor: "pointer",
-            }}
-          >
+          <select value={selected ?? ""} onChange={(e) => setSelected(e.target.value)} style={{
+            background: "#0f172a", border: "1px solid #374151", borderRadius: 6,
+            color: "#e5e7eb", fontSize: 12, padding: "4px 10px", cursor: "pointer",
+          }}>
             {Object.entries(series).map(([id, s]) => (
               <option key={id} value={id}>{s.label}</option>
             ))}
@@ -470,13 +454,8 @@ function IndustriesTab() {
           <>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
               {Object.entries(compSeries).map(([id, s]) => (
-                <SeriesToggle
-                  key={id}
-                  label={s.label}
-                  color={s.color}
-                  active={compVisible[id]}
-                  onClick={() => setCompVisible((p) => ({ ...p, [id]: !p[id] }))}
-                />
+                <SeriesToggle key={id} label={s.label} color={s.color} active={compVisible[id]}
+                  onClick={() => setCompVisible((p) => ({ ...p, [id]: !p[id] }))} />
               ))}
             </div>
             <ChartBox>
@@ -492,13 +471,29 @@ function IndustriesTab() {
   );
 }
 
-// ── Placeholder tab ────────────────────────────────────────────────────────────
+// ── Industries + Regions tabs (thin wrappers around GeoBreakdownTab) ───────────
 
-function SoonTab({ label }) {
+function IndustriesTab() {
   return (
-    <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
-      <div style={{ fontSize: 14, color: "#6b7280" }}>{label} — coming soon</div>
-    </div>
+    <GeoBreakdownTab
+      indexUrl={`${API}/api/nfib/industries`}
+      componentsUrl={(id) => `${API}/api/nfib/industries/${id}/components`}
+      refreshUrl={`${API}/api/nfib/refresh-industries`}
+      emptyMessage="No industry data yet."
+      groupLabel="industry"
+    />
+  );
+}
+
+function RegionsTab() {
+  return (
+    <GeoBreakdownTab
+      indexUrl={`${API}/api/nfib/regions`}
+      componentsUrl={(id) => `${API}/api/nfib/regions/${id}/components`}
+      refreshUrl={`${API}/api/nfib/refresh-regions`}
+      emptyMessage="No regional data yet."
+      groupLabel="region"
+    />
   );
 }
 
@@ -533,7 +528,7 @@ export default function NfibPage() {
       </div>
 
       {tab === "Components" && <ComponentsTab />}
-      {tab === "Regions"    && <SoonTab label="Small Business Optimism by Region" />}
+      {tab === "Regions"    && <RegionsTab />}
       {tab === "Industries" && <IndustriesTab />}
     </div>
   );

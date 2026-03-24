@@ -163,6 +163,19 @@ INDUSTRIES: dict[str, dict] = {
     "NFIB_IND_8": {"id": "8", "label": "Services",        "color": "#ec4899"},
 }
 
+# NFIB regions — aligned with US Census Bureau divisions
+# State abbreviations are passed as the statev parameter to getTotals2
+REGIONS: dict[str, dict] = {
+    "NFIB_REG_NE":  {"states": "CT,ME,MA,NH,RI,VT,NJ,NY,PA",      "label": "Northeast",          "color": "#3b82f6"},
+    "NFIB_REG_SA":  {"states": "DE,MD,DC,VA,WV,NC,SC,GA,FL",       "label": "South Atlantic",     "color": "#10b981"},
+    "NFIB_REG_ESC": {"states": "AL,KY,MS,TN",                      "label": "East South Central", "color": "#f59e0b"},
+    "NFIB_REG_GL":  {"states": "IL,IN,MI,OH,WI",                   "label": "Great Lakes",        "color": "#8b5cf6"},
+    "NFIB_REG_PL":  {"states": "IA,KS,MN,MO,NE,ND,SD",            "label": "Plains",             "color": "#ef4444"},
+    "NFIB_REG_WSC": {"states": "AR,LA,OK,TX",                      "label": "West South Central", "color": "#06b6d4"},
+    "NFIB_REG_MT":  {"states": "AZ,CO,ID,MT,NV,NM,UT,WY",         "label": "Mountains",          "color": "#f97316"},
+    "NFIB_REG_PAC": {"states": "AK,CA,HI,OR,WA",                   "label": "Pacific",            "color": "#ec4899"},
+}
+
 # The 10 questions that compose OPT_INDEX
 OPT_QUESTIONS = ",".join([
     "emp_count_change_expect", "cap_ex_expect", "inventory_expect",
@@ -175,6 +188,35 @@ OPT_QUESTIONS = ",".join([
 _INDICATOR_TO_SERIES: dict[str, str] = {
     v["indicator"]: k for k, v in COMPONENTS.items() if v["source"] == "totals"
 }
+
+
+async def _fetch_region_raw(statev: str) -> dict[str, dict[str, dict[int, int]]]:
+    """
+    Single API call: fetch all 10 question responses for a geographic region via getTotals2.
+    `statev` is a comma-separated list of US state abbreviations (e.g. "CT,ME,MA,NH,RI,VT,NJ,NY,PA").
+    Returns by_month_quest: {monthyear → {question → {acode → count}}}
+    """
+    params = _base_params()
+    params["params[4][name]"] = "questions";  params["params[4][param_type]"] = "IN"; params["params[4][value]"] = OPT_QUESTIONS
+    params["params[5][name]"] = "industry";   params["params[5][param_type]"] = "IN"; params["params[5][value]"] = ""
+    params["params[6][name]"] = "employee";   params["params[6][param_type]"] = "IN"; params["params[6][value]"] = ""
+    params["params[7][name]"] = "statev";     params["params[7][param_type]"] = "IN"; params["params[7][value]"] = statev
+
+    async with httpx.AsyncClient(headers=NFIB_HEADERS, timeout=60, verify=False) as client:
+        resp = await client.post(f"{NFIB_BASE}/getTotals2", data=params)
+        resp.raise_for_status()
+        rows = resp.json()
+
+    by_month_quest: dict[str, dict[str, dict[int, int]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    for row in rows:
+        my   = row.get("monthyear", "")
+        q    = row.get("resp_q_short", "")
+        code = row.get("resp_acode")
+        cnt  = row.get("totalcount", 0)
+        if my and q and code is not None:
+            by_month_quest[my][q][int(code)] += int(cnt or 0)
+
+    return by_month_quest
 
 
 async def _fetch_industry_raw(industry_id: str) -> dict[str, dict[str, dict[int, int]]]:
@@ -317,6 +359,57 @@ async def refresh_all_industries(db) -> dict:
 
         except Exception as exc:
             log.warning("NFIB industry %s failed: %s", series_id, exc)
+
+    db.commit()
+    return summary
+
+
+async def get_region_components(db, series_id: str) -> dict[str, tuple[list[str], list[float]]]:
+    """
+    Serve region component nets from MacroCache.
+    On cache miss, fetch from NFIB, populate the cache, and return.
+    """
+    from app.models.macro_cache import MacroCache
+
+    cached: dict[str, tuple[list, list]] = {}
+    for comp_id in _INDICATOR_TO_SERIES.values():
+        key = _industry_comp_key(series_id, comp_id)   # same key scheme: ID__COMP_ID
+        row = db.get(MacroCache, key)
+        if row and row.dates:
+            cached[comp_id] = (row.dates, row.values)
+
+    if len(cached) == len(_INDICATOR_TO_SERIES):
+        return cached
+
+    log.info("NFIB region components cache miss for %s — fetching live", series_id)
+    raw        = await _fetch_region_raw(REGIONS[series_id]["states"])
+    components = _compute_components_from_raw(raw)
+    for comp_id, (dates, values) in components.items():
+        _upsert(db, _industry_comp_key(series_id, comp_id), dates, values)
+    db.commit()
+    return components
+
+
+async def refresh_all_regions(db) -> dict:
+    """
+    Fetch OPT_INDEX and component breakdowns for all 4 Census regions,
+    upsert everything into MacroCache. One API call per region.
+    """
+    summary = {}
+    for series_id, meta in REGIONS.items():
+        try:
+            raw = await _fetch_region_raw(meta["states"])
+
+            dates, values = _compute_index_from_raw(raw)
+            _upsert(db, series_id, dates, values)
+            summary[series_id] = len(dates)
+            log.info("NFIB region %s (%s): %d rows", series_id, meta["label"], len(dates))
+
+            for comp_id, (comp_dates, comp_values) in _compute_components_from_raw(raw).items():
+                _upsert(db, _industry_comp_key(series_id, comp_id), comp_dates, comp_values)
+
+        except Exception as exc:
+            log.warning("NFIB region %s failed: %s", series_id, exc)
 
     db.commit()
     return summary
