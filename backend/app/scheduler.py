@@ -2,8 +2,10 @@
 Background scheduler — runs once on app startup.
 
 Jobs:
-  07:00  Scrape University of Michigan (ICC / ICE / ICS)
-  07:05  Refresh FRED series (UMCSENT, ...)
+  07:00  Scrape University of Michigan (ICS / ICC / ICE)
+  07:05  Refresh FRED series (UMCSENT, PERMIT, HOUST, COMPUTSA)
+  07:10  Refresh NFIB component series
+  07:20  Refresh NFIB OPT_INDEX by industry
 """
 
 import logging
@@ -17,7 +19,7 @@ from app.models.macro_cache import MacroCache
 from app.services.uom_scraper import scrape_and_upsert
 from app.services.fred import FredClient
 from app.services.macro_cache import get_series
-from app.services.nfib import refresh_all_components
+from app.services.nfib import refresh_all_components, refresh_all_industries
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -48,6 +50,17 @@ async def _job_nfib():
         db.close()
 
 
+async def _job_nfib_industries():
+    db = SessionLocal()
+    try:
+        summary = await refresh_all_industries(db)
+        log.info("NFIB industry daily refresh OK: %s", summary)
+    except Exception as exc:
+        log.warning("NFIB industry daily refresh failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _job_fred():
     db = SessionLocal()
     fred = FredClient(api_key=settings.FRED_API_KEY)
@@ -71,5 +84,6 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
     scheduler.add_job(_job_uom,  CronTrigger(hour=7, minute=0),  id="uom_daily")
     scheduler.add_job(_job_fred, CronTrigger(hour=7, minute=5),  id="fred_daily")
-    scheduler.add_job(_job_nfib, CronTrigger(hour=7, minute=10), id="nfib_daily")
+    scheduler.add_job(_job_nfib,            CronTrigger(hour=7, minute=10), id="nfib_daily")
+    scheduler.add_job(_job_nfib_industries, CronTrigger(hour=7, minute=20), id="nfib_industries_daily")
     return scheduler

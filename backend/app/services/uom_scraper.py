@@ -59,7 +59,6 @@ def _parse_month_year(text: str) -> str | None:
 
 async def scrape_and_upsert(db) -> dict:
     """Scrape UoM and upsert into MacroCache. Returns the scrape result dict."""
-    from datetime import datetime, timezone
     from app.models.macro_cache import MacroCache
 
     result = await scrape_latest()
