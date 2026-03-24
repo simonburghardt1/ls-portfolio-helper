@@ -317,12 +317,20 @@ function ComponentsTab() {
 // ── Industries tab ─────────────────────────────────────────────────────────────
 
 function IndustriesTab() {
+  // ── OPT_INDEX by industry ──
   const [series, setSeries]         = useState({});
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
   const [range, setRange]           = useState("10Y");
   const [visible, setVisible]       = useState({});
   const [refreshing, setRefreshing] = useState(false);
+
+  // ── Component breakdown for selected industry ──
+  const [selectedIndustry, setSelectedIndustry] = useState(null);
+  const [compSeries, setCompSeries]             = useState({});
+  const [compVisible, setCompVisible]           = useState({});
+  const [compLoading, setCompLoading]           = useState(false);
+  const [compError, setCompError]               = useState(null);
 
   function load() {
     setLoading(true);
@@ -332,12 +340,30 @@ function IndustriesTab() {
         const s = d.series ?? {};
         setSeries(s);
         setVisible(Object.fromEntries(Object.keys(s).map((k) => [k, true])));
+        // Auto-select first industry so the component chart loads immediately
+        setSelectedIndustry((prev) => prev ?? Object.keys(s)[0] ?? null);
         setLoading(false);
       })
       .catch((e) => { setError(e.message); setLoading(false); });
   }
 
   useEffect(() => { load(); }, []);
+
+  // Fetch component breakdown whenever the selected industry changes
+  useEffect(() => {
+    if (!selectedIndustry) return;
+    setCompLoading(true);
+    setCompError(null);
+    fetch(`${API}/api/nfib/industries/${selectedIndustry}/components`)
+      .then((r) => r.json())
+      .then((d) => {
+        const s = d.series ?? {};
+        setCompSeries(s);
+        setCompVisible(Object.fromEntries(Object.keys(s).map((k) => [k, true])));
+        setCompLoading(false);
+      })
+      .catch((e) => { setCompError(e.message); setCompLoading(false); });
+  }, [selectedIndustry]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -364,12 +390,20 @@ function IndustriesTab() {
       borderColor: s.color, borderWidth: 2, label: s.label,
     }));
 
+  const compDatasets = Object.entries(compSeries)
+    .filter(([id]) => compVisible[id])
+    .map(([, s]) => ({
+      dates: s.dates, data: s.values,
+      borderColor: s.color, borderWidth: 2, label: s.label,
+    }));
+
   const visibleRange = rangeFrom(RANGES.find((r) => r.label === range)?.years);
 
   return (
     <div>
       <RangeRefreshBar range={range} onRange={setRange} onRefresh={handleRefresh} refreshing={refreshing} />
 
+      {/* ── OPT_INDEX comparison chart ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
         {Object.entries(series).map(([id, s]) => (
           <SeriesToggle
@@ -390,7 +424,7 @@ function IndustriesTab() {
       </ChartBox>
 
       {/* Latest value cards */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 32 }}>
         {Object.entries(series).map(([id, s]) => {
           const latest = s.values.at(-1);
           const prev   = s.values.at(-2);
@@ -410,6 +444,49 @@ function IndustriesTab() {
             </div>
           );
         })}
+      </div>
+
+      {/* ── Component breakdown for selected industry ── */}
+      <div style={{ borderTop: "1px solid #1f2937", paddingTop: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>Component Breakdown</span>
+          <select
+            value={selectedIndustry ?? ""}
+            onChange={(e) => setSelectedIndustry(e.target.value)}
+            style={{
+              background: "#0f172a", border: "1px solid #374151", borderRadius: 6,
+              color: "#e5e7eb", fontSize: 12, padding: "4px 10px", cursor: "pointer",
+            }}
+          >
+            {Object.entries(series).map(([id, s]) => (
+              <option key={id} value={id}>{s.label}</option>
+            ))}
+          </select>
+          {compLoading && <span style={{ fontSize: 12, color: "#4b5563" }}>Loading…</span>}
+          {compError   && <span style={{ fontSize: 12, color: "#f87171" }}>{compError}</span>}
+        </div>
+
+        {!compLoading && Object.keys(compSeries).length > 0 && (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {Object.entries(compSeries).map(([id, s]) => (
+                <SeriesToggle
+                  key={id}
+                  label={s.label}
+                  color={s.color}
+                  active={compVisible[id]}
+                  onClick={() => setCompVisible((p) => ({ ...p, [id]: !p[id] }))}
+                />
+              ))}
+            </div>
+            <ChartBox>
+              {compDatasets.length > 0
+                ? <LineChart dates={null} datasets={compDatasets} visibleRange={visibleRange} />
+                : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>Select at least one component</div>
+              }
+            </ChartBox>
+          </>
+        )}
       </div>
     </div>
   );

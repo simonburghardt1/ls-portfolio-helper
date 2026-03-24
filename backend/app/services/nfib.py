@@ -171,12 +171,16 @@ OPT_QUESTIONS = ",".join([
 ])
 
 
-async def _fetch_industry_index(industry_id: str) -> tuple[list[str], list[float]]:
+# Reverse map: NFIB indicator name → COMPONENTS series_id (totals-sourced only)
+_INDICATOR_TO_SERIES: dict[str, str] = {
+    v["indicator"]: k for k, v in COMPONENTS.items() if v["source"] == "totals"
+}
+
+
+async def _fetch_industry_raw(industry_id: str) -> dict[str, dict[str, dict[int, int]]]:
     """
-    Compute OPT_INDEX for a single industry by fetching all 10 sub-components
-    via getTotals2 with industry filter, then applying:
-        OPT_INDEX = (sum_of_10_nets / 10) + 100
-    (unajusted equivalent of the seasonally-adjusted official series)
+    Single API call: fetch all 10 question responses for a given industry via getTotals2.
+    Returns by_month_quest: {monthyear → {question → {acode → count}}}
     """
     params = _base_params()
     params["params[4][name]"] = "questions";  params["params[4][param_type]"] = "IN"; params["params[4][value]"] = OPT_QUESTIONS
@@ -189,7 +193,6 @@ async def _fetch_industry_index(industry_id: str) -> tuple[list[str], list[float
         resp.raise_for_status()
         rows = resp.json()
 
-    # Group by (monthyear, question) → totalcounts per acode
     by_month_quest: dict[str, dict[str, dict[int, int]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for row in rows:
         my   = row.get("monthyear", "")
@@ -199,42 +202,119 @@ async def _fetch_industry_index(industry_id: str) -> tuple[list[str], list[float
         if my and q and code is not None:
             by_month_quest[my][q][int(code)] += int(cnt or 0)
 
+    return by_month_quest
+
+
+def _industry_comp_key(industry_series_id: str, comp_series_id: str) -> str:
+    """MacroCache key for a single industry+component pair, e.g. NFIB_IND_1__NFIB_EMP_EXPECT."""
+    return f"{industry_series_id}__{comp_series_id}"
+
+
+def _compute_index_from_raw(
+    by_month_quest: dict,
+) -> tuple[list[str], list[float]]:
+    """
+    Derive OPT_INDEX from raw microdata:
+        OPT_INDEX = (sum_of_10_nets / 10) + 100
+    Only months where all 10 questions are present are included.
+    """
     dates, values = [], []
     for my, quests in by_month_quest.items():
-        nets = []
-        for q, formula in NET_FORMULA.items():
-            if q in quests:
-                pos_c, neg_c = formula
-                nets.append(_net(quests[q], pos_c, neg_c))
-        if len(nets) == 10:          # only publish months where all 10 questions present
+        nets = [_net(quests[q], *formula) for q, formula in NET_FORMULA.items() if q in quests]
+        if len(nets) == 10:
             try:
                 dates.append(_to_iso(my))
                 values.append(round(sum(nets) / 10 + 100, 3))
             except (ValueError, IndexError):
                 continue
-
     pairs = sorted(zip(dates, values))
     return [p[0] for p in pairs], [p[1] for p in pairs]
 
 
-async def refresh_all_industries(db) -> dict:
-    """Fetch OPT_INDEX for all 8 industries and upsert into MacroCache."""
+def _compute_components_from_raw(
+    by_month_quest: dict,
+) -> dict[str, tuple[list[str], list[float]]]:
+    """Derive individual component net % from raw microdata. Keys are COMPONENTS series IDs."""
+    result: dict[str, tuple[list, list]] = {}
+    for indicator, (pos_c, neg_c) in NET_FORMULA.items():
+        comp_id = _INDICATOR_TO_SERIES.get(indicator)
+        if comp_id is None:
+            continue
+        dates, values = [], []
+        for my, quests in by_month_quest.items():
+            if indicator in quests:
+                try:
+                    dates.append(_to_iso(my))
+                    values.append(_net(quests[indicator], pos_c, neg_c))
+                except (ValueError, IndexError):
+                    continue
+        pairs = sorted(zip(dates, values))
+        result[comp_id] = ([p[0] for p in pairs], [p[1] for p in pairs])
+    return result
+
+
+def _upsert(db, series_id: str, dates: list, values: list) -> None:
+    """Insert or update a MacroCache row."""
+    from app.models.macro_cache import MacroCache
+    row = db.get(MacroCache, series_id)
+    if row is None:
+        row = MacroCache(series_id=series_id, dates=[], values=[],
+                         fetched_at=datetime.now(timezone.utc))
+        db.add(row)
+    row.dates      = dates
+    row.values     = values
+    row.fetched_at = datetime.now(timezone.utc)
+
+
+async def get_industry_components(db, series_id: str) -> dict[str, tuple[list[str], list[float]]]:
+    """
+    Serve industry component nets from MacroCache.
+    On cache miss, fetch from NFIB, populate the cache, and return.
+    """
     from app.models.macro_cache import MacroCache
 
+    # Check whether all 10 component rows exist in cache
+    cached: dict[str, tuple[list, list]] = {}
+    for comp_id in _INDICATOR_TO_SERIES.values():
+        key = _industry_comp_key(series_id, comp_id)
+        row = db.get(MacroCache, key)
+        if row and row.dates:
+            cached[comp_id] = (row.dates, row.values)
+
+    if len(cached) == len(_INDICATOR_TO_SERIES):
+        return cached
+
+    # Cache miss — fetch from NFIB and populate all rows
+    log.info("NFIB industry components cache miss for %s — fetching live", series_id)
+    raw        = await _fetch_industry_raw(INDUSTRIES[series_id]["id"])
+    components = _compute_components_from_raw(raw)
+    for comp_id, (dates, values) in components.items():
+        _upsert(db, _industry_comp_key(series_id, comp_id), dates, values)
+    db.commit()
+    return components
+
+
+async def refresh_all_industries(db) -> dict:
+    """
+    Fetch all 8 industry OPT_INDEX series and their component breakdowns,
+    upsert everything into MacroCache.
+    One API call per industry covers both the index and all 10 components.
+    """
     summary = {}
     for series_id, meta in INDUSTRIES.items():
         try:
-            dates, values = await _fetch_industry_index(meta["id"])
-            row = db.get(MacroCache, series_id)
-            if row is None:
-                row = MacroCache(series_id=series_id, dates=[], values=[],
-                                 fetched_at=datetime.now(timezone.utc))
-                db.add(row)
-            row.dates      = dates
-            row.values     = values
-            row.fetched_at = datetime.now(timezone.utc)
+            raw = await _fetch_industry_raw(meta["id"])
+
+            # OPT_INDEX
+            dates, values = _compute_index_from_raw(raw)
+            _upsert(db, series_id, dates, values)
             summary[series_id] = len(dates)
             log.info("NFIB industry %s (%s): %d rows", series_id, meta["label"], len(dates))
+
+            # Component breakdown (free — derived from the same raw response)
+            for comp_id, (comp_dates, comp_values) in _compute_components_from_raw(raw).items():
+                _upsert(db, _industry_comp_key(series_id, comp_id), comp_dates, comp_values)
+
         except Exception as exc:
             log.warning("NFIB industry %s failed: %s", series_id, exc)
 
