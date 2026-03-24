@@ -12,6 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 import httpx
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 log = logging.getLogger(__name__)
 
@@ -296,16 +297,21 @@ def _compute_components_from_raw(
 
 
 def _upsert(db, series_id: str, dates: list, values: list) -> None:
-    """Insert or update a MacroCache row."""
+    """
+    Atomic upsert into MacroCache using PostgreSQL INSERT ... ON CONFLICT DO UPDATE.
+    Safe to call multiple times with the same series_id within a single transaction.
+    """
     from app.models.macro_cache import MacroCache
-    row = db.get(MacroCache, series_id)
-    if row is None:
-        row = MacroCache(series_id=series_id, dates=[], values=[],
-                         fetched_at=datetime.now(timezone.utc))
-        db.add(row)
-    row.dates      = dates
-    row.values     = values
-    row.fetched_at = datetime.now(timezone.utc)
+    stmt = pg_insert(MacroCache).values(
+        series_id  = series_id,
+        dates      = dates,
+        values     = values,
+        fetched_at = datetime.now(timezone.utc),
+    ).on_conflict_do_update(
+        index_elements=["series_id"],
+        set_={"dates": dates, "values": values, "fetched_at": datetime.now(timezone.utc)},
+    )
+    db.execute(stmt)
 
 
 async def get_industry_components(db, series_id: str) -> dict[str, tuple[list[str], list[float]]]:
