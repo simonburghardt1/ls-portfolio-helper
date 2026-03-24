@@ -17,6 +17,7 @@ from app.models.macro_cache import MacroCache
 from app.services.uom_scraper import scrape_and_upsert
 from app.services.fred import FredClient
 from app.services.macro_cache import get_series
+from app.services.nfib import refresh_all_components
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,17 @@ async def _job_uom():
         log.info("UoM daily scrape OK: period=%s", result["period"])
     except Exception as exc:
         log.warning("UoM daily scrape failed: %s", exc)
+    finally:
+        db.close()
+
+
+async def _job_nfib():
+    db = SessionLocal()
+    try:
+        summary = await refresh_all_components(db)
+        log.info("NFIB daily refresh OK: %s", summary)
+    except Exception as exc:
+        log.warning("NFIB daily refresh failed: %s", exc)
     finally:
         db.close()
 
@@ -57,6 +69,7 @@ async def _job_fred():
 
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(_job_uom,  CronTrigger(hour=7, minute=0), id="uom_daily")
-    scheduler.add_job(_job_fred, CronTrigger(hour=7, minute=5), id="fred_daily")
+    scheduler.add_job(_job_uom,  CronTrigger(hour=7, minute=0),  id="uom_daily")
+    scheduler.add_job(_job_fred, CronTrigger(hour=7, minute=5),  id="fred_daily")
+    scheduler.add_job(_job_nfib, CronTrigger(hour=7, minute=10), id="nfib_daily")
     return scheduler

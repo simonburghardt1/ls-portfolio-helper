@@ -24,7 +24,7 @@ const NAV = [
           { label: "ISM Non-Manufacturing",      href: "/macro/leading/ism-non-manufacturing",  soon: true },
           { label: "Consumer Confidence",        href: "/macro/leading/consumer-confidence" },
           { label: "US Building Permits",        href: "/macro/leading/building-permits" },
-          { label: "NFIB Optimism",              href: "/macro/leading/nfib-optimism",          soon: true },
+          { label: "NFIB Optimism",              href: "/macro/leading/nfib-optimism" },
           { label: "CoT Data",                   href: "/macro/leading/cot-data",               soon: true },
           { label: "Commodity Prices",           href: "/macro/leading/commodities",            soon: true },
           { label: "European Sentiment",         href: "/macro/leading/european-sentiment",     soon: true },
