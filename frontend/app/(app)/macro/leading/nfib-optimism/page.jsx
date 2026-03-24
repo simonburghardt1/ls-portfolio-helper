@@ -5,7 +5,7 @@ import LineChart from "@/app/components/LineChart";
 
 const API = "http://localhost:8000";
 
-const TABS = ["Components", "Regions", "Industries"];
+const TABS = ["Components", "Industries", "Regions"];
 
 const RANGES = [
   { label: "5Y",  years: 5  },
