@@ -6,6 +6,8 @@ from app.services.portfolio import (
     cumulative_series,
     summary_returns,
     benchmark_return_series,
+    beta_adjust,
+    compute_portfolio_analytics,
 )
 
 router = APIRouter()
@@ -75,3 +77,23 @@ async def portfolio_backtest(payload: BacktestRequest):
         raise HTTPException(
             status_code=500, detail=f"portfolio_backtest failed: {repr(e)}"
         )
+
+
+@router.post("/api/portfolio/analytics")
+async def portfolio_analytics(payload: BacktestRequest):
+    try:
+        return compute_portfolio_analytics([p.model_dump() for p in payload.positions])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"portfolio_analytics failed: {repr(e)}")
+
+
+@router.post("/api/portfolio/beta-adjust")
+async def portfolio_beta_adjust(payload: BacktestRequest):
+    try:
+        result = beta_adjust([p.model_dump() for p in payload.positions])
+        # Also compute correlation on the adjusted positions
+        analytics = compute_portfolio_analytics(result["positions"])
+        result["correlation"] = analytics["correlation"]
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"beta_adjust failed: {repr(e)}")

@@ -48,16 +48,11 @@ const NAV = [
     section: "Portfolio Management",
     groups: [
       {
-        label: null,
+        label: "Portfolio",
+        href: "/portfolio",   // clicking the group header navigates here
         items: [
-          { label: "Ideas",   href: "/portfolio/ideas",   soon: true },
-          { label: "Heatmap", href: "/portfolio/heatmap" },
-        ],
-      },
-      {
-        label: "Risk",
-        items: [
-          { label: "Backtesting",              href: "/portfolio" },
+          { label: "Backtesting",              href: "/portfolio/backtesting" },
+          { label: "Heatmap",                  href: "/portfolio/heatmap" },
           { label: "Volatility & Correlation", href: "/portfolio/risk/volatility", soon: true },
           { label: "Beta",                     href: "/portfolio/risk/beta",       soon: true },
         ],
@@ -142,8 +137,27 @@ export default function Sidebar() {
                   return (
                     <div key={groupKey} style={{ marginBottom: 2 }}>
 
-                      {/* Group header (collapsible) */}
-                      {group.label && (
+                      {/* Group header (collapsible) — optionally a link if group.href is set */}
+                      {group.label && (group.href ? (
+                        <div style={{ display: "flex", alignItems: "center" }}>
+                          <Link href={group.href} style={{ textDecoration: "none", flex: 1 }}>
+                            <div style={{ ...groupHeaderStyle, color: pathname === group.href ? "#e5e7eb" : undefined }}>
+                              {isOpen
+                                ? <ChevronDown size={13} style={{ flexShrink: 0, color: "#6b7280" }} />
+                                : <ChevronRight size={13} style={{ flexShrink: 0, color: "#6b7280" }} />
+                              }
+                              <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
+                            </div>
+                          </Link>
+                          <button
+                            onClick={() => toggleGroup(groupKey)}
+                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "#4b5563" }}
+                            title={isOpen ? "Collapse" : "Expand"}
+                          >
+                            {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                          </button>
+                        </div>
+                      ) : (
                         <button
                           onClick={() => toggleGroup(groupKey)}
                           style={groupHeaderStyle}
@@ -154,7 +168,7 @@ export default function Sidebar() {
                           }
                           <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
                         </button>
-                      )}
+                      ))}
 
                       {/* Items */}
                       {(group.label == null || isOpen) && (

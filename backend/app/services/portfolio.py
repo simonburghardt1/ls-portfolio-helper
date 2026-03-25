@@ -88,6 +88,136 @@ def fetch_heatmap_data(tickers: list[str], include_sector: bool = False) -> list
     return results
 
 
+def _compute_beta(asset_returns: pd.Series, benchmark_returns: pd.Series) -> float:
+    """OLS beta of an asset vs a benchmark: Cov(asset, benchmark) / Var(benchmark)."""
+    aligned = pd.concat([asset_returns, benchmark_returns], axis=1).dropna()
+    if len(aligned) < 10:
+        return 1.0  # not enough data — fall back to market beta
+    cov_matrix = aligned.cov()
+    var_benchmark = cov_matrix.iloc[1, 1]
+    return float(cov_matrix.iloc[0, 1] / var_benchmark) if var_benchmark else 1.0
+
+
+def compute_portfolio_analytics(positions: list[dict]) -> dict:
+    """
+    Compute portfolio-level analytics vs SPY over 1 year:
+      - per-ticker betas
+      - portfolio beta  = Σ signed_weight_i × β_i
+      - portfolio correlation = Corr(portfolio_returns, SPY_returns)
+
+    Called on portfolio load so the KPIs are populated without running
+    a full backtest.
+    """
+    tickers = list({p["ticker"].upper() for p in positions})
+    prices = download_prices(tickers + ["SPY"], period="1y")
+    returns = prices.pct_change().dropna()
+    spy_returns = returns["SPY"]
+
+    betas: dict[str, float] = {
+        t: _compute_beta(returns[t], spy_returns)
+        for t in tickers
+        if t in returns.columns
+    }
+
+    # Portfolio beta: signed weighted sum
+    portfolio_beta = sum(
+        p["weight"] * betas.get(p["ticker"].upper(), 1.0) * (1 if p["side"] == "long" else -1)
+        for p in positions
+    )
+
+    # Portfolio return series: weighted sum of signed position returns
+    port_returns = pd.Series(0.0, index=returns.index)
+    for p in positions:
+        t = p["ticker"].upper()
+        if t in returns.columns:
+            sign = 1.0 if p["side"] == "long" else -1.0
+            port_returns = port_returns + returns[t] * p["weight"] * sign
+
+    # Correlation of portfolio vs SPY
+    aligned = pd.concat([port_returns, spy_returns], axis=1).dropna()
+    correlation: float | None = None
+    if len(aligned) > 10:
+        corr_matrix = aligned.corr()
+        correlation = float(corr_matrix.iloc[0, 1])
+
+    return {
+        "betas":           {t: round(b, 4) for t, b in betas.items()},
+        "portfolio_beta":  round(portfolio_beta, 4),
+        "correlation":     round(correlation, 4) if correlation is not None else None,
+    }
+
+
+def beta_adjust(positions: list[dict]) -> dict:
+    """
+    Rescale position weights so that portfolio beta vs SPY approaches 0.
+
+    Two-step algorithm:
+      Step 1 — inverse-beta weighting within each side:
+        For each side (long/short), rescale individual weights by 1/β so that
+        high-beta positions receive lower weights. Side totals are preserved.
+        e.g. SOFI (β=2.2) ends up with less weight than DKNG (β=1.05).
+
+      Step 2 — side-level scale to cancel beta:
+        After within-side rebalancing, compute each side's total beta exposure
+        and solve for scale factors k_L, k_S such that the net portfolio beta = 0
+        while total gross exposure is unchanged.
+    """
+    tickers = list({p["ticker"].upper() for p in positions})
+    prices = download_prices(tickers + ["SPY"], period="1y")
+    returns = prices.pct_change().dropna()
+    spy_returns = returns["SPY"]
+
+    betas: dict[str, float] = {
+        t: _compute_beta(returns[t], spy_returns)
+        for t in tickers
+        if t in returns.columns
+    }
+
+    # Step 1: within each side, redistribute weight ∝ 1/β (preserving side total)
+    positions_adj = [dict(p) for p in positions]
+    for side in ("long", "short"):
+        idx = [i for i, p in enumerate(positions_adj) if p["side"] == side]
+        if not idx:
+            continue
+        side_total = sum(positions_adj[i]["weight"] for i in idx)
+        # Clamp beta to 0.1 to avoid extreme weights on very-low-beta tickers
+        inv_betas = {i: 1.0 / max(betas.get(positions_adj[i]["ticker"].upper(), 1.0), 0.1) for i in idx}
+        inv_total = sum(inv_betas.values())
+        for i in idx:
+            positions_adj[i]["weight"] = inv_betas[i] / inv_total * side_total
+
+    # Step 2: scale the long/short sides to cancel portfolio beta
+    long_beta_exp  = sum(p["weight"] * betas.get(p["ticker"].upper(), 1.0) for p in positions_adj if p["side"] == "long")
+    short_beta_exp = sum(p["weight"] * betas.get(p["ticker"].upper(), 1.0) for p in positions_adj if p["side"] == "short")
+
+    if long_beta_exp <= 0 or short_beta_exp <= 0:
+        portfolio_beta = round(long_beta_exp - short_beta_exp, 4)
+        return {"positions": positions_adj, "betas": betas, "portfolio_beta": portfolio_beta}
+
+    gross       = sum(p["weight"] for p in positions)
+    long_gross  = sum(p["weight"] for p in positions_adj if p["side"] == "long")
+    short_gross = sum(p["weight"] for p in positions_adj if p["side"] == "short")
+
+    ratio = short_beta_exp / long_beta_exp   # = k_L / k_S
+    k_s   = gross / (ratio * long_gross + short_gross)
+    k_l   = ratio * k_s
+
+    adjusted = [
+        {**p, "weight": round(p["weight"] * (k_l if p["side"] == "long" else k_s), 6)}
+        for p in positions_adj
+    ]
+
+    new_long_beta  = sum(p["weight"] * betas.get(p["ticker"].upper(), 1.0) for p in adjusted if p["side"] == "long")
+    new_short_beta = sum(p["weight"] * betas.get(p["ticker"].upper(), 1.0) for p in adjusted if p["side"] == "short")
+    portfolio_beta = round(new_long_beta - new_short_beta, 6)
+
+    return {
+        "positions":      adjusted,
+        "betas":          {t: round(b, 4) for t, b in betas.items()},
+        "portfolio_beta": portfolio_beta,
+    }
+
+
 def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:
     data = yf.download(
         tickers=tickers,
