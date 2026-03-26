@@ -21,6 +21,7 @@ from app.services.uom_scraper import scrape_and_upsert
 from app.services.fred import FredClient
 from app.services.macro_cache import get_series
 from app.services.nfib import refresh_all_components, refresh_all_industries, refresh_all_regions
+from app.services.market_regime import update_market_data
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
@@ -92,6 +93,17 @@ async def _job_fred():
         db.close()
 
 
+async def _job_market_regime():
+    db = SessionLocal()
+    try:
+        update_market_data(db)
+        log.info("Market regime daily update OK.")
+    except Exception as exc:
+        log.warning("Market regime daily update failed: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
     scheduler.add_job(_job_uom,  CronTrigger(hour=7, minute=0),  id="uom_daily")
@@ -99,4 +111,5 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(_job_nfib,            CronTrigger(hour=7, minute=10), id="nfib_daily")
     scheduler.add_job(_job_nfib_industries, CronTrigger(hour=7, minute=20), id="nfib_industries_daily")
     scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
+    scheduler.add_job(_job_market_regime,   CronTrigger(hour=18, minute=0), id="market_regime_daily")
     return scheduler

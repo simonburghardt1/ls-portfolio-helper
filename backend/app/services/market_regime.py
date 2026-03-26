@@ -1,64 +1,75 @@
+import datetime
+import logging
+
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from sqlalchemy import select, delete
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-# Composite regime thresholds
+from app.models.market_data import MarketPrice, MarketRegimeRow
+
+log = logging.getLogger(__name__)
+
+# ─── Constants ────────────────────────────────────────────────────────────────
+
 THRESHOLD_UP   =  0.25
 THRESHOLD_DOWN = -0.25
-
-# Component weights (must sum to 1.0)
-WEIGHTS = {"bmsb": 0.35, "breadth": 0.30, "vix": 0.20, "credit": 0.15}
-
-# BMSB breach threshold
+WEIGHTS        = {"bmsb": 0.35, "breadth": 0.30, "vix": 0.20, "credit": 0.15}
 BAND_BREACH_PCT = 0.01
+LOOKBACK_WEEKS  = 65   # > 52 (VIX rolling window) + buffer
 
+TICKER_STARTS = {
+    "SPY":  "1998-01-01",
+    "^VIX": "1998-01-01",
+    "RSP":  "2003-11-01",
+    "LQD":  "2002-08-01",
+    "HYG":  "2007-04-01",
+}
 
-def _score_bmsb(price: float, ema21: float, sma20: float) -> float:
+# ─── Score helpers ─────────────────────────────────────────────────────────────
+
+def _score_bmsb(price, ema21, sma20):
     band_upper = max(ema21, sma20)
     band_lower = min(ema21, sma20)
     if price > band_upper and ema21 > sma20:
         return 1.0
-    elif price < band_lower * (1 - BAND_BREACH_PCT):
+    if price < band_lower * (1 - BAND_BREACH_PCT):
         return -1.0
     return 0.0
 
 
-def _score_breadth(ratio: float, ratio_ma: float) -> float:
+def _score_breadth(ratio, ratio_ma):
     if pd.isna(ratio) or pd.isna(ratio_ma) or ratio_ma == 0:
         return None
-    deviation = (ratio / ratio_ma) - 1
-    return float(np.clip(deviation * 20, -1.0, 1.0))
+    return float(np.clip((ratio / ratio_ma - 1) * 20, -1.0, 1.0))
 
 
-def _score_vix(vix: float, vix_min: float, vix_max: float) -> float:
+def _score_vix(vix, vix_min, vix_max):
     if pd.isna(vix) or pd.isna(vix_min) or pd.isna(vix_max) or vix_max == vix_min:
         return None
-    normalized = (vix - vix_min) / (vix_max - vix_min)
-    return float(1.0 - 2.0 * np.clip(normalized, 0, 1))
+    return float(1.0 - 2.0 * np.clip((vix - vix_min) / (vix_max - vix_min), 0, 1))
 
 
-def _score_credit(ratio: float, ratio_ma: float) -> float:
+def _score_credit(ratio, ratio_ma):
     if pd.isna(ratio) or pd.isna(ratio_ma) or ratio_ma == 0:
         return None
-    deviation = (ratio / ratio_ma) - 1
-    return float(np.clip(deviation * 20, -1.0, 1.0))
+    return float(np.clip((ratio / ratio_ma - 1) * 20, -1.0, 1.0))
 
 
-def _composite(scores: dict) -> float | None:
-    total_w = 0.0
-    total_s = 0.0
+def _composite(scores):
+    total_w = total_s = 0.0
     for key, w in WEIGHTS.items():
         s = scores.get(key)
         if s is not None:
             total_s += w * s
             total_w += w
-    if total_w == 0:
-        return None
-    return total_s / total_w
+    return total_s / total_w if total_w else None
 
 
-def _regime_from_score(score: float | None) -> str | None:
-    if score is None:
+def _regime_from_score(score):
+    if score is None or (isinstance(score, float) and pd.isna(score)):
         return None
     if score > THRESHOLD_UP:
         return "up"
@@ -67,18 +78,12 @@ def _regime_from_score(score: float | None) -> str | None:
     return "ranging"
 
 
-# Inception dates — downloading before these causes yfinance to fail
-TICKER_STARTS = {
-    "SPY":  "1998-01-01",
-    "^VIX": "1998-01-01",
-    "RSP":  "2003-11-01",   # RSP IPO: 2003-04-30
-    "LQD":  "2002-08-01",   # LQD IPO: 2002-07-26
-    "HYG":  "2007-04-01",   # HYG IPO: 2007-04-11
-}
+def _fmt(val):
+    return round(float(val), 4) if val is not None and not pd.isna(val) else None
 
+# ─── yfinance download ─────────────────────────────────────────────────────────
 
 def _dl(ticker: str, start: str) -> pd.Series:
-    """Download weekly closes for a single ticker; return empty Series on failure."""
     try:
         raw = yf.download(ticker, start=start, interval="1wk",
                           auto_adjust=True, progress=False)
@@ -90,91 +95,261 @@ def _dl(ticker: str, start: str) -> pd.Series:
                     return raw[key].rename(ticker)
             return pd.Series(dtype=float, name=ticker)
         return raw["Close"].squeeze().rename(ticker)
-    except Exception:
+    except Exception as e:
+        log.warning("_dl(%s) failed: %s", ticker, e)
         return pd.Series(dtype=float, name=ticker)
 
 
-def compute_market_regime(start: str = "1998-01-01") -> dict:
-    spy = _dl("SPY",  start)
-    spy = spy.dropna()
-
+def _download_all(spy_start: str) -> dict[str, pd.Series]:
+    spy = _dl("SPY", spy_start).dropna()
     tol = pd.Timedelta("4d")
-
     def align(s):
         return s.reindex(spy.index, method="nearest", tolerance=tol)
+    return {
+        "spy": spy,
+        "rsp": align(_dl("RSP",  TICKER_STARTS["RSP"])),
+        "vix": align(_dl("^VIX", spy_start)),
+        "hyg": align(_dl("HYG",  TICKER_STARTS["HYG"])),
+        "lqd": align(_dl("LQD",  TICKER_STARTS["LQD"])),
+    }
 
-    rsp = align(_dl("RSP",  TICKER_STARTS["RSP"]))
-    vix = align(_dl("^VIX", start))
-    hyg = align(_dl("HYG",  TICKER_STARTS["HYG"]))
-    lqd = align(_dl("LQD",  TICKER_STARTS["LQD"]))
+# ─── Core computation ──────────────────────────────────────────────────────────
 
-    # BMSB indicators
-    ema21 = spy.ewm(span=21, adjust=False).mean()
-    sma20 = spy.rolling(20).mean()
+def _compute(series: dict) -> pd.DataFrame:
+    """
+    Given a dict of aligned pd.Series (spy, rsp, vix, hyg, lqd),
+    return a DataFrame with one row per date containing all score columns.
+    """
+    spy = series["spy"]
+    rsp = series["rsp"]
+    vix = series["vix"]
+    hyg = series["hyg"]
+    lqd = series["lqd"]
 
-    # Breadth: RSP/SPY ratio and its 10W SMA
-    rsp_spy = (rsp / spy).where(spy > 0)
+    ema21      = spy.ewm(span=21, adjust=False).mean()
+    sma20      = spy.rolling(20).mean()
+    rsp_spy    = (rsp / spy).where(spy > 0)
     rsp_spy_ma = rsp_spy.rolling(10).mean()
-
-    # VIX: rolling 52-week (52 weeks) min/max
-    vix_min = vix.rolling(52).min()
-    vix_max = vix.rolling(52).max()
-
-    # Credit: HYG/LQD ratio and its 10W SMA
-    hyg_lqd = (hyg / lqd).where(lqd > 0)
+    vix_min    = vix.rolling(52).min()
+    vix_max    = vix.rolling(52).max()
+    hyg_lqd    = (hyg / lqd).where(lqd > 0)
     hyg_lqd_ma = hyg_lqd.rolling(10).mean()
 
-    n = len(spy)
-    scores_bmsb    = []
-    scores_breadth = []
-    scores_vix     = []
-    scores_credit  = []
-    composites_raw = []
-
-    for i in range(n):
-        e21 = ema21.iloc[i]
-        s20 = sma20.iloc[i]
-        p   = spy.iloc[i]
-
-        # BMSB
-        sb = None if pd.isna(e21) or pd.isna(s20) else _score_bmsb(p, e21, s20)
-
-        # Breadth
+    rows = []
+    for i in range(len(spy)):
+        e21, s20, p = ema21.iloc[i], sma20.iloc[i], spy.iloc[i]
+        sb  = None if pd.isna(e21) or pd.isna(s20) else _score_bmsb(p, e21, s20)
         sb2 = _score_breadth(rsp_spy.iloc[i], rsp_spy_ma.iloc[i])
+        sv  = _score_vix(vix.iloc[i], vix_min.iloc[i], vix_max.iloc[i])
+        sc  = _score_credit(hyg_lqd.iloc[i], hyg_lqd_ma.iloc[i])
+        rows.append({
+            "spy_price":     _fmt(p),
+            "ema21":         _fmt(e21),
+            "sma20":         _fmt(s20),
+            "score_bmsb":    sb,
+            "score_breadth": sb2,
+            "score_vix":     sv,
+            "score_credit":  sc,
+            "composite_raw": _composite({"bmsb": sb, "breadth": sb2, "vix": sv, "credit": sc}),
+        })
 
-        # VIX
-        sv = _score_vix(vix.iloc[i], vix_min.iloc[i], vix_max.iloc[i])
+    df = pd.DataFrame(rows, index=spy.index)
+    comp_smooth = pd.Series(df["composite_raw"].values, index=spy.index, dtype=float)\
+                    .ewm(span=2, adjust=False).mean()
+    df["composite"] = comp_smooth.values
+    df["regime"]    = [_regime_from_score(v) for v in comp_smooth]
+    return df
 
-        # Credit
-        sc = _score_credit(hyg_lqd.iloc[i], hyg_lqd_ma.iloc[i])
+# ─── DB helpers ───────────────────────────────────────────────────────────────
 
-        scores_bmsb.append(sb)
-        scores_breadth.append(sb2)
-        scores_vix.append(sv)
-        scores_credit.append(sc)
-        composites_raw.append(_composite({"bmsb": sb, "breadth": sb2, "vix": sv, "credit": sc}))
+def _upsert_prices(db: Session, series: dict):
+    """Bulk-upsert raw price data into market_prices."""
+    spy = series["spy"]
+    ticker_map = {
+        "SPY":  series["spy"],
+        "RSP":  series["rsp"],
+        "^VIX": series["vix"],
+        "HYG":  series["hyg"],
+        "LQD":  series["lqd"],
+    }
+    rows = []
+    for ticker, s in ticker_map.items():
+        for date, val in s.items():
+            close = None if pd.isna(val) else round(float(val), 4)
+            rows.append({"date": date.date(), "ticker": ticker, "close": close})
+    if rows:
+        stmt = pg_insert(MarketPrice).values(rows)\
+                 .on_conflict_do_update(
+                     index_elements=["date", "ticker"],
+                     set_={"close": pg_insert(MarketPrice).excluded.close}
+                 )
+        db.execute(stmt)
+        db.commit()
 
-    # 2-week EMA smoothing on composite
-    comp_series = pd.Series(composites_raw, index=spy.index, dtype=float)
-    comp_smooth = comp_series.ewm(span=2, adjust=False).mean()
 
-    regimes = [_regime_from_score(v) for v in comp_smooth]
+def _upsert_regime(db: Session, df: pd.DataFrame):
+    """Bulk-upsert computed regime rows."""
+    rows = []
+    for date, row in df.iterrows():
+        rows.append({
+            "date":          date.date(),
+            "spy_price":     _fmt(row["spy_price"]),
+            "ema21":         _fmt(row["ema21"]),
+            "sma20":         _fmt(row["sma20"]),
+            "regime":        row["regime"],
+            "composite":     _fmt(row["composite"]),
+            "score_bmsb":    _fmt(row["score_bmsb"]),
+            "score_breadth": _fmt(row["score_breadth"]),
+            "score_vix":     _fmt(row["score_vix"]),
+            "score_credit":  _fmt(row["score_credit"]),
+        })
+    if rows:
+        stmt = pg_insert(MarketRegimeRow).values(rows)\
+                 .on_conflict_do_update(
+                     index_elements=["date"],
+                     set_={c: pg_insert(MarketRegimeRow).excluded[c]
+                           for c in ("spy_price","ema21","sma20","regime","composite",
+                                     "score_bmsb","score_breadth","score_vix","score_credit")}
+                 )
+        db.execute(stmt)
+        db.commit()
 
-    def fmt(val):
-        return round(float(val), 4) if not pd.isna(val) else None
+# ─── Public API ───────────────────────────────────────────────────────────────
 
-    dates = [d.strftime("%Y-%m-%d") for d in spy.index]
+def seed_market_data(db: Session):
+    """Full historical download + compute + save. Called once when tables are empty."""
+    log.info("Seeding market regime data from 1998…")
+    series = _download_all("1998-01-01")
+    _upsert_prices(db, series)
+    df = _compute(series)
+    _upsert_regime(db, df)
+    log.info("Seed complete: %d weeks saved.", len(df))
+
+
+def update_market_data(db: Session):
+    """Incremental daily refresh — only downloads and saves new weeks."""
+    last = db.execute(
+        select(MarketRegimeRow.date).order_by(MarketRegimeRow.date.desc()).limit(1)
+    ).scalar()
+
+    if last is None:
+        seed_market_data(db)
+        return
+
+    # Load context window from DB (prices only — no re-download needed for old data)
+    context_start = last - datetime.timedelta(weeks=LOOKBACK_WEEKS)
+    price_rows = db.execute(
+        select(MarketPrice)
+        .where(MarketPrice.date >= context_start)
+        .order_by(MarketPrice.date)
+    ).scalars().all()
+
+    if not price_rows:
+        seed_market_data(db)
+        return
+
+    # Pivot DB prices into per-ticker Series
+    ticker_data: dict[str, dict] = {}
+    for row in price_rows:
+        ticker_data.setdefault(row.ticker, {})[row.date] = row.close
+
+    def to_series(ticker):
+        d = ticker_data.get(ticker, {})
+        return pd.Series(d, dtype=float).rename(ticker)\
+                 .pipe(lambda s: s.set_axis(pd.to_datetime(list(s.index))))
+
+    db_series = {
+        "spy": to_series("SPY"),
+        "rsp": to_series("RSP"),
+        "vix": to_series("^VIX"),
+        "hyg": to_series("HYG"),
+        "lqd": to_series("LQD"),
+    }
+
+    # Download only new data (from last stored date onwards)
+    new_start = (last + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    new_series = _download_all(new_start)
+
+    if new_series["spy"].empty:
+        log.info("Market regime: no new data since %s.", last)
+        return
+
+    # Filter new_series to dates strictly after last
+    last_ts = pd.Timestamp(last)
+    def new_only(s):
+        return s[s.index > last_ts]
+
+    # Combine context + new for computation
+    tickers_map = [("spy","SPY"), ("rsp","RSP"), ("vix","^VIX"), ("hyg","HYG"), ("lqd","LQD")]
+    combined = {}
+    for key, ticker in tickers_map:
+        combined[key] = pd.concat([db_series[key], new_only(new_series[key])]).sort_index()
+
+    # Upsert new raw prices
+    new_price_series = {k: new_only(new_series[k]) for k in ["spy","rsp","vix","hyg","lqd"]}
+    _upsert_prices(db, {
+        "spy": new_price_series["spy"],
+        "rsp": new_price_series["rsp"],
+        "vix": new_price_series["vix"],
+        "hyg": new_price_series["hyg"],
+        "lqd": new_price_series["lqd"],
+    })
+
+    # Recompute scores for the full window, save only new rows
+    df = _compute(combined)
+    new_rows = df[df.index > last_ts]
+    if new_rows.empty:
+        log.info("Market regime: no new completed weeks yet.")
+        return
+
+    _upsert_regime(db, new_rows)
+    log.info("Market regime updated: %d new week(s) saved (latest: %s).",
+             len(new_rows), new_rows.index[-1].date())
+
+
+def get_regime_from_db(db: Session) -> dict:
+    """Read all regime rows from DB and return the standard response dict."""
+    rows = db.execute(
+        select(MarketRegimeRow).order_by(MarketRegimeRow.date)
+    ).scalars().all()
+
+    if not rows:
+        return {"dates": [], "prices": [], "ema21": [], "sma20": [],
+                "regimes": [], "composite": [],
+                "scores": {"bmsb": [], "breadth": [], "vix": [], "credit": []}}
+
     return {
-        "dates":     dates,
-        "prices":    [fmt(v) for v in spy],
-        "ema21":     [fmt(v) for v in ema21],
-        "sma20":     [fmt(v) for v in sma20],
-        "regimes":   regimes,
-        "composite": [fmt(v) for v in comp_smooth],
+        "dates":     [r.date.strftime("%Y-%m-%d") for r in rows],
+        "prices":    [r.spy_price  for r in rows],
+        "ema21":     [r.ema21      for r in rows],
+        "sma20":     [r.sma20      for r in rows],
+        "regimes":   [r.regime     for r in rows],
+        "composite": [r.composite  for r in rows],
         "scores": {
-            "bmsb":    [fmt(v) if v is not None else None for v in scores_bmsb],
-            "breadth": [fmt(v) if v is not None else None for v in scores_breadth],
-            "vix":     [fmt(v) if v is not None else None for v in scores_vix],
-            "credit":  [fmt(v) if v is not None else None for v in scores_credit],
+            "bmsb":    [r.score_bmsb    for r in rows],
+            "breadth": [r.score_breadth for r in rows],
+            "vix":     [r.score_vix     for r in rows],
+            "credit":  [r.score_credit  for r in rows],
+        },
+    }
+
+
+def compute_market_regime(start: str = "1998-01-01") -> dict:
+    """Legacy live-compute path (no DB). Still used as fallback."""
+    series = _download_all(start)
+    df = _compute(series)
+    spy = series["spy"]
+    return {
+        "dates":     [d.strftime("%Y-%m-%d") for d in df.index],
+        "prices":    [_fmt(v) for v in spy],
+        "ema21":     [_fmt(v) for v in df["ema21"]],
+        "sma20":     [_fmt(v) for v in df["sma20"]],
+        "regimes":   list(df["regime"]),
+        "composite": [_fmt(v) for v in df["composite"]],
+        "scores": {
+            "bmsb":    [_fmt(v) for v in df["score_bmsb"]],
+            "breadth": [_fmt(v) for v in df["score_breadth"]],
+            "vix":     [_fmt(v) for v in df["score_vix"]],
+            "credit":  [_fmt(v) for v in df["score_credit"]],
         },
     }
