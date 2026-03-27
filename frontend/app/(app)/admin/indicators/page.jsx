@@ -41,6 +41,16 @@ const INDICATORS = [
     // status is a flat object (not keyed by series)
     statusSeries: null,
   },
+  {
+    key:         "cot",
+    label:       "COT Data",
+    description: "CFTC Commitments of Traders — 21 contracts via Socrata REST API (Disaggregated + TFF reports). Weekly cadence, updated each Friday.",
+    statusUrl:   `${API}/api/cot/status`,
+    refreshUrl:  `${API}/api/cot/refresh`,
+    // status returns {contract_key: {label, asset_class, latest_date}} — use cot-specific renderer
+    statusSeries: null,
+    isCot:       true,
+  },
 ];
 
 export default function IndicatorsAdminPage() {
@@ -107,13 +117,40 @@ export default function IndicatorsAdminPage() {
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#f9fafb", marginBottom: 4 }}>{ind.label}</div>
                     <div style={{ fontSize: 12, color: "#4b5563", maxWidth: 600 }}>{ind.description}</div>
                   </div>
-                  <button onClick={() => fetchIndicator(ind)} disabled={loading} style={loading ? btnDisabled : btnFetch}>
-                    {loading ? "Fetching…" : "↓ Fetch Data"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {ind.isCot && (
+                      <button
+                        onClick={() => fetchIndicator({ ...ind, refreshUrl: `${API}/api/cot/seed` })}
+                        disabled={loading}
+                        style={loading ? btnDisabled : { ...btnFetch, background: "#1a1a2e", borderColor: "#312e81", color: "#a78bfa" }}
+                      >
+                        {loading ? "Seeding…" : "↓ Seed All"}
+                      </button>
+                    )}
+                    <button onClick={() => fetchIndicator(ind)} disabled={loading} style={loading ? btnDisabled : btnFetch}>
+                      {loading ? "Fetching…" : "↓ Fetch Data"}
+                    </button>
+                  </div>
                 </div>
 
+                {/* COT status — compact contract grid */}
+                {ind.isCot && status ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
+                    {Object.entries(status).map(([key, info]) => (
+                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "#0a1628", borderRadius: 6 }}>
+                        <span style={{ fontSize: 12, color: "#6b7280" }}>{info.label}</span>
+                        <span style={{ fontSize: 12, color: info.latest_date ? "#9ca3af" : "#374151", fontVariantNumeric: "tabular-nums" }}>
+                          {info.latest_date ?? "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : ind.isCot ? (
+                  <div style={{ fontSize: 12, color: "#374151" }}>No data yet — run Seed to fetch full history.</div>
+                ) : null}
+
                 {/* Per-series status rows */}
-                {ind.statusSeries ? (
+                {!ind.isCot && ind.statusSeries ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {ind.statusSeries.map(s => {
                       const row = status?.[s.key];
@@ -136,7 +173,7 @@ export default function IndicatorsAdminPage() {
                       );
                     })}
                   </div>
-                ) : (
+                ) : !ind.isCot ? (
                   // Flat status (NFIB)
                   <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                     <StatusItem label="Data Points" value={status?.count      ?? "—"} />
@@ -148,7 +185,7 @@ export default function IndicatorsAdminPage() {
                       valueColor={status?.fetched_at ? "#6b7280" : "#f59e0b"}
                     />
                   </div>
-                )}
+                ) : null}
 
                 {/* Result after fetch */}
                 {result && (
