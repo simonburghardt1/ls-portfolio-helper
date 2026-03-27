@@ -28,6 +28,20 @@ router = APIRouter(prefix="/api/nfib", tags=["nfib"])
 log = logging.getLogger(__name__)
 
 
+@router.get("/status")
+def get_status(db: Session = Depends(get_db)):
+    """Return cache status for the main NFIB Optimism Index without triggering a fetch."""
+    row = db.get(MacroCache, "NFIB_OPT_INDEX")
+    if row and row.dates:
+        return {
+            "count":        len(row.dates),
+            "latest_date":  row.dates[-1],
+            "latest_value": row.values[-1],
+            "fetched_at":   row.fetched_at.isoformat(),
+        }
+    return {"count": 0}
+
+
 @router.get("/components")
 def get_components(db: Session = Depends(get_db)):
     """Return all NFIB component series from cache."""

@@ -1,5 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db
+from app.services.market_regime import get_regime_from_db
 from app.services.portfolio import (
     download_prices,
     build_portfolio_return_series,
@@ -8,6 +12,9 @@ from app.services.portfolio import (
     benchmark_return_series,
     beta_adjust,
     compute_portfolio_analytics,
+    _compute_beta,
+    _build_daily_regime_series,
+    _compute_regime_scaled_returns,
 )
 
 router = APIRouter()
@@ -19,12 +26,20 @@ class Position(BaseModel):
     side: str
 
 
+class RegimeTargets(BaseModel):
+    up:      float = 0.5
+    down:    float = -0.5
+    ranging: float = 0.0
+
+
 class BacktestRequest(BaseModel):
-    positions: list[Position]
+    positions:      list[Position]
+    regime_adjust:  bool          = False
+    regime_targets: RegimeTargets = RegimeTargets()
 
 
 @router.post("/api/portfolio/backtest")
-async def portfolio_backtest(payload: BacktestRequest):
+async def portfolio_backtest(payload: BacktestRequest, db: Session = Depends(get_db)):
     try:
         positions = [p.model_dump() for p in payload.positions]
 
@@ -63,7 +78,7 @@ async def portfolio_backtest(payload: BacktestRequest):
                 }
             )
 
-        return {
+        response = {
             "summary": summary_returns(combined["portfolio"]),
             "benchmark_summary": summary_returns(combined["spy"]),
             "series": {
@@ -73,6 +88,26 @@ async def portfolio_backtest(payload: BacktestRequest):
             },
             "daily": daily_rows,
         }
+
+        if payload.regime_adjust:
+            returns_2y = prices.pct_change().dropna()
+            betas = {
+                t: _compute_beta(returns_2y[t], returns_2y["SPY"])
+                for t in portfolio_tickers
+                if t in returns_2y.columns
+            }
+            regime_data   = get_regime_from_db(db)
+            daily_regime  = _build_daily_regime_series(regime_data, combined.index)
+            targets       = payload.regime_targets.model_dump()
+            regime_returns = _compute_regime_scaled_returns(
+                prices[portfolio_tickers], positions, betas, daily_regime, targets
+            )
+            regime_cum = cumulative_series(regime_returns.reindex(combined.index))
+            response["series"]["regime_adjusted"] = regime_cum.round(6).tolist()
+            response["summary_regime"] = summary_returns(regime_cum)
+
+        return response
+
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"portfolio_backtest failed: {repr(e)}"

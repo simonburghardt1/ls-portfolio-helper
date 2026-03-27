@@ -289,3 +289,88 @@ def benchmark_return_series(prices: pd.DataFrame, ticker: str = "SPY") -> pd.Ser
 
     benchmark_returns = prices[ticker].pct_change().dropna()
     return benchmark_returns
+
+
+# ─── Regime-Adjust helpers ────────────────────────────────────────────────────
+
+def _build_daily_regime_series(regime_data: dict, daily_index: pd.DatetimeIndex) -> pd.Series:
+    """Forward-fill weekly regime labels onto a daily trading day index."""
+    if not regime_data.get("dates"):
+        return pd.Series("ranging", index=daily_index)
+    weekly = pd.Series(
+        regime_data["regimes"],
+        index=pd.to_datetime(regime_data["dates"]),
+        dtype=object,
+    ).fillna("ranging")
+    return weekly.reindex(daily_index, method="ffill").fillna("ranging")
+
+
+def _compute_regime_scale_factors(
+    positions: list[dict],
+    betas: dict[str, float],
+    targets: dict[str, float],
+) -> dict[str, tuple[float, float]]:
+    """
+    For each regime, solve for (k_L, k_S) that hits the target net beta
+    while preserving total gross exposure.
+
+    System:
+      B_L * k_L - B_S * k_S = target   (net beta)
+      G_L * k_L + G_S * k_S = G_L+G_S  (gross exposure)
+    """
+    longs  = [p for p in positions if p["side"] == "long"]
+    shorts = [p for p in positions if p["side"] == "short"]
+
+    G_L = sum(p["weight"] for p in longs)
+    G_S = sum(p["weight"] for p in shorts)
+    B_L = sum(p["weight"] * betas.get(p["ticker"].upper(), 1.0) for p in longs)
+    B_S = sum(p["weight"] * betas.get(p["ticker"].upper(), 1.0) for p in shorts)
+
+    result: dict[str, tuple[float, float]] = {}
+    for regime, target in targets.items():
+        denom = B_L * G_S + B_S * G_L
+        if G_L == 0 or G_S == 0 or abs(denom) < 1e-9:
+            result[regime] = (1.0, 1.0)
+            continue
+        gross = G_L + G_S
+        k_L = (target * G_S + gross * B_S) / denom
+        k_S = (gross * B_L - target * G_L) / denom
+        result[regime] = (
+            max(0.1, min(3.0, k_L)),
+            max(0.1, min(3.0, k_S)),
+        )
+    return result
+
+
+def _compute_regime_scaled_returns(
+    prices: pd.DataFrame,
+    positions: list[dict],
+    betas: dict[str, float],
+    regime_series: pd.Series,
+    targets: dict[str, float],
+) -> pd.Series:
+    """
+    Compute daily portfolio returns with dynamic long/short scaling
+    based on the current market regime.
+    """
+    scale_factors = _compute_regime_scale_factors(positions, betas, targets)
+    daily_returns = prices.pct_change().dropna()
+    result = pd.Series(0.0, index=daily_returns.index)
+    aligned_regime = regime_series.reindex(daily_returns.index, fill_value="ranging")
+
+    for regime in ("up", "down", "ranging"):
+        if regime not in scale_factors:
+            continue
+        k_L, k_S = scale_factors[regime]
+        mask = aligned_regime == regime
+        if not mask.any():
+            continue
+        for pos in positions:
+            ticker = pos["ticker"].upper()
+            if ticker not in daily_returns.columns:
+                continue
+            sign = 1.0 if pos["side"] == "long" else -1.0
+            k    = k_L  if pos["side"] == "long" else k_S
+            result[mask] += daily_returns.loc[mask, ticker] * pos["weight"] * sign * k
+
+    return result

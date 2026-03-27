@@ -72,6 +72,7 @@ const NAV = [
         items: [
           { label: "Data Import",        href: "/admin/data-import" },
           { label: "ISM URL Import",     href: "/admin/ism" },
+          { label: "Indicator Refresh",  href: "/admin/indicators" },
         ],
       },
     ],

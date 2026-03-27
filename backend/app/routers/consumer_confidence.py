@@ -141,6 +141,60 @@ async def scrape_uom(db: Session = Depends(get_db)):
     return {"scraped": updated, "period": result["period"], "prev_period": result["prev_period"]}
 
 
+@router.post("/refresh")
+async def refresh_all(db: Session = Depends(get_db)):
+    """
+    Full refresh for all Consumer Confidence series:
+      1. Force re-fetch UMCSENT history from FRED (clears cache).
+      2. Scrape UoM website for the latest month's final values and merge them
+         into the FRED history (covers months where FRED lags behind UoM releases).
+      3. Update ICC and ICE from the same UoM scrape.
+    """
+    # Step 1: clear and re-fetch UMCSENT from FRED
+    row = db.get(MacroCache, "UMCSENT")
+    if row:
+        db.delete(row)
+        db.commit()
+    fred_error = None
+    try:
+        await get_series(db, fred, "UMCSENT")
+    except Exception as exc:
+        fred_error = str(exc)
+        log.warning("FRED fetch failed for UMCSENT: %s", exc)
+
+    # Step 2 & 3: scrape UoM for the latest values and merge into all three series
+    scrape_result = None
+    scrape_error  = None
+    try:
+        scrape_result = await scrape_and_upsert(db)
+    except Exception as exc:
+        scrape_error = str(exc)
+        log.warning("UoM scrape failed: %s", exc)
+
+    # Build response
+    result = {}
+    for series_id, meta in SERIES_META.items():
+        row2 = db.get(MacroCache, series_id)
+        if row2 and row2.dates:
+            result[series_id] = {
+                "label":        meta["label"],
+                "count":        len(row2.dates),
+                "latest_date":  row2.dates[-1],
+                "latest_value": row2.values[-1],
+            }
+        else:
+            result[series_id] = {"label": meta["label"], "count": 0}
+
+    response = {"refreshed": result}
+    if fred_error:
+        response["fred_warning"]   = fred_error
+    if scrape_error:
+        response["scrape_warning"] = scrape_error
+    if scrape_result:
+        response["scrape_period"]  = scrape_result.get("period")
+    return response
+
+
 @router.get("/status")
 def get_status(db: Session = Depends(get_db)):
     out = {}

@@ -33,6 +33,11 @@ export default function BacktestingPage() {
   const [portfolioCorr,     setPortfolioCorr]     = useState(null);
   const [betaStatus,        setBetaStatus]        = useState("idle");   // idle | loading | done | error
 
+  // Regime-adjust state
+  const [regimeAdjust,      setRegimeAdjust]      = useState(false);
+  const [regimeTargets,     setRegimeTargets]     = useState({ up: 0.5, ranging: 0.0, down: -0.5 });
+  const [compareStatus,     setCompareStatus]     = useState("idle");  // idle | loading | done | error
+
   // Load portfolio state
   const [savedPortfolios,   setSavedPortfolios]   = useState([]);
   const [selectedPortfolio, setSelectedPortfolio] = useState("");
@@ -185,6 +190,7 @@ export default function BacktestingPage() {
     setErrors(errs);
     if (errs.length) { setStatus("idle"); return; }
     setStatus("running");
+    setCompareStatus("idle");
     try {
       const res = await fetch(`${API}/api/portfolio/backtest`, {
         method: "POST",
@@ -199,19 +205,59 @@ export default function BacktestingPage() {
     }
   }
 
+  async function compareRegimeAdjusted() {
+    const errs = validate(positions);
+    if (errs.length) { setErrors(errs); return; }
+    setCompareStatus("loading");
+    try {
+      const res = await fetch(`${API}/api/portfolio/backtest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          positions:      cleanPositions(positions),
+          regime_adjust:  true,
+          regime_targets: { up: Number(regimeTargets.up), ranging: Number(regimeTargets.ranging), down: Number(regimeTargets.down) },
+        }),
+      });
+      if (!res.ok) throw new Error(`Server ${res.status}`);
+      const json = await res.json();
+      // Merge regime_adjusted overlay into the existing result without replacing the static series
+      setResult(prev => ({
+        ...prev,
+        series:        { ...prev.series, regime_adjusted: json.series.regime_adjusted },
+        summary_regime: json.summary_regime,
+      }));
+      setCompareStatus("done");
+    } catch (e) {
+      console.error(e);
+      setCompareStatus("error");
+    }
+  }
+
+  function clearRegimeComparison() {
+    setResult(prev => {
+      if (!prev) return prev;
+      const { regime_adjusted: _, ...series } = prev.series;
+      return { ...prev, series, summary_regime: undefined };
+    });
+    setCompareStatus("idle");
+  }
+
   // ── Chart / table helpers ──────────────────────────────────────────────────
 
   function getFilteredChartData(result, timeframe) {
     if (!result?.series) return null;
-    const { dates, portfolio, benchmark } = result.series;
+    const { dates, portfolio, benchmark, regime_adjusted } = result.series;
     const days = timeframe === "3M" ? 63 : timeframe === "6M" ? 126 : 252;
     const start = Math.max(0, dates.length - days);
     const d = dates.slice(start), p = portfolio.slice(start), b = benchmark.slice(start);
+    const ra = regime_adjusted ? regime_adjusted.slice(start) : null;
     if (!p.length || !b.length) return null;
     return {
       dates: d,
-      portfolio: p.map(v => ((1 + v) / (1 + p[0]) - 1) * 100),
-      benchmark: b.map(v => ((1 + v) / (1 + b[0]) - 1) * 100),
+      portfolio:       p.map(v => ((1 + v) / (1 + p[0]) - 1) * 100),
+      benchmark:       b.map(v => ((1 + v) / (1 + b[0]) - 1) * 100),
+      regime_adjusted: ra ? ra.map(v => ((1 + v) / (1 + ra[0]) - 1) * 100) : null,
     };
   }
 
@@ -468,6 +514,54 @@ export default function BacktestingPage() {
           )}
         </div>
 
+        {/* Regime-Adjust panel */}
+        <div style={{ background: "#080e1a", border: `1px solid ${regimeAdjust ? "rgba(167,139,250,0.3)" : "#1f2937"}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <button onClick={() => { setRegimeAdjust(v => !v); clearRegimeComparison(); }} style={regimeAdjust ? btnRegimeActive : btnRegime}>
+              ◈ Regime-Adjust
+            </button>
+            {regimeAdjust && (
+              <>
+                <span style={{ fontSize: 11, color: "#6b7280" }}>Target β:</span>
+                {[
+                  { key: "up",      label: "Up",      color: "#86efac" },
+                  { key: "ranging", label: "Ranging", color: "#f59e0b" },
+                  { key: "down",    label: "Down",    color: "#fca5a5" },
+                ].map(({ key, label, color }) => (
+                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+                    <span style={{ color, fontWeight: 600 }}>{label}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="-1"
+                      max="1"
+                      value={regimeTargets[key]}
+                      onChange={e => { setRegimeTargets(prev => ({ ...prev, [key]: e.target.value })); clearRegimeComparison(); }}
+                      style={{ ...cellInput, border: "1px solid #1f2937", width: 58, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                    />
+                  </label>
+                ))}
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                  {compareStatus === "done" && (
+                    <button onClick={clearRegimeComparison} title="Remove overlay" style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#fca5a5"}
+                      onMouseLeave={e => e.currentTarget.style.color = "#6b7280"}
+                    >×</button>
+                  )}
+                  <button
+                    onClick={compareRegimeAdjusted}
+                    disabled={status !== "done" || compareStatus === "loading"}
+                    style={status !== "done" || compareStatus === "loading" ? btnDisabled : btnRegimeActive}
+                  >
+                    {compareStatus === "loading" ? "Comparing…" : compareStatus === "done" ? "↻ Recompare" : "Compare Regime-Adjusted"}
+                  </button>
+                  {compareStatus === "error" && <span style={{ fontSize: 11, color: "#fca5a5" }}>Failed</span>}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         {/* Validation errors */}
         {errors.length > 0 && (
           <div style={{ background: "#1c0a0a", border: "1px solid #7f1d1d", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#fca5a5" }}>
@@ -484,11 +578,18 @@ export default function BacktestingPage() {
                 <ReturnCard key={p} label={`${p} Return`} value={result.summary[p]} />
               ))}
             </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: result.summary_regime ? 12 : 24 }}>
               {["3M", "6M", "12M"].map(p => (
                 <ReturnCard key={`b-${p}`} label={`${p} S&P 500`} value={result.benchmark_summary[p]} color="#f59e0b" />
               ))}
             </div>
+            {result.summary_regime && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+                {["3M", "6M", "12M"].map(p => (
+                  <ReturnCard key={`ra-${p}`} label={`${p} Regime-Adj`} value={result.summary_regime[p]} color="#a78bfa" />
+                ))}
+              </div>
+            )}
 
             {/* Cumulative chart */}
             <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: 20, marginBottom: 16 }}>
@@ -504,8 +605,11 @@ export default function BacktestingPage() {
               </div>
               {chartData && (
                 <LineChart dates={chartData.dates} datasets={[
-                  { label: "Portfolio",      data: chartData.portfolio, borderColor: "#60a5fa", backgroundColor: "rgba(96,165,250,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
-                  { label: "S&P 500 (SPY)",  data: chartData.benchmark, borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
+                  { label: "Portfolio",      data: chartData.portfolio,       borderColor: "#60a5fa", backgroundColor: "rgba(96,165,250,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
+                  { label: "S&P 500 (SPY)",  data: chartData.benchmark,       borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
+                  ...(chartData.regime_adjusted ? [
+                    { label: "Regime-Adjusted", data: chartData.regime_adjusted, borderColor: "#a78bfa", backgroundColor: "rgba(167,139,250,0.1)", borderWidth: 2, pointRadius: 0, tension: 0.25 },
+                  ] : []),
                 ]} />
               )}
             </div>
@@ -637,7 +741,9 @@ const btnBase = {
   cursor: "pointer",
   transition: "opacity 0.15s",
 };
-const btnPrimary   = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
-const btnSecondary = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#6b7280" };
-const btnBeta      = { ...btnBase, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#f59e0b" };
-const btnDisabled  = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#374151", cursor: "default" };
+const btnPrimary     = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
+const btnSecondary   = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#6b7280" };
+const btnBeta        = { ...btnBase, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#f59e0b" };
+const btnDisabled    = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#374151", cursor: "default" };
+const btnRegime      = { ...btnBase, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", color: "#8b7ec8" };
+const btnRegimeActive = { ...btnBase, background: "rgba(167,139,250,0.18)", border: "1px solid #a78bfa", color: "#a78bfa" };
