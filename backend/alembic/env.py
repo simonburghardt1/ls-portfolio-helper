@@ -10,6 +10,7 @@ import app.models.ism          # noqa: F401
 import app.models.portfolio    # noqa: F401
 import app.models.market_data  # noqa: F401
 import app.models.cot_data     # noqa: F401
+import app.models.track_record  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

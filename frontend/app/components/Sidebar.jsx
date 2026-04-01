@@ -62,7 +62,7 @@ const NAV = [
   },
   {
     section: "Trading Track Record",
-    soon: true,
+    groups: [{ label: null, items: [{ label: "Track Record", href: "/portfolio/track-record" }] }],
   },
   {
     section: "Admin",
