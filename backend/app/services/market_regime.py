@@ -18,7 +18,17 @@ THRESHOLD_UP   =  0.25
 THRESHOLD_DOWN = -0.25
 WEIGHTS        = {"bmsb": 0.35, "breadth": 0.30, "vix": 0.20, "credit": 0.15}
 BAND_BREACH_PCT = 0.01
-LOOKBACK_WEEKS  = 65   # > 52 (VIX rolling window) + buffer
+
+# Daily-bar equivalents of weekly periods (1 week ≈ 5 trading days):
+#   21W EMA → span=105   |  20W SMA → 100  |  52W VIX → 260  |  10W MA → 50
+#   Composite smoother: 2W EMA → span=10
+EMA_SPAN    = 105   # 21-week EMA on daily bars
+SMA_PERIOD  = 100   # 20-week SMA on daily bars
+VIX_WINDOW  = 260   # 52-week rolling VIX normalisation
+RATIO_MA    = 50    # 10-week MA for breadth & credit ratios
+SMOOTH_SPAN = 10    # 2-week EMA smoother on composite
+
+LOOKBACK_DAYS = 455  # 65 weeks in calendar days (context window for incremental updates)
 
 TICKER_STARTS = {
     "SPY":  "1998-01-01",
@@ -85,7 +95,7 @@ def _fmt(val):
 
 def _dl(ticker: str, start: str) -> pd.Series:
     try:
-        raw = yf.download(ticker, start=start, interval="1wk",
+        raw = yf.download(ticker, start=start, interval="1d",
                           auto_adjust=True, progress=False)
         if raw.empty:
             return pd.Series(dtype=float, name=ticker)
@@ -126,14 +136,14 @@ def _compute(series: dict) -> pd.DataFrame:
     hyg = series["hyg"]
     lqd = series["lqd"]
 
-    ema21      = spy.ewm(span=21, adjust=False).mean()
-    sma20      = spy.rolling(20).mean()
+    ema21      = spy.ewm(span=EMA_SPAN, adjust=False).mean()
+    sma20      = spy.rolling(SMA_PERIOD).mean()
     rsp_spy    = (rsp / spy).where(spy > 0)
-    rsp_spy_ma = rsp_spy.rolling(10).mean()
-    vix_min    = vix.rolling(52).min()
-    vix_max    = vix.rolling(52).max()
+    rsp_spy_ma = rsp_spy.rolling(RATIO_MA).mean()
+    vix_min    = vix.rolling(VIX_WINDOW).min()
+    vix_max    = vix.rolling(VIX_WINDOW).max()
     hyg_lqd    = (hyg / lqd).where(lqd > 0)
-    hyg_lqd_ma = hyg_lqd.rolling(10).mean()
+    hyg_lqd_ma = hyg_lqd.rolling(RATIO_MA).mean()
 
     rows = []
     for i in range(len(spy)):
@@ -155,7 +165,7 @@ def _compute(series: dict) -> pd.DataFrame:
 
     df = pd.DataFrame(rows, index=spy.index)
     comp_smooth = pd.Series(df["composite_raw"].values, index=spy.index, dtype=float)\
-                    .ewm(span=2, adjust=False).mean()
+                    .ewm(span=SMOOTH_SPAN, adjust=False).mean()
     df["composite"] = comp_smooth.values
     df["regime"]    = [_regime_from_score(v) for v in comp_smooth]
     return df
@@ -217,8 +227,12 @@ def _upsert_regime(db: Session, df: pd.DataFrame):
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 def seed_market_data(db: Session):
-    """Full historical download + compute + save. Called once when tables are empty."""
-    log.info("Seeding market regime data from 1998…")
+    """Full historical download + compute + save. Clears existing rows first (schema: daily bars)."""
+    log.info("Seeding market regime data from 1998 (daily bars)…")
+    from sqlalchemy import delete as sa_delete
+    db.execute(sa_delete(MarketRegimeRow))
+    db.execute(sa_delete(MarketPrice))
+    db.commit()
     series = _download_all("1998-01-01")
     _upsert_prices(db, series)
     df = _compute(series)
@@ -237,7 +251,7 @@ def update_market_data(db: Session):
         return
 
     # Load context window from DB (prices only — no re-download needed for old data)
-    context_start = last - datetime.timedelta(weeks=LOOKBACK_WEEKS)
+    context_start = last - datetime.timedelta(days=LOOKBACK_DAYS)
     price_rows = db.execute(
         select(MarketPrice)
         .where(MarketPrice.date >= context_start)

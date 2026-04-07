@@ -6,6 +6,7 @@ from app.services.cot import (
     CONTRACTS,
     ASSET_CLASS_LABELS,
     get_cot_overview,
+    get_cot_price,
     get_cot_series,
     get_cot_status,
     seed_cot_data,
@@ -38,6 +39,14 @@ def cot_series(contract_key: str, db: Session = Depends(get_db)):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Unknown contract: {contract_key}")
     return get_cot_series(db, contract_key)
+
+
+@router.get("/api/cot/price/{contract_key}")
+async def cot_price(contract_key: str):
+    if contract_key not in CONTRACTS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Unknown contract: {contract_key}")
+    return await get_cot_price(contract_key)
 
 
 @router.get("/api/cot/status")

@@ -7,6 +7,7 @@ Jobs:
   07:10  Refresh NFIB component series
   07:20  Refresh NFIB OPT_INDEX + components by industry
   07:30  Refresh NFIB OPT_INDEX + components by Census region
+  22:00  Market Regime daily update (after US market close 16:00 ET = 20:00 UTC + buffer)
 """
 
 import logging
@@ -111,5 +112,5 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(_job_nfib,            CronTrigger(hour=7, minute=10), id="nfib_daily")
     scheduler.add_job(_job_nfib_industries, CronTrigger(hour=7, minute=20), id="nfib_industries_daily")
     scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
-    scheduler.add_job(_job_market_regime,   CronTrigger(hour=18, minute=0), id="market_regime_daily")
+    scheduler.add_job(_job_market_regime,   CronTrigger(hour=22, minute=0), id="market_regime_daily")
     return scheduler

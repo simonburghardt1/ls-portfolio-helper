@@ -58,6 +58,11 @@ class EquityIn(BaseModel):
     portfolio_value: float = 0.0
 
 
+class CapitalIn(BaseModel):
+    date:   str
+    amount: float
+
+
 # ─── Helper ───────────────────────────────────────────────────────────────────
 
 def _pos_to_dict(pos: LivePosition, current_price: float | None) -> dict:
@@ -218,9 +223,22 @@ def update_trade(trade_id: int, payload: TradeIn, db: Session = Depends(get_db))
     trade = db.get(RealizedTrade, trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
-    pnl_dollar, pnl_pct = compute_trade_pnl(
-        payload.side, payload.shares, payload.avg_entry_price, payload.avg_exit_price
+
+    # Only recompute PnL if prices actually changed — preserves IBKR fee-inclusive values
+    prices_changed = (
+        abs((payload.avg_entry_price or 0) - (trade.avg_entry_price or 0)) > 1e-6 or
+        abs((payload.avg_exit_price  or 0) - (trade.avg_exit_price  or 0)) > 1e-6 or
+        abs((payload.shares          or 0) - (trade.shares          or 0)) > 1e-6 or
+        payload.side != trade.side
     )
+    if prices_changed:
+        pnl_dollar, pnl_pct = compute_trade_pnl(
+            payload.side, payload.shares, payload.avg_entry_price, payload.avg_exit_price
+        )
+    else:
+        pnl_dollar = trade.pnl_dollar
+        pnl_pct    = trade.pnl_pct
+
     trade.ticker          = payload.ticker.upper()
     trade.company_name    = payload.company_name
     trade.side            = payload.side
@@ -328,26 +346,107 @@ def list_equity(db: Session = Depends(get_db)):
 
 @router.get("/equity/stats")
 def equity_stats(db: Session = Depends(get_db)):
-    entries = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
+    """Compute % return stats from weekly PnL normalized by cumulative capital."""
+    from collections import defaultdict
+
     trades  = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
-    rows    = _build_equity_rows(entries, trades)
-    values  = [r["perf_index"] for r in rows]
+    entries = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
+
+    weekly_pnl: dict[datetime.date, float] = defaultdict(float)
+    for t in trades:
+        monday = t.exit_date - datetime.timedelta(days=t.exit_date.weekday())
+        weekly_pnl[monday] += t.pnl_dollar
+
+    weekly_cap: dict[datetime.date, float] = defaultdict(float)
+    for e in entries:
+        monday = e.date - datetime.timedelta(days=e.date.weekday())
+        weekly_cap[monday] += (e.deposit or 0.0) - (e.withdrawal or 0.0)
+
+    all_dates = set(weekly_pnl.keys()) | set(weekly_cap.keys())
+    if not all_dates:
+        return compute_equity_stats([])
+
+    today       = datetime.date.today()
+    current_mon = today - datetime.timedelta(days=today.weekday())
+    first_mon   = min(all_dates)
+
+    all_weeks: list[datetime.date] = []
+    w = first_mon
+    while w <= current_mon:
+        all_weeks.append(w)
+        w += datetime.timedelta(weeks=1)
+
+    cum_pnl = 0.0
+    cum_cap = 0.0
+    # Build (capital + cum_pnl) series — i.e. account value = capital deployed + PnL earned
+    values = []
+    for week in all_weeks:
+        cum_cap += weekly_cap.get(week, 0.0)
+        cum_pnl += weekly_pnl.get(week, 0.0)
+        # Account value = capital + running PnL
+        account_value = cum_cap + cum_pnl
+        values.append(account_value)
+
     return compute_equity_stats(values)
+
+
+@router.post("/equity/deposit")
+def add_deposit(payload: CapitalIn, db: Session = Depends(get_db)):
+    d = datetime.date.fromisoformat(payload.date)
+    entry = db.query(EquityEntry).filter(EquityEntry.date == d).first()
+    if entry:
+        entry.deposit = (entry.deposit or 0.0) + payload.amount
+    else:
+        entry = EquityEntry(
+            date=d, deposit=payload.amount, withdrawal=0.0,
+            unrealized_pnl=0.0, fees=0.0, portfolio_value=0.0,
+            created_at=datetime.datetime.now(timezone.utc),
+        )
+        db.add(entry)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/equity/withdraw")
+def add_withdrawal(payload: CapitalIn, db: Session = Depends(get_db)):
+    d = datetime.date.fromisoformat(payload.date)
+    entry = db.query(EquityEntry).filter(EquityEntry.date == d).first()
+    if entry:
+        entry.withdrawal = (entry.withdrawal or 0.0) + payload.amount
+    else:
+        entry = EquityEntry(
+            date=d, withdrawal=payload.amount, deposit=0.0,
+            unrealized_pnl=0.0, fees=0.0, portfolio_value=0.0,
+            created_at=datetime.datetime.now(timezone.utc),
+        )
+        db.add(entry)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/equity/performance")
 async def equity_performance(db: Session = Depends(get_db)):
-    """Weekly cumulative PnL auto-computed from realized trades + current unrealized from live positions."""
+    """Weekly cumulative PnL from realized trades + current unrealized, with no gaps."""
     trades    = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
     positions = db.query(LivePosition).all()
+    entries   = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
+
+    from collections import defaultdict
 
     # Group realized PnL by ISO week (Monday)
-    from collections import defaultdict
-    weekly: dict[datetime.date, float] = defaultdict(float)
+    weekly_pnl: dict[datetime.date, float] = defaultdict(float)
     for t in trades:
-        d = t.exit_date
-        monday = d - datetime.timedelta(days=d.weekday())
-        weekly[monday] += t.pnl_dollar
+        monday = t.exit_date - datetime.timedelta(days=t.exit_date.weekday())
+        weekly_pnl[monday] += t.pnl_dollar
+
+    # Group capital movements (deposits - withdrawals) by week
+    weekly_cap: dict[datetime.date, float] = defaultdict(float)
+    for e in entries:
+        monday = e.date - datetime.timedelta(days=e.date.weekday())
+        weekly_cap[monday] += (e.deposit or 0.0) - (e.withdrawal or 0.0)
+
+    if not weekly_pnl and not weekly_cap and not positions:
+        return []
 
     # Current unrealized PnL from live positions
     unrealized = 0.0
@@ -360,26 +459,39 @@ async def equity_performance(db: Session = Depends(get_db)):
                 sign = 1.0 if pos.side == "long" else -1.0
                 unrealized += (price - pos.avg_price_in) * pos.shares * sign
 
-    cum = 0.0
-    result = []
-    for date in sorted(weekly.keys()):
-        cum += weekly[date]
-        result.append({
-            "date":       date.isoformat(),
-            "weekly_pnl": round(weekly[date], 2),
-            "cum_pnl":    round(cum, 2),
-        })
+    today       = datetime.date.today()
+    current_mon = today - datetime.timedelta(days=today.weekday())
+    all_dates   = set(weekly_pnl.keys()) | set(weekly_cap.keys())
+    first_mon   = min(all_dates) if all_dates else current_mon
 
-    # Append current week's unrealized as latest point
-    if unrealized != 0:
-        today   = datetime.date.today()
-        monday  = today - datetime.timedelta(days=today.weekday())
-        mon_str = monday.isoformat()
-        total   = round(cum + unrealized, 2)
-        if result and result[-1]["date"] == mon_str:
-            result[-1] = {"date": mon_str, "weekly_pnl": result[-1]["weekly_pnl"], "cum_pnl": total}
-        else:
-            result.append({"date": mon_str, "weekly_pnl": 0.0, "cum_pnl": total})
+    # Generate every Monday in range
+    all_weeks: list[datetime.date] = []
+    w = first_mon
+    while w <= current_mon:
+        all_weeks.append(w)
+        w += datetime.timedelta(weeks=1)
+
+    cum_pnl = 0.0
+    cum_cap = 0.0
+    result  = []
+    for week in all_weeks:
+        cap_delta    = weekly_cap.get(week, 0.0)
+        extra        = unrealized if week == current_mon else 0.0
+        weekly_total = weekly_pnl.get(week, 0.0) + extra
+        cum_pnl     += weekly_total
+        cum_cap     += cap_delta
+        weekly_realized   = weekly_pnl.get(week, 0.0)
+        weekly_unrealized = extra
+        result.append({
+            "date":               week.isoformat(),
+            "weekly_pnl":         round(weekly_total, 2),
+            "weekly_realized":    round(weekly_realized, 2),
+            "weekly_unrealized":  round(weekly_unrealized, 2),
+            "cum_pnl":            round(cum_pnl, 2),
+            "cap_delta":          round(cap_delta, 2),
+            "capital":            round(cum_cap, 2),
+            "account_value":      round(cum_cap + cum_pnl, 2),
+        })
 
     return result
 
@@ -449,3 +561,135 @@ def delete_equity(entry_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Equity entry not found")
     db.delete(entry)
     db.commit()
+
+
+# ─── IBKR CSV Import ───────────────────────────────────────────────────────────
+
+from app.services.ibkr_parser import parse_ibkr_csv  # noqa: E402
+
+
+class IbkrImportIn(BaseModel):
+    csv_text: str
+
+
+@router.delete("/clear-all", status_code=200)
+def clear_all(db: Session = Depends(get_db)):
+    """Delete all realized trades, live positions, and equity entries."""
+    trades    = db.query(RealizedTrade).delete()
+    positions = db.query(LivePosition).delete()
+    entries   = db.query(EquityEntry).delete()
+    db.commit()
+    return {"deleted_trades": trades, "deleted_positions": positions, "deleted_equity_entries": entries}
+
+
+@router.post("/ibkr/preview")
+def ibkr_preview(payload: IbkrImportIn):
+    """Parse IBKR CSV and return a preview without writing to DB."""
+    return parse_ibkr_csv(payload.csv_text)
+
+
+@router.post("/ibkr/confirm")
+def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
+    """Parse IBKR CSV and save trades / positions / equity entry to DB."""
+    parsed = parse_ibkr_csv(payload.csv_text)
+
+    if "error" in parsed:
+        raise HTTPException(status_code=400, detail=parsed["error"])
+
+    trades_imported    = 0
+    trades_skipped     = 0
+    positions_imported = 0
+    equity_created     = False
+
+    # ── Realized trades ─────────────────────────────────────────────────────
+    for t in parsed.get("trades", []):
+        entry_d = datetime.date.fromisoformat(t["entry_date"])
+        exit_d  = datetime.date.fromisoformat(t["exit_date"])
+        shares  = t["shares"]
+
+        dup = db.query(RealizedTrade).filter(
+            RealizedTrade.ticker     == t["ticker"].upper(),
+            RealizedTrade.entry_date == entry_d,
+            RealizedTrade.exit_date  == exit_d,
+            RealizedTrade.shares     == shares,
+        ).first()
+        if dup:
+            trades_skipped += 1
+            continue
+
+        # pnl_dollar and pnl_pct already computed by ibkr_parser via _compute_pnl
+        # (price-based, no fees, trade currency — consistent with compute_trade_pnl)
+        pnl_dollar = round(t["pnl_dollar"], 2)
+        pnl_pct    = round(t.get("pnl_pct", 0.0), 2)
+
+        trade = RealizedTrade(
+            ticker          = t["ticker"].upper(),
+            company_name    = None,
+            side            = t["side"],
+            shares          = shares,
+            avg_entry_price = t["avg_entry_price"],
+            avg_exit_price  = t["avg_exit_price"],
+            entry_date      = entry_d,
+            exit_date       = exit_d,
+            pnl_dollar      = pnl_dollar,
+            pnl_pct         = pnl_pct,
+            win_score       = 1 if pnl_dollar >= 0 else -1,
+            comment         = t.get("comment"),
+            created_at      = datetime.datetime.now(timezone.utc),
+        )
+        db.add(trade)
+        trades_imported += 1
+
+    # ── Open positions ───────────────────────────────────────────────────────
+    for p in parsed.get("open_positions", []):
+        entry_d = datetime.date.fromisoformat(p["entry_date"])
+        dup = db.query(LivePosition).filter(
+            LivePosition.ticker     == p["ticker"].upper(),
+            LivePosition.entry_date == entry_d,
+            LivePosition.side       == p["side"],
+        ).first()
+        if dup:
+            continue
+
+        pos = LivePosition(
+            ticker       = p["ticker"].upper(),
+            entry_date   = entry_d,
+            side         = p["side"],
+            shares       = p["shares"],
+            avg_price_in = p["avg_price_in"],
+            created_at   = datetime.datetime.now(timezone.utc),
+            updated_at   = datetime.datetime.now(timezone.utc),
+        )
+        db.add(pos)
+        positions_imported += 1
+
+    # ── Equity entry ─────────────────────────────────────────────────────────
+    eq = parsed.get("equity_entry")
+    if eq:
+        eq_date = datetime.date.fromisoformat(eq["date"])
+        existing = db.query(EquityEntry).filter(EquityEntry.date == eq_date).first()
+        if existing:
+            existing.portfolio_value = eq["portfolio_value"]
+            existing.fees            = eq["fees"]
+            existing.unrealized_pnl  = eq["unrealized_pnl"]
+        else:
+            db.add(EquityEntry(
+                date           = eq_date,
+                portfolio_value= eq["portfolio_value"],
+                fees           = eq["fees"],
+                unrealized_pnl = eq["unrealized_pnl"],
+                deposit        = 0.0,
+                withdrawal     = 0.0,
+                created_at     = datetime.datetime.now(timezone.utc),
+            ))
+        equity_created = True
+
+    db.commit()
+
+    return {
+        "trades_imported":    trades_imported,
+        "trades_skipped":     trades_skipped,
+        "positions_imported": positions_imported,
+        "equity_entry_saved": equity_created,
+        "parse_warnings":     parsed.get("parse_warnings", []),
+    }

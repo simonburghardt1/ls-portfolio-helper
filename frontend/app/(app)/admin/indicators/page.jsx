@@ -42,6 +42,18 @@ const INDICATORS = [
     statusSeries: null,
   },
   {
+    key:         "market-regime",
+    label:       "Market Regime",
+    description: "Daily regime model: BMSB (35%), Market Breadth (30%), VIX (20%), Credit Spreads (15%). "
+               + "Uses SPY, RSP, ^VIX, HYG, LQD from yfinance (daily bars). "
+               + "Auto-refreshes daily at 22:00 UTC (after US market close). "
+               + "Use 'Seed' to do a full re-download from 1998 (needed after switching weekly→daily).",
+    statusUrl:   `${API}/api/market/regime/status`,
+    refreshUrl:  `${API}/api/market/regime/refresh`,
+    statusSeries: null,
+    isRegime:    true,
+  },
+  {
     key:         "cot",
     label:       "COT Data",
     description: "CFTC Commitments of Traders — 21 contracts via Socrata REST API (Disaggregated + TFF reports). Weekly cadence, updated each Friday.",
@@ -127,11 +139,38 @@ export default function IndicatorsAdminPage() {
                         {loading ? "Seeding…" : "↓ Seed All"}
                       </button>
                     )}
+                    {ind.isRegime && (
+                      <button
+                        onClick={() => fetchIndicator({ ...ind, refreshUrl: `${API}/api/market/regime/seed` })}
+                        disabled={loading}
+                        style={loading ? btnDisabled : { ...btnFetch, background: "#1a1a2e", borderColor: "#312e81", color: "#a78bfa" }}
+                      >
+                        {loading ? "Seeding…" : "↓ Full Reseed"}
+                      </button>
+                    )}
                     <button onClick={() => fetchIndicator(ind)} disabled={loading} style={loading ? btnDisabled : btnFetch}>
                       {loading ? "Fetching…" : "↓ Fetch Data"}
                     </button>
                   </div>
                 </div>
+
+                {/* Market Regime status */}
+                {ind.isRegime && (
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {[
+                      { label: "Rows",     value: status?.count         ?? "—" },
+                      { label: "From",     value: status?.earliest_date ?? "—" },
+                      { label: "Latest",   value: status?.latest_date   ?? "—" },
+                      { label: "Interval", value: status?.interval      ?? "—" },
+                    ].map(({ label, value }) => (
+                      <div key={label} style={{ padding: "6px 12px", background: "#0a1628", borderRadius: 6 }}>
+                        <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                        <div style={{ fontSize: 13, color: "#9ca3af", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{value}</div>
+                      </div>
+                    ))}
+                    {!status && <div style={{ fontSize: 12, color: "#374151" }}>No data yet — run Full Reseed.</div>}
+                  </div>
+                )}
 
                 {/* COT status — compact contract grid */}
                 {ind.isCot && status ? (

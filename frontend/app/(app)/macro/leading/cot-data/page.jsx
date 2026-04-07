@@ -89,6 +89,9 @@ export default function CotDataPage() {
   const [loadingOv,  setLoadingOv]  = useState(true);
   const [loadingSer, setLoadingSer] = useState(false);
   const [showAll,    setShowAll]    = useState(false);
+  const [showPrice,  setShowPrice]  = useState(false);
+  const [priceData,  setPriceData]  = useState(null);
+  const [loadingPx,  setLoadingPx]  = useState(false);
   const [error,      setError]      = useState(null);
 
   const mainRef  = useRef(null);
@@ -133,28 +136,43 @@ export default function CotDataPage() {
     load();
   }, [selected]);
 
-  // Build / rebuild charts when series changes
+  // Fetch price when selected changes (reset) or showPrice toggled on
+  useEffect(() => {
+    setPriceData(null);
+    if (!showPrice) return;
+    setLoadingPx(true);
+    fetch(`${API}/api/cot/price/${selected}`)
+      .then(r => r.json())
+      .then(d => setPriceData(d))
+      .catch(() => {})
+      .finally(() => setLoadingPx(false));
+  }, [selected, showPrice]);
+
+  // Build / rebuild charts when series, price overlay, or scale mode changes
   useEffect(() => {
     if (!series || !mainRef.current || !subRef.current) return;
 
     mainChart.current?.remove();
     subChart.current?.remove();
 
+    const hasPriceOverlay = showPrice && priceData?.dates?.length > 0;
     const mc = createChart(mainRef.current, {
       layout:          { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
       grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { color: "rgba(31,41,55,0.5)" } },
       crosshair:       { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: "#1f2937" },
+      leftPriceScale:  { visible: hasPriceOverlay, borderColor: "#1f2937" },
       timeScale:       { borderColor: "#1f2937", timeVisible: false },
       width:           mainRef.current.clientWidth,
       height:          360,
     });
     mainChart.current = mc;
 
-    // Net % line
+    // Net % line (right scale)
     const netSeries = mc.addSeries(LineSeries, {
       color:            "#60a5fa",
       lineWidth:        2,
+      priceScaleId:     "right",
       priceLineVisible: false,
       lastValueVisible: true,
       title:            "Net %",
@@ -165,11 +183,12 @@ export default function CotDataPage() {
         .filter(p => p.value != null)
     );
 
-    // Zero line
+    // Zero line (right scale)
     const zeroSeries = mc.addSeries(LineSeries, {
       color:            "rgba(107,114,128,0.5)",
       lineWidth:        1,
       lineStyle:        2,
+      priceScaleId:     "right",
       priceLineVisible: false,
       lastValueVisible: false,
     });
@@ -179,6 +198,21 @@ export default function CotDataPage() {
         { time: validDates[0],                        value: 0 },
         { time: validDates[validDates.length - 1],    value: 0 },
       ]);
+    }
+
+    // Price overlay line (left scale)
+    if (hasPriceOverlay) {
+      const pxSeries = mc.addSeries(LineSeries, {
+        color:            "#f59e0b",
+        lineWidth:        1.5,
+        priceScaleId:     "left",
+        priceLineVisible: false,
+        lastValueVisible: true,
+        title:            priceData.ticker || "Price",
+      });
+      pxSeries.setData(
+        priceData.dates.map((d, i) => ({ time: d, value: priceData.prices[i] }))
+      );
     }
 
     mc.timeScale().fitContent();
@@ -235,7 +269,7 @@ export default function CotDataPage() {
       mc.remove(); mainChart.current = null;
       sc.remove(); subChart.current  = null;
     };
-  }, [series]);
+  }, [series, showPrice, priceData]);
 
   // Apply period to main chart (sub syncs automatically)
   useEffect(() => {
@@ -368,6 +402,19 @@ export default function CotDataPage() {
               </button>
             ))}
           </div>
+
+          <button
+            onClick={() => setShowPrice(p => !p)}
+            style={{
+              padding: "5px 12px", fontSize: 12, borderRadius: 5,
+              background: showPrice ? "rgba(245,158,11,0.15)" : "transparent",
+              border: showPrice ? "1px solid rgba(245,158,11,0.5)" : "1px solid #1f2937",
+              color: showPrice ? "#f59e0b" : "#6b7280",
+              cursor: "pointer",
+            }}
+          >
+            {loadingPx ? "Loading…" : "Price Overlay"}
+          </button>
         </div>
 
         {/* Chart title */}

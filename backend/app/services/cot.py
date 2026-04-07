@@ -23,133 +23,213 @@ log = logging.getLogger(__name__)
 DISAGG_URL = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
 TFF_URL    = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"
 
-# key → {label, cftc_name, asset_class, report_type}
+# key → {label, cftc_name, asset_class, report_type, yf_ticker}
 CONTRACTS: dict[str, dict] = {
+    # ── Energy ──────────────────────────────────────────────────────────────────
     "wti": {
-        "label": "WTI Crude Oil",
-        "cftc_name": "CRUDE OIL, LIGHT SWEET - NEW YORK MERCANTILE EXCHANGE",
+        "label":      "WTI Crude Oil",
+        # Renamed by CFTC ~Feb 2022; old name stopped at 2022-01-02
+        "cftc_name":  "CRUDE OIL, LIGHT SWEET-WTI - ICE FUTURES EUROPE",
         "asset_class": "energy",
         "report_type": "disaggregated",
-    },
-    "nat_gas": {
-        "label": "Natural Gas",
-        "cftc_name": "NATURAL GAS (NYMEX) - NEW YORK MERCANTILE EXCHANGE",
-        "asset_class": "energy",
-        "report_type": "disaggregated",
+        "yf_ticker":   "CL=F",
     },
     "brent": {
-        "label": "Brent Crude",
-        "cftc_name": "BRENT CRUDE OIL LAST DAY - NEW YORK MERCANTILE EXCHANGE",
+        "label":      "Brent Crude",
+        # Renamed by CFTC ~Feb 2022; old name stopped at 2022-01-02
+        "cftc_name":  "BRENT LAST DAY - NEW YORK MERCANTILE EXCHANGE",
         "asset_class": "energy",
         "report_type": "disaggregated",
+        "yf_ticker":   "BZ=F",
     },
+    "nat_gas": {
+        "label":      "Natural Gas",
+        "cftc_name":  "NAT GAS NYME - NEW YORK MERCANTILE EXCHANGE",
+        "asset_class": "energy",
+        "report_type": "disaggregated",
+        "yf_ticker":   "NG=F",
+    },
+    # ── Precious Metals ─────────────────────────────────────────────────────────
     "gold": {
-        "label": "Gold",
-        "cftc_name": "GOLD - COMMODITY EXCHANGE INC.",
+        "label":      "Gold",
+        "cftc_name":  "GOLD - COMMODITY EXCHANGE INC.",
         "asset_class": "precious_metals",
         "report_type": "disaggregated",
+        "yf_ticker":   "GC=F",
     },
     "silver": {
-        "label": "Silver",
-        "cftc_name": "SILVER - COMMODITY EXCHANGE INC.",
+        "label":      "Silver",
+        "cftc_name":  "SILVER - COMMODITY EXCHANGE INC.",
         "asset_class": "precious_metals",
         "report_type": "disaggregated",
+        "yf_ticker":   "SI=F",
     },
+    "platinum": {
+        "label":      "Platinum",
+        "cftc_name":  "PLATINUM - NEW YORK MERCANTILE EXCHANGE",
+        "asset_class": "precious_metals",
+        "report_type": "disaggregated",
+        "yf_ticker":   "PL=F",
+    },
+    "palladium": {
+        "label":      "Palladium",
+        "cftc_name":  "PALLADIUM - NEW YORK MERCANTILE EXCHANGE",
+        "asset_class": "precious_metals",
+        "report_type": "disaggregated",
+        "yf_ticker":   "PA=F",
+    },
+    # ── Agricultural Commodities ─────────────────────────────────────────────────
     "corn": {
-        "label": "Corn",
-        "cftc_name": "CORN - CHICAGO BOARD OF TRADE",
+        "label":      "Corn",
+        "cftc_name":  "CORN - CHICAGO BOARD OF TRADE",
         "asset_class": "commodities",
         "report_type": "disaggregated",
+        "yf_ticker":   "ZC=F",
     },
     "wheat": {
-        "label": "Wheat",
-        "cftc_name": "WHEAT-SRW - CHICAGO BOARD OF TRADE",
+        "label":      "Wheat",
+        "cftc_name":  "WHEAT-SRW - CHICAGO BOARD OF TRADE",
         "asset_class": "commodities",
         "report_type": "disaggregated",
+        "yf_ticker":   "ZW=F",
     },
     "soybeans": {
-        "label": "Soybeans",
-        "cftc_name": "SOYBEANS - CHICAGO BOARD OF TRADE",
+        "label":      "Soybeans",
+        "cftc_name":  "SOYBEANS - CHICAGO BOARD OF TRADE",
         "asset_class": "commodities",
         "report_type": "disaggregated",
+        "yf_ticker":   "ZS=F",
     },
     "sugar": {
-        "label": "Sugar No.11",
-        "cftc_name": "SUGAR NO. 11 (WORLD) - ICE FUTURES U.S.",
+        "label":      "Sugar No.11",
+        "cftc_name":  "SUGAR NO. 11 - ICE FUTURES U.S.",
         "asset_class": "commodities",
         "report_type": "disaggregated",
+        "yf_ticker":   "SB=F",
     },
+    # ── Industrial Metals ───────────────────────────────────────────────────────
     "copper": {
-        "label": "Copper",
-        "cftc_name": "COPPER-GRADE #1 - COMMODITY EXCHANGE INC.",
+        "label":      "Copper",
+        # Renamed by CFTC ~Feb 2022; old name stopped at 2022-01-02
+        "cftc_name":  "COPPER- #1 - COMMODITY EXCHANGE INC.",
         "asset_class": "industrial_metals",
         "report_type": "disaggregated",
+        "yf_ticker":   "HG=F",
     },
+    "aluminium": {
+        "label":      "Aluminium",
+        "cftc_name":  "ALUMINUM MWP - COMMODITY EXCHANGE INC.",
+        "asset_class": "industrial_metals",
+        "report_type": "disaggregated",
+        "yf_ticker":   "ALI=F",
+    },
+    # ── Currencies ──────────────────────────────────────────────────────────────
     "eur": {
-        "label": "Euro FX",
-        "cftc_name": "EURO FX - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Euro FX",
+        "cftc_name":  "EURO FX - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "currencies",
         "report_type": "tff",
+        "yf_ticker":   "EURUSD=X",
     },
     "gbp": {
-        "label": "British Pound",
-        "cftc_name": "BRITISH POUND STERLING - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "British Pound",
+        "cftc_name":  "BRITISH POUND STERLING - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "currencies",
         "report_type": "tff",
+        "yf_ticker":   "GBPUSD=X",
     },
     "jpy": {
-        "label": "Japanese Yen",
-        "cftc_name": "JAPANESE YEN - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Japanese Yen",
+        "cftc_name":  "JAPANESE YEN - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "currencies",
         "report_type": "tff",
+        "yf_ticker":   "JPYUSD=X",
     },
     "chf": {
-        "label": "Swiss Franc",
-        "cftc_name": "SWISS FRANC - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Swiss Franc",
+        "cftc_name":  "SWISS FRANC - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "currencies",
         "report_type": "tff",
+        "yf_ticker":   "CHFUSD=X",
     },
     "aud": {
-        "label": "Australian Dollar",
-        "cftc_name": "AUSTRALIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Australian Dollar",
+        "cftc_name":  "AUSTRALIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "currencies",
         "report_type": "tff",
+        "yf_ticker":   "AUDUSD=X",
     },
     "cad": {
-        "label": "Canadian Dollar",
-        "cftc_name": "CANADIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Canadian Dollar",
+        "cftc_name":  "CANADIAN DOLLAR - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "currencies",
         "report_type": "tff",
+        "yf_ticker":   "CADUSD=X",
     },
+    "usd_index": {
+        "label":      "USD Index",
+        "cftc_name":  "USD INDEX - ICE FUTURES U.S.",
+        "asset_class": "currencies",
+        "report_type": "tff",
+        "yf_ticker":   "DX=F",
+    },
+    # ── Indices ─────────────────────────────────────────────────────────────────
     "sp500": {
-        "label": "S&P 500 E-Mini",
-        "cftc_name": "E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "S&P 500 E-Mini",
+        "cftc_name":  "E-MINI S&P 500 - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "indices",
         "report_type": "tff",
+        "yf_ticker":   "ES=F",
     },
     "nasdaq": {
-        "label": "NASDAQ E-Mini",
-        "cftc_name": "NASDAQ MINI - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "NASDAQ E-Mini",
+        "cftc_name":  "NASDAQ MINI - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "indices",
         "report_type": "tff",
+        "yf_ticker":   "NQ=F",
     },
     "dow": {
-        "label": "Dow E-Mini",
-        "cftc_name": "DJIA x $5 - CHICAGO BOARD OF TRADE",
+        "label":      "Dow E-Mini",
+        "cftc_name":  "DJIA x $5 - CHICAGO BOARD OF TRADE",
         "asset_class": "indices",
         "report_type": "tff",
+        "yf_ticker":   "YM=F",
     },
     "russell": {
-        "label": "Russell 2000",
-        "cftc_name": "RUSSELL 2000 MINI INDEX - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Russell 2000",
+        "cftc_name":  "MICRO E-MINI RUSSELL 2000 INDX - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "indices",
         "report_type": "tff",
+        "yf_ticker":   "RTY=F",
     },
+    "vix": {
+        "label":      "VIX Futures",
+        "cftc_name":  "VIX FUTURES - CBOE FUTURES EXCHANGE",
+        "asset_class": "indices",
+        "report_type": "tff",
+        "yf_ticker":   "^VIX",
+    },
+    "msci_em": {
+        "label":      "MSCI Emerging Markets",
+        "cftc_name":  "MSCI EM INDEX - ICE FUTURES U.S.",
+        "asset_class": "indices",
+        "report_type": "tff",
+        "yf_ticker":   "EEM",
+    },
+    # ── Crypto ──────────────────────────────────────────────────────────────────
     "bitcoin": {
-        "label": "Bitcoin",
-        "cftc_name": "BITCOIN - CHICAGO MERCANTILE EXCHANGE",
+        "label":      "Bitcoin",
+        "cftc_name":  "BITCOIN - CHICAGO MERCANTILE EXCHANGE",
         "asset_class": "crypto",
         "report_type": "tff",
+        "yf_ticker":   "BTC-USD",
+    },
+    "ethereum": {
+        "label":      "Ethereum",
+        "cftc_name":  "ETHER CASH SETTLED - CHICAGO MERCANTILE EXCHANGE",
+        "asset_class": "crypto",
+        "report_type": "tff",
+        "yf_ticker":   "ETH-USD",
     },
 }
 
@@ -372,6 +452,30 @@ def get_cot_series(db, contract_key: str) -> dict:
         "net_pos":       net_pos,
         "net_pct":       net_pct,
     }
+
+
+async def get_cot_price(contract_key: str) -> dict:
+    """Fetch daily price history for a contract via yfinance."""
+    import yfinance as yf
+
+    meta = CONTRACTS.get(contract_key, {})
+    ticker = meta.get("yf_ticker")
+    if not ticker:
+        return {"dates": [], "prices": [], "ticker": None}
+    try:
+        data = yf.download(ticker, start="2006-01-01", progress=False, auto_adjust=True)
+        # Newer yfinance returns multi-level columns; squeeze to plain Series
+        closes = data["Close"].squeeze().dropna()
+        if closes.empty:
+            return {"dates": [], "prices": [], "ticker": ticker}
+        return {
+            "ticker": ticker,
+            "dates":  [str(d.date()) for d in closes.index],
+            "prices": [round(float(v), 6) for v in closes],
+        }
+    except Exception as exc:
+        log.warning("get_cot_price %s (%s) failed: %s", contract_key, ticker, exc)
+        return {"dates": [], "prices": [], "ticker": ticker, "error": str(exc)}
 
 
 def get_cot_status(db) -> dict:

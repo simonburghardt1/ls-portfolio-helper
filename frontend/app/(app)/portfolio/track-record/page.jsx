@@ -543,13 +543,15 @@ function RealizedPnlTab() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function EquityCurveTab() {
-  const [rows,    setRows]    = useState([]);
-  const [perf,    setPerf]    = useState([]);
-  const [stats,   setStats]   = useState(null);
-  const [spy,     setSpy]     = useState(null);
-  const [showSpy, setShowSpy] = useState(false);
-  const [period,  setPeriod]  = useState("ALL");
-  const [loading, setLoading] = useState(true);
+  const [rows,       setRows]       = useState([]);
+  const [perf,       setPerf]       = useState([]);
+  const [stats,      setStats]      = useState(null);
+  const [spy,        setSpy]        = useState(null);
+  const [showSpy,    setShowSpy]    = useState(false);
+  const [period,     setPeriod]     = useState("ALL");
+  const [loading,    setLoading]    = useState(true);
+  const [capDate,    setCapDate]    = useState(() => new Date().toISOString().slice(0, 10));
+  const [capAmount,  setCapAmount]  = useState("");
 
   const mainRef  = useRef(null);
   const subRef   = useRef(null);
@@ -586,6 +588,18 @@ function EquityCurveTab() {
     setRows(await rRes.json());
     setStats(await sRes.json());
     setPerf(await perfRes.json());
+  }
+
+  async function addCapital(type) {
+    const amount = parseFloat(capAmount);
+    if (!amount || amount <= 0) return;
+    await fetch(`${API}/api/track-record/equity/${type}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: capDate, amount }),
+    });
+    setCapAmount("");
+    reloadRows();
   }
 
   async function addRow() {
@@ -743,10 +757,39 @@ function EquityCurveTab() {
     { label: "Sortino",          value: stats.sortino != null ? fmtNum(stats.sortino, 2) : "—", color: pnlColor(stats.sortino) },
   ] : [];
 
+  const lastPerf   = perf.length ? perf[perf.length - 1] : null;
+  const netCapital = lastPerf?.capital ?? 0;
+  const totalPnl   = lastPerf?.cum_pnl ?? 0;
+  const totalDep   = perf.reduce((s, r) => s + (r.cap_delta > 0 ? r.cap_delta : 0), 0);
+  const totalWit   = perf.reduce((s, r) => s + (r.cap_delta < 0 ? Math.abs(r.cap_delta) : 0), 0);
+  const retPct     = netCapital > 0 ? (totalPnl / netCapital * 100) : null;
+
   if (loading) return <div style={{ color: "#4b5563", fontSize: 13, padding: "24px 0" }}>Loading equity data…</div>;
 
   return (
     <div>
+      {/* Capital section */}
+      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Capital Account</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+          <KpiCard label="Net Capital"     value={`$${netCapital.toFixed(0)}`}                                              valueColor="#e5e7eb" small />
+          <KpiCard label="Total Deposited" value={`$${totalDep.toFixed(0)}`}                                                valueColor="#86efac" small />
+          <KpiCard label="Total Withdrawn" value={`$${totalWit.toFixed(0)}`}                                                valueColor="#fca5a5" small />
+          <KpiCard label="Total PnL"       value={`${totalPnl >= 0 ? "+" : ""}$${Math.abs(totalPnl).toFixed(0)}`}          valueColor={pnlColor(totalPnl)} small />
+          <KpiCard label="Account Value"   value={`$${(netCapital + totalPnl).toFixed(0)}`}                                 valueColor="#e5e7eb" small />
+          {retPct != null && <KpiCard label="Return %" value={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`}            valueColor={pnlColor(retPct)} small />}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={capDate} onChange={e => setCapDate(e.target.value)}
+            style={{ ...cellInput, width: 130, colorScheme: "dark", border: "1px solid #1f2937" }} />
+          <input type="number" placeholder="Amount" value={capAmount} onChange={e => setCapAmount(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addCapital("deposit"); }}
+            style={{ ...cellInput, width: 110, border: "1px solid #1f2937", textAlign: "right" }} />
+          <button onClick={() => addCapital("deposit")}  style={{ ...btnBase, background: "rgba(22,163,74,0.15)",  border: "1px solid rgba(22,163,74,0.3)",  color: "#86efac", padding: "7px 16px" }}>+ Deposit</button>
+          <button onClick={() => addCapital("withdraw")} style={{ ...btnBase, background: "rgba(220,38,38,0.10)", border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5", padding: "7px 16px" }}>− Withdraw</button>
+        </div>
+      </div>
+
       {/* Stats strip */}
       {stats && (
         <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
@@ -879,11 +922,204 @@ function EquityCurveTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// IBKR Import Panel
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function IbkrImportPanel({ onImported }) {
+  const [open,     setOpen]     = useState(false);
+  const [preview,  setPreview]  = useState(null);
+  const [result,   setResult]   = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState(null);
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPreview(null); setResult(null); setError(null);
+    setLoading(true);
+    try {
+      const text = await file.text();
+      const res  = await fetch(`${API}/api/track-record/ibkr/preview`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ csv_text: text }),
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); return; }
+      setPreview({ ...data, _raw: text });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+    // reset file input
+    e.target.value = "";
+  }
+
+  async function handleConfirm() {
+    if (!preview?._raw) return;
+    setLoading(true);
+    try {
+      const res  = await fetch(`${API}/api/track-record/ibkr/confirm`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ csv_text: preview._raw }),
+      });
+      const data = await res.json();
+      setResult(data);
+      setPreview(null);
+      onImported();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleClear() {
+    setPreview(null); setResult(null); setError(null);
+  }
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Toggle bar */}
+      <button onClick={() => { setOpen(o => !o); handleClear(); }} style={{
+        background: "transparent", border: "1px solid #1f2937", borderRadius: 8,
+        color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer",
+        padding: "7px 14px", letterSpacing: "0.05em",
+      }}>
+        {open ? "▲" : "▼"} Import IBKR CSV
+      </button>
+
+      {open && (
+        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "20px 24px", marginTop: 8 }}>
+
+          {/* File input row */}
+          {!preview && !result && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <label style={{ ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd", cursor: "pointer" }}>
+                {loading ? "Parsing…" : "Choose CSV file"}
+                <input type="file" accept=".csv" onChange={handleFile} style={{ display: "none" }} disabled={loading} />
+              </label>
+              <span style={{ fontSize: 11, color: "#4b5563" }}>IBKR activity statement (German or English)</span>
+              <button onClick={async () => {
+                if (!window.confirm("Delete ALL trades, positions, and equity entries? This cannot be undone.")) return;
+                await fetch(`${API}/api/track-record/clear-all`, { method: "DELETE" });
+                onImported();
+              }} style={{ ...btnBase, background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5", marginLeft: "auto" }}>
+                🗑 Clear All Data
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 10 }}>Error: {error}</div>
+          )}
+
+          {/* Preview */}
+          {preview && (
+            <div>
+              {/* Summary strip */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                <KpiCard label="Period"       value={`${preview.period_start} → ${preview.period_end}`} valueColor="#e5e7eb" small />
+                <KpiCard label="Trades found" value={preview.trades.length}                             valueColor="#86efac" small />
+                <KpiCard label="Open pos."    value={preview.open_positions.length}                     valueColor="#93c5fd" small />
+                {preview.equity_entry && (
+                  <KpiCard label="Account NAV" value={`€${(preview.equity_entry.portfolio_value / 1000).toFixed(1)}K`} valueColor="#e5e7eb" small />
+                )}
+                {preview.equity_entry && (
+                  <KpiCard label="Fees" value={`€${preview.equity_entry.fees.toFixed(2)}`} valueColor="#fca5a5" small />
+                )}
+              </div>
+
+              {/* Trades table */}
+              {preview.trades.length > 0 && (
+                <div style={{ marginBottom: 16, overflowX: "auto" }}>
+                  <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Realized Trades</div>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        {["Ticker","Side","Shares","Avg Entry","Avg Exit","Entry","Exit","PnL (€)"].map(h => (
+                          <Th key={h} style={{ textAlign: h.includes("PnL") || h.includes("Avg") || h.includes("Shares") ? "right" : "left" }}>{h}</Th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.trades.map((t, i) => (
+                        <tr key={i} style={{ borderBottom: "1px solid #0d1829" }}>
+                          <td style={{ padding: "5px 10px", fontSize: 12, fontFamily: "monospace", fontWeight: 700 }}>{t.ticker}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11 }}>
+                            <span style={{ padding: "2px 8px", borderRadius: 20, background: t.side === "long" ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)", color: t.side === "long" ? "#86efac" : "#fca5a5", fontWeight: 700, fontSize: 10 }}>{t.side.toUpperCase()}</span>
+                          </td>
+                          <td style={{ padding: "5px 10px", fontSize: 12, textAlign: "right" }}>{t.shares}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 12, textAlign: "right" }}>{t.avg_entry_price.toFixed(4)}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 12, textAlign: "right" }}>{t.avg_exit_price.toFixed(4)}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11, color: "#6b7280" }}>{t.entry_date}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 11, color: "#6b7280" }}>{t.exit_date}</td>
+                          <td style={{ padding: "5px 10px", fontSize: 12, fontWeight: 700, textAlign: "right", color: pnlColor(t.pnl_dollar) }}>
+                            {t.pnl_dollar >= 0 ? "+" : ""}€{Math.abs(t.pnl_dollar).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Open positions preview */}
+              {preview.open_positions.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Open Positions</div>
+                  {preview.open_positions.map((p, i) => (
+                    <span key={i} style={{ marginRight: 8, fontSize: 12 }}>
+                      <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{p.ticker}</span>
+                      <span style={{ color: "#6b7280", marginLeft: 4 }}>{p.side} {p.shares} @ {p.avg_price_in}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {preview.parse_warnings?.length > 0 && (
+                <div style={{ color: "#f59e0b", fontSize: 11, marginBottom: 12 }}>
+                  {preview.parse_warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleConfirm} disabled={loading} style={{ ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" }}>
+                  {loading ? "Importing…" : "Confirm Import"}
+                </button>
+                <button onClick={handleClear} style={btnSecondary}>Clear</button>
+              </div>
+            </div>
+          )}
+
+          {/* Result */}
+          {result && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#86efac", fontWeight: 600 }}>✓ Import complete</span>
+              <KpiCard label="Trades imported" value={result.trades_imported}    valueColor="#86efac" small />
+              <KpiCard label="Skipped (dup)"   value={result.trades_skipped}     valueColor="#6b7280" small />
+              <KpiCard label="Positions"        value={result.positions_imported} valueColor="#93c5fd" small />
+              <button onClick={handleClear} style={{ ...btnSecondary, marginLeft: 8 }}>Clear</button>
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function TrackRecordPage() {
-  const [tab, setTab] = useState("Live Portfolio");
+  const [tab,        setTab]       = useState("Live Portfolio");
+  const [importKey,  setImportKey] = useState(0);
 
   return (
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
@@ -894,6 +1130,9 @@ export default function TrackRecordPage() {
           Live positions, realized trades, and equity curve analytics.
         </p>
       </div>
+
+      {/* IBKR Import Panel */}
+      <IbkrImportPanel onImported={() => setImportKey(k => k + 1)} />
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 2, marginBottom: 28, borderBottom: "1px solid #1f2937" }}>
@@ -912,11 +1151,11 @@ export default function TrackRecordPage() {
         ))}
       </div>
 
-      {/* Content */}
+      {/* Content — importKey forces remount of active tab after CSV import */}
       <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "24px 28px" }}>
-        {tab === "Live Portfolio" && <LivePortfolioTab />}
-        {tab === "Realized PnL"  && <RealizedPnlTab  />}
-        {tab === "Equity Curve"  && <EquityCurveTab  />}
+        {tab === "Live Portfolio" && <LivePortfolioTab key={`lp-${importKey}`} />}
+        {tab === "Realized PnL"  && <RealizedPnlTab   key={`rp-${importKey}`} />}
+        {tab === "Equity Curve"  && <EquityCurveTab   key={`ec-${importKey}`} />}
       </div>
     </div>
   );
