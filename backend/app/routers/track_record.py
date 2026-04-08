@@ -15,6 +15,7 @@ from app.services.track_record import (
     compute_position_metrics,
     compute_trade_pnl,
     compute_trade_stats,
+    compute_volatility,
     fetch_prices,
     fetch_ticker_info,
 )
@@ -120,6 +121,29 @@ async def list_positions(db: Session = Depends(get_db)):
     tickers = list({p.ticker.upper() for p in positions})
     prices  = await fetch_prices(tickers)
     return [_pos_to_dict(p, prices.get(p.ticker.upper())) for p in positions]
+
+
+@router.get("/positions/volatility")
+async def positions_volatility(weeks: int = 52, db: Session = Depends(get_db)):
+    """Variance-covariance + correlation matrices for current live positions."""
+    positions = db.query(LivePosition).all()
+    stock_pos = [p for p in positions if " " not in p.ticker]
+    if not stock_pos:
+        return {"error": "No stock positions found", "tickers": []}
+
+    tickers = [p.ticker.upper() for p in stock_pos]
+    prices  = await fetch_prices(tickers)
+
+    alloc: list[float] = []
+    for p in stock_pos:
+        price = prices.get(p.ticker.upper()) or p.avg_price_in
+        sign  = 1.0 if p.side == "long" else -1.0
+        alloc.append(round(p.shares * price * sign, 2))
+
+    total_gross = sum(abs(a) for a in alloc) or 1.0
+    weights     = [a / total_gross for a in alloc]
+
+    return await compute_volatility(tickers, weights, alloc, weeks)
 
 
 @router.post("/positions")

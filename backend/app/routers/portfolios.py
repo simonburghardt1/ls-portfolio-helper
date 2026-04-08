@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.portfolio import Portfolio
+from app.services.track_record import compute_volatility
 
 router = APIRouter(prefix="/api/portfolios", tags=["portfolios"])
 
@@ -89,3 +90,25 @@ def delete_portfolio(portfolio_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Portfolio not found.")
     db.delete(portfolio)
     db.commit()
+
+
+@router.get("/{portfolio_id}/volatility")
+async def portfolio_volatility(portfolio_id: int, weeks: int = 52, db: Session = Depends(get_db)):
+    """Variance-covariance + correlation matrices for a saved portfolio."""
+    portfolio = db.get(Portfolio, portfolio_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found.")
+
+    positions = portfolio.positions   # list of {ticker, side, weight}
+    if not positions:
+        return {"error": "Portfolio has no positions", "tickers": []}
+
+    tickers = [p["ticker"].upper() for p in positions]
+    weights = [
+        p["weight"] if p["side"] == "long" else -p["weight"]
+        for p in positions
+    ]
+    gross = sum(abs(w) for w in weights) or 1.0
+    weights = [w / gross for w in weights]
+
+    return await compute_volatility(tickers, weights, allocations=None, weeks=weeks)

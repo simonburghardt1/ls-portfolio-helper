@@ -54,7 +54,7 @@ const NAV = [
           { label: "Backtesting",              href: "/portfolio/backtesting" },
           { label: "Heatmap",                  href: "/portfolio/heatmap" },
           { label: "Market Regime",            href: "/portfolio/market-regime" },
-          { label: "Volatility & Correlation", href: "/portfolio/risk/volatility", soon: true },
+          { label: "Volatility & Correlation", href: "/portfolio/risk/volatility" },
           { label: "Beta",                     href: "/portfolio/risk/beta",       soon: true },
         ],
       },

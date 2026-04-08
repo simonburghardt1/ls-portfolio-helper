@@ -2,7 +2,7 @@
 Trading Track Record service.
 
 Handles price fetching (yfinance), position metrics, trade statistics,
-and equity curve statistics.
+equity curve statistics, and portfolio volatility/correlation.
 """
 
 import datetime
@@ -10,6 +10,7 @@ import logging
 import math
 
 import numpy as np
+import pandas as pd
 import yfinance as yf
 
 log = logging.getLogger(__name__)
@@ -218,6 +219,88 @@ def compute_equity_stats(portfolio_values: list[float]) -> dict:
         "sharpe":             sharpe,
         "calmar":             calmar,
         "sortino":            sortino,
+    }
+
+
+# ─── Portfolio volatility / correlation ──────────────────────────────────────
+
+async def compute_volatility(
+    tickers: list[str],
+    weights: list[float],       # signed fractions; sum(|w|) should be ~1
+    allocations: list[float] | None,  # $ net exposure per ticker, or None
+    weeks: int = 52,
+) -> dict:
+    """
+    Download weekly price history for each ticker, compute the
+    variance-covariance and correlation matrices, and return portfolio
+    risk metrics.
+    """
+    # Download weekly closes for each stock ticker
+    price_data: dict[str, pd.Series] = {}
+    skipped: list[str] = []
+    ticker_to_weight = dict(zip(tickers, weights))
+    ticker_to_alloc  = dict(zip(tickers, allocations)) if allocations else {}
+
+    for t in tickers:
+        if " " in t:                        # skip OCC-format options
+            skipped.append(t)
+            continue
+        try:
+            hist = (
+                yf.Ticker(t)
+                .history(period=f"{weeks + 15}wk", interval="1wk")["Close"]
+                .dropna()
+            )
+            if len(hist) > 1:
+                price_data[t] = hist.iloc[-(weeks + 1):]   # keep at most weeks+1 rows
+        except Exception as exc:
+            log.warning("compute_volatility: price fetch failed for %s: %s", t, exc)
+            skipped.append(t)
+
+    if len(price_data) < 2:
+        return {"error": "Not enough price data", "tickers": [], "skipped": skipped}
+
+    # Align all series on common dates → weekly returns matrix
+    prices_df = pd.DataFrame(price_data).dropna()
+    returns_df = prices_df.pct_change().dropna()
+    actual_tickers = list(returns_df.columns)
+
+    # Re-align weights / allocations to surviving tickers
+    w = np.array([ticker_to_weight.get(t, 0.0) for t in actual_tickers])
+    gross = float(np.abs(w).sum())
+    if gross > 0:
+        w = w / gross                       # renormalize
+
+    actual_allocs: list[float] | None = None
+    if allocations is not None:
+        actual_allocs = [ticker_to_alloc.get(t, 0.0) for t in actual_tickers]
+
+    cov  = returns_df.cov().values
+    corr = returns_df.corr().values
+    asset_vols = np.sqrt(np.diag(cov))
+
+    port_var   = float(w @ cov @ w)
+    port_std_w = float(np.sqrt(max(port_var, 0.0)))
+    port_std_a = port_std_w * math.sqrt(52)
+    av_vol_w   = float(asset_vols.mean())
+    av_vol_a   = av_vol_w * math.sqrt(52)
+    port_corr  = (port_std_w / av_vol_w) if av_vol_w > 0 else None
+
+    return {
+        "tickers":             actual_tickers,
+        "weights":             w.tolist(),
+        "allocations":         actual_allocs,
+        "cov_matrix":          cov.tolist(),
+        "corr_matrix":         corr.tolist(),
+        "asset_vols_weekly":   asset_vols.tolist(),
+        "portfolio_variance":  round(port_var,   6),
+        "portfolio_std_weekly": round(port_std_w, 6),
+        "portfolio_std_annual": round(port_std_a, 6),
+        "av_asset_std_weekly":  round(av_vol_w,   6),
+        "av_asset_std_annual":  round(av_vol_a,   6),
+        "portfolio_correlation": round(port_corr, 6) if port_corr is not None else None,
+        "weeks_used":          len(returns_df),
+        "skipped":             skipped,
     }
 
 
