@@ -18,24 +18,30 @@ log = logging.getLogger(__name__)
 # ─── Price / ticker info ──────────────────────────────────────────────────────
 
 async def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
-    """Batch-fetch latest close prices for a list of tickers via yfinance."""
+    """Batch-fetch latest close prices for a list of tickers via yfinance.
+    Option tickers (OCC format with spaces, e.g. 'ONDS 17APR26 11 C') are skipped silently.
+    """
     if not tickers:
         return {}
+    # Options can't be priced via yfinance — exclude them upfront
+    stock_tickers = [t for t in tickers if " " not in t]
+    result: dict[str, float | None] = {t.upper(): None for t in tickers}
+    if not stock_tickers:
+        return result
     try:
-        data = yf.download(tickers, period="5d", progress=False, auto_adjust=True)
-        closes = data["Close"] if len(tickers) > 1 else data["Close"].rename(tickers[0])
-        result = {}
-        for ticker in tickers:
+        data = yf.download(stock_tickers, period="5d", progress=False, auto_adjust=True)
+        closes = data["Close"] if len(stock_tickers) > 1 else data["Close"].rename(stock_tickers[0])
+        for ticker in stock_tickers:
             try:
-                series = closes[ticker] if len(tickers) > 1 else closes
+                series = closes[ticker] if len(stock_tickers) > 1 else closes
                 val = series.dropna().iloc[-1]
                 result[ticker.upper()] = round(float(val), 4)
             except Exception:
-                result[ticker.upper()] = None
+                pass
         return result
     except Exception as exc:
         log.warning("fetch_prices failed: %s", exc)
-        return {t.upper(): None for t in tickers}
+        return result
 
 
 async def fetch_ticker_info(ticker: str) -> dict:

@@ -543,20 +543,18 @@ function RealizedPnlTab() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function EquityCurveTab() {
-  const [rows,       setRows]       = useState([]);
-  const [perf,       setPerf]       = useState([]);
-  const [stats,      setStats]      = useState(null);
-  const [spy,        setSpy]        = useState(null);
-  const [showSpy,    setShowSpy]    = useState(false);
-  const [period,     setPeriod]     = useState("ALL");
-  const [loading,    setLoading]    = useState(true);
-  const [capDate,    setCapDate]    = useState(() => new Date().toISOString().slice(0, 10));
-  const [capAmount,  setCapAmount]  = useState("");
+  const [perf,        setPerf]        = useState([]);
+  const [stats,       setStats]       = useState(null);
+  const [spy,         setSpy]         = useState(null);
+  const [showCapital, setShowCapital] = useState(false);
+  const [period,      setPeriod]      = useState("ALL");
+  const [loading,     setLoading]     = useState(true);
+  const [capDate,     setCapDate]     = useState(() => new Date().toISOString().slice(0, 10));
+  const [capAmount,   setCapAmount]   = useState("");
 
-  const mainRef  = useRef(null);
-  const subRef   = useRef(null);
-  const mainChart = useRef(null);
-  const subChart  = useRef(null);
+  const chart1Ref = useRef(null); const chart1 = useRef(null);
+  const chart2Ref = useRef(null); const chart2 = useRef(null);
+  const chart3Ref = useRef(null); const chart3 = useRef(null);
   const syncing   = useRef(false);
 
   useEffect(() => { loadAll(); }, []);
@@ -564,13 +562,11 @@ function EquityCurveTab() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [rRes, sRes, spyRes, perfRes] = await Promise.all([
-        fetch(`${API}/api/track-record/equity`),
+      const [sRes, spyRes, perfRes] = await Promise.all([
         fetch(`${API}/api/track-record/equity/stats`),
         fetch(`${API}/api/track-record/equity/spy`),
         fetch(`${API}/api/track-record/equity/performance`),
       ]);
-      setRows(await rRes.json());
       setStats(await sRes.json());
       setSpy(await spyRes.json());
       setPerf(await perfRes.json());
@@ -579,13 +575,11 @@ function EquityCurveTab() {
     }
   }
 
-  async function reloadRows() {
-    const [rRes, sRes, perfRes] = await Promise.all([
-      fetch(`${API}/api/track-record/equity`),
+  async function reloadPerf() {
+    const [sRes, perfRes] = await Promise.all([
       fetch(`${API}/api/track-record/equity/stats`),
       fetch(`${API}/api/track-record/equity/performance`),
     ]);
-    setRows(await rRes.json());
     setStats(await sRes.json());
     setPerf(await perfRes.json());
   }
@@ -599,148 +593,115 @@ function EquityCurveTab() {
       body: JSON.stringify({ date: capDate, amount }),
     });
     setCapAmount("");
-    reloadRows();
+    reloadPerf();
   }
 
-  async function addRow() {
-    const today = new Date().toISOString().slice(0, 10);
-    const res = await fetch(`${API}/api/track-record/equity`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: today, portfolio_value: 0 }),
-    });
-    await res.json();
-    reloadRows();
+  // Helper: find closest SPY price for a given date string (handles market holidays ±3 days)
+  function spyForDate(spyMap, dateStr) {
+    for (const offset of [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5]) {
+      const d = new Date(dateStr + "T12:00:00");
+      d.setDate(d.getDate() + offset);
+      const s = d.toISOString().slice(0, 10);
+      if (spyMap[s] != null) return spyMap[s];
+    }
+    return null;
   }
 
-  async function saveRow(row) {
-    const res = await fetch(`${API}/api/track-record/equity/${row.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        date:            row.date,
-        unrealized_pnl:  Number(row.unrealized_pnl) || 0,
-        fees:            Number(row.fees)  || 0,
-        deposit:         Number(row.deposit) || 0,
-        withdrawal:      Number(row.withdrawal) || 0,
-        portfolio_value: Number(row.portfolio_value) || 0,
-      }),
-    });
-    const updated = await res.json();
-    // PUT /equity/{id} returns full list
-    if (Array.isArray(updated)) {
-      setRows(updated);
+  // Apply period range to all 3 charts
+  function applyPeriod(sel) {
+    const charts = [chart1.current, chart2.current, chart3.current].filter(Boolean);
+    if (!sel?.years) {
+      charts.forEach(c => c.timeScale().fitContent());
+    } else {
+      const to = new Date(), from = new Date();
+      from.setFullYear(from.getFullYear() - sel.years);
+      const range = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+      charts.forEach(c => { try { c.timeScale().setVisibleRange(range); } catch { c.timeScale().fitContent(); } });
     }
   }
 
-  async function deleteRow(id) {
-    await fetch(`${API}/api/track-record/equity/${id}`, { method: "DELETE" });
-    reloadRows();
-  }
-
-  function updateRow(id, field, value) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
-  }
-
-  // Build chart when perf data changes
+  // Build all 3 charts when perf / spy change
   useEffect(() => {
-    if (!perf.length || !mainRef.current || !subRef.current) return;
+    if (!perf.length || !chart1Ref.current || !chart2Ref.current || !chart3Ref.current) return;
 
-    mainChart.current?.remove();
-    subChart.current?.remove();
+    chart1.current?.remove(); chart1.current = null;
+    chart2.current?.remove(); chart2.current = null;
+    chart3.current?.remove(); chart3.current = null;
 
-    const mc = createChart(mainRef.current, {
+    const spyMap = {};
+    if (spy?.dates) spy.dates.forEach((d, i) => { spyMap[d] = spy.values[i]; });
+
+    const chartOpts = (el) => ({
       layout:          { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
       grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { color: "rgba(31,41,55,0.5)" } },
       crosshair:       { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: "#1f2937" },
       timeScale:       { borderColor: "#1f2937", timeVisible: false },
-      width:           mainRef.current.clientWidth,
-      height:          360,
+      width:           el.clientWidth,
+      height:          220,
     });
-    mainChart.current = mc;
 
-    // Cumulative PnL line (realized + unrealized)
-    const pnlLine = mc.addSeries(LineSeries, {
-      color: "#e5e7eb", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Cum. PnL",
-    });
-    pnlLine.setData(perf.map(r => ({ time: r.date, value: r.cum_pnl })));
+    // ── Chart 1: Portfolio Value + Cumulative Deposit ──
+    const c1 = createChart(chart1Ref.current, chartOpts(chart1Ref.current));
+    chart1.current = c1;
+    c1.addSeries(LineSeries, { color: "#60a5fa", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Portfolio Value" })
+      .setData(perf.map(r => ({ time: r.date, value: r.account_value })));
+    c1.addSeries(LineSeries, { color: "#374151", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, title: "Cum. Deposit" })
+      .setData(perf.map(r => ({ time: r.date, value: r.capital })));
+    c1.timeScale().fitContent();
 
-    // SPY overlay (dollar equivalent scaled to first cum_pnl — only shown if spy data exists)
-    if (showSpy && spy?.dates?.length && perf.length) {
-      const firstVal = perf[0].cum_pnl;
-      mc.addSeries(LineSeries, {
-        color: "#f59e0b", lineWidth: 1.5, lineStyle: 1, priceLineVisible: false, lastValueVisible: false, title: "SPY",
-      }).setData(spy.dates.map((d, i) => ({ time: d, value: (spy.values[i] - 100) / 100 * Math.abs(firstVal || 10000) + firstVal })));
+    // ── Chart 2: Portfolio Index vs SPX Index (both = 100 at week 0) ──
+    const c2 = createChart(chart2Ref.current, chartOpts(chart2Ref.current));
+    chart2.current = c2;
+    const firstAV   = perf.find(r => (r.account_value ?? 0) > 0)?.account_value ?? 1;
+    const firstDate = perf.find(r => (r.account_value ?? 0) > 0)?.date;
+    c2.addSeries(LineSeries, { color: "#60a5fa", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Portfolio" })
+      .setData(perf.filter(r => r.account_value != null).map(r => ({ time: r.date, value: Math.round(r.account_value / firstAV * 10000) / 100 })));
+    const spxAtFirst = firstDate ? spyForDate(spyMap, firstDate) : null;
+    if (spxAtFirst) {
+      c2.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "SPX" })
+        .setData(perf.map(r => { const v = spyForDate(spyMap, r.date); return v != null ? { time: r.date, value: Math.round(v / spxAtFirst * 10000) / 100 } : null; }).filter(Boolean));
     }
+    c2.timeScale().fitContent();
 
-    mc.timeScale().fitContent();
+    // ── Chart 3: Realized PnL (cumulative, realized only) ──
+    const c3 = createChart(chart3Ref.current, chartOpts(chart3Ref.current));
+    chart3.current = c3;
+    // Split into positive and negative segments for coloring
+    c3.addSeries(LineSeries, { color: "#f97316", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Realized PnL" })
+      .setData(perf.map(r => ({ time: r.date, value: r.cum_realized })));
+    c3.timeScale().fitContent();
 
-    // Sub chart — weekly PnL histogram
-    const sc = createChart(subRef.current, {
-      layout:          { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
-      grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { visible: false } },
-      crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937", scaleMargins: { top: 0.05, bottom: 0.05 } },
-      timeScale:       { borderColor: "#1f2937", timeVisible: true },
-      width:           subRef.current.clientWidth,
-      height:          120,
-    });
-    subChart.current = sc;
-
-    const weeklyBar = sc.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, base: 0 });
-    weeklyBar.setData(perf.map(r => ({
-      time:  r.date,
-      value: r.weekly_pnl,
-      color: r.weekly_pnl >= 0 ? "rgba(22,163,74,0.7)" : "rgba(220,38,38,0.7)",
-    })));
-    sc.timeScale().fitContent();
-
-    // Sync
-    mc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      sc.timeScale().setVisibleRange(range);
-      syncing.current = false;
-    });
-    sc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      mc.timeScale().setVisibleRange(range);
-      syncing.current = false;
+    // ── Sync all 3 time scales ──
+    const allCharts = [c1, c2, c3];
+    allCharts.forEach((src) => {
+      src.timeScale().subscribeVisibleTimeRangeChange((range) => {
+        if (syncing.current || !range) return;
+        syncing.current = true;
+        allCharts.forEach(dst => { if (dst !== src) { try { dst.timeScale().setVisibleRange(range); } catch {} } });
+        syncing.current = false;
+      });
     });
 
+    // ── ResizeObserver ──
     const ro = new ResizeObserver(() => {
-      mc.applyOptions({ width: mainRef.current?.clientWidth ?? 600 });
-      sc.applyOptions({ width: subRef.current?.clientWidth ?? 600 });
+      c1.applyOptions({ width: chart1Ref.current?.clientWidth ?? 400 });
+      c2.applyOptions({ width: chart2Ref.current?.clientWidth ?? 400 });
+      c3.applyOptions({ width: chart3Ref.current?.clientWidth ?? 400 });
     });
-    ro.observe(mainRef.current);
+    ro.observe(chart1Ref.current);
 
     return () => {
       ro.disconnect();
-      mc.remove(); mainChart.current = null;
-      sc.remove(); subChart.current  = null;
+      c1.remove(); chart1.current = null;
+      c2.remove(); chart2.current = null;
+      c3.remove(); chart3.current = null;
     };
-  }, [perf, spy, showSpy]);
+  }, [perf, spy]);
 
-  // Period
+  // Period selector
   useEffect(() => {
-    if (!mainChart.current) return;
-    const sel = PERIODS.find(p => p.label === period);
-    if (!sel?.years) {
-      mainChart.current.timeScale().fitContent();
-    } else {
-      const to = new Date(), from = new Date();
-      from.setFullYear(from.getFullYear() - sel.years);
-      try {
-        mainChart.current.timeScale().setVisibleRange({
-          from: from.toISOString().slice(0, 10),
-          to:   to.toISOString().slice(0, 10),
-        });
-      } catch {
-        mainChart.current.timeScale().fitContent();
-      }
-    }
+    applyPeriod(PERIODS.find(p => p.label === period));
   }, [period, perf]);
 
   const statItems = stats ? [
@@ -757,6 +718,8 @@ function EquityCurveTab() {
     { label: "Sortino",          value: stats.sortino != null ? fmtNum(stats.sortino, 2) : "—", color: pnlColor(stats.sortino) },
   ] : [];
 
+  if (loading) return <div style={{ color: "#4b5563", fontSize: 13, padding: "24px 0" }}>Loading equity data…</div>;
+
   const lastPerf   = perf.length ? perf[perf.length - 1] : null;
   const netCapital = lastPerf?.capital ?? 0;
   const totalPnl   = lastPerf?.cum_pnl ?? 0;
@@ -764,30 +727,98 @@ function EquityCurveTab() {
   const totalWit   = perf.reduce((s, r) => s + (r.cap_delta < 0 ? Math.abs(r.cap_delta) : 0), 0);
   const retPct     = netCapital > 0 ? (totalPnl / netCapital * 100) : null;
 
-  if (loading) return <div style={{ color: "#4b5563", fontSize: 13, padding: "24px 0" }}>Loading equity data…</div>;
+  // Compute full analytics table client-side (oldest → newest, then reverse for display)
+  // spyIdxMap: date → indexed value (100-based), spyRawMap: date → actual ETF price
+  const spyIdxMap = {};
+  const spyRawMap = {};
+  if (spy?.dates) {
+    spy.dates.forEach((d, i) => {
+      spyIdxMap[d] = spy.values[i];
+      if (spy.raw) spyRawMap[d] = spy.raw[i];
+    });
+  }
+
+  let portIdx    = null;
+  let spxIdx0    = null;
+  let peakPort   = 100;
+  let peakSpx    = 100;
+
+  const tableRows = perf.map((r, i) => {
+    const prevAV     = i > 0 ? perf[i - 1].account_value : null;
+    const portReturn = prevAV && prevAV !== 0 ? r.account_value / prevAV - 1 : null;
+
+    portIdx = portIdx === null ? 100 : portIdx * (1 + (portReturn ?? 0));
+    peakPort = Math.max(peakPort, portIdx);
+    const drawdown = portIdx / peakPort - 1;
+
+    // SPY indexed value (already 100-based from backend); re-index from first perf week so both start at 100
+    const spyIdxRaw = spyForDate(spyIdxMap, r.date);
+    const spyPrice  = spyForDate(spyRawMap, r.date);
+    let spxIdxVal = null;
+    if (spyIdxRaw != null) {
+      if (spxIdx0 === null) spxIdx0 = spyIdxRaw;
+      spxIdxVal = spyIdxRaw / spxIdx0 * 100;
+      peakSpx = Math.max(peakSpx, spxIdxVal);
+    }
+    const spxDD = spxIdxVal != null ? spxIdxVal / peakSpx - 1 : null;
+
+    return {
+      ...r,
+      port_return:  portReturn,
+      port_index:   portIdx,
+      drawdown,
+      spx_price:    spyPrice,
+      spx_index:    spxIdxVal,
+      spx_drawdown: spxDD,
+      deposit:    r.cap_delta > 0 ? r.cap_delta : 0,
+      withdrawal: r.cap_delta < 0 ? Math.abs(r.cap_delta) : 0,
+    };
+  }).reverse();
+
+  const fmtPct  = (v, dp = 2) => v != null ? `${(v * 100).toFixed(dp)}%` : "—";
+  const fmtIdx  = (v) => v != null ? v.toFixed(2) : "—";
+  const fmtUsd  = (v, showSign = false) => {
+    if (v == null || v === 0) return "—";
+    const s = showSign && v > 0 ? "+" : "";
+    return `${s}$${Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  };
 
   return (
     <div>
-      {/* Capital section */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", marginBottom: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Capital Account</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          <KpiCard label="Net Capital"     value={`$${netCapital.toFixed(0)}`}                                              valueColor="#e5e7eb" small />
-          <KpiCard label="Total Deposited" value={`$${totalDep.toFixed(0)}`}                                                valueColor="#86efac" small />
-          <KpiCard label="Total Withdrawn" value={`$${totalWit.toFixed(0)}`}                                                valueColor="#fca5a5" small />
-          <KpiCard label="Total PnL"       value={`${totalPnl >= 0 ? "+" : ""}$${Math.abs(totalPnl).toFixed(0)}`}          valueColor={pnlColor(totalPnl)} small />
-          <KpiCard label="Account Value"   value={`$${(netCapital + totalPnl).toFixed(0)}`}                                 valueColor="#e5e7eb" small />
-          {retPct != null && <KpiCard label="Return %" value={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`}            valueColor={pnlColor(retPct)} small />}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="date" value={capDate} onChange={e => setCapDate(e.target.value)}
-            style={{ ...cellInput, width: 130, colorScheme: "dark", border: "1px solid #1f2937" }} />
-          <input type="number" placeholder="Amount" value={capAmount} onChange={e => setCapAmount(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addCapital("deposit"); }}
-            style={{ ...cellInput, width: 110, border: "1px solid #1f2937", textAlign: "right" }} />
-          <button onClick={() => addCapital("deposit")}  style={{ ...btnBase, background: "rgba(22,163,74,0.15)",  border: "1px solid rgba(22,163,74,0.3)",  color: "#86efac", padding: "7px 16px" }}>+ Deposit</button>
-          <button onClick={() => addCapital("withdraw")} style={{ ...btnBase, background: "rgba(220,38,38,0.10)", border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5", padding: "7px 16px" }}>− Withdraw</button>
-        </div>
+      {/* Capital Account — collapsible */}
+      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, marginBottom: 20, overflow: "hidden" }}>
+        <button
+          onClick={() => setShowCapital(p => !p)}
+          style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em" }}>Capital Account</span>
+            <span style={{ fontSize: 12, color: "#e5e7eb" }}>${(netCapital + totalPnl).toFixed(0)}</span>
+            {retPct != null && <span style={{ fontSize: 12, color: pnlColor(retPct) }}>{retPct >= 0 ? "+" : ""}{retPct.toFixed(2)}%</span>}
+          </div>
+          <span style={{ fontSize: 12 }}>{showCapital ? "▲" : "▼"}</span>
+        </button>
+        {showCapital && (
+          <div style={{ padding: "0 20px 16px" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              <KpiCard label="Net Capital"     value={`$${netCapital.toFixed(0)}`}                                     valueColor="#e5e7eb" small />
+              <KpiCard label="Total Deposited" value={`$${totalDep.toFixed(0)}`}                                       valueColor="#86efac" small />
+              <KpiCard label="Total Withdrawn" value={`$${totalWit.toFixed(0)}`}                                       valueColor="#fca5a5" small />
+              <KpiCard label="Total PnL"       value={`${totalPnl >= 0 ? "+" : ""}$${Math.abs(totalPnl).toFixed(0)}`} valueColor={pnlColor(totalPnl)} small />
+              <KpiCard label="Account Value"   value={`$${(netCapital + totalPnl).toFixed(0)}`}                        valueColor="#e5e7eb" small />
+              {retPct != null && <KpiCard label="Return %" value={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`}   valueColor={pnlColor(retPct)} small />}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input type="date" value={capDate} onChange={e => setCapDate(e.target.value)}
+                style={{ ...cellInput, width: 130, colorScheme: "dark", border: "1px solid #1f2937" }} />
+              <input type="number" placeholder="Amount" value={capAmount} onChange={e => setCapAmount(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") addCapital("deposit"); }}
+                style={{ ...cellInput, width: 110, border: "1px solid #1f2937", textAlign: "right" }} />
+              <button onClick={() => addCapital("deposit")}  style={{ ...btnBase, background: "rgba(22,163,74,0.15)",  border: "1px solid rgba(22,163,74,0.3)",  color: "#86efac",  padding: "7px 16px" }}>+ Deposit</button>
+              <button onClick={() => addCapital("withdraw")} style={{ ...btnBase, background: "rgba(220,38,38,0.10)", border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5", padding: "7px 16px" }}>− Withdraw</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stats strip */}
@@ -799,121 +830,89 @@ function EquityCurveTab() {
         </div>
       )}
 
-      {/* Chart controls */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+      {/* Period selector */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
         {PERIODS.map(p => (
           <button key={p.label} onClick={() => setPeriod(p.label)} style={{
-            padding: "5px 10px", fontSize: 12, borderRadius: 5,
-            background: period === p.label ? "#1e3a5f" : "transparent",
-            border: period === p.label ? "1px solid #2d5a8e" : "1px solid #1f2937",
-            color: period === p.label ? "#93c5fd" : "#6b7280",
-            cursor: "pointer",
+            padding: "5px 10px", fontSize: 12, borderRadius: 5, cursor: "pointer",
+            background: period === p.label ? "#0f2040" : "transparent",
+            border:     period === p.label ? "1px solid #1e3a5f" : "1px solid #1f2937",
+            color:      period === p.label ? "#60a5fa" : "#6b7280",
           }}>{p.label}</button>
         ))}
-        <button onClick={() => setShowSpy(s => !s)} style={{
-          padding: "5px 12px", fontSize: 12, borderRadius: 5,
-          background: showSpy ? "rgba(245,158,11,0.15)" : "transparent",
-          border: showSpy ? "1px solid rgba(245,158,11,0.5)" : "1px solid #1f2937",
-          color: showSpy ? "#f59e0b" : "#6b7280",
-          cursor: "pointer",
-        }}>◈ SPY</button>
       </div>
 
-      {/* Charts */}
+      {/* 3 Charts side by side */}
       {perf.length > 0 ? (
-        <>
-          <div ref={mainRef} style={{ width: "100%" }} />
-          <div style={{ fontSize: 10, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4, marginBottom: 2 }}>Weekly PnL</div>
-          <div ref={subRef} style={{ width: "100%" }} />
-        </>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 28 }}>
+          <div>
+            <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Portfolio Value</div>
+            <div ref={chart1Ref} style={{ width: "100%" }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Portfolio Index</div>
+            <div ref={chart2Ref} style={{ width: "100%" }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Realized PnL</div>
+            <div ref={chart3Ref} style={{ width: "100%" }} />
+          </div>
+        </div>
       ) : (
-        <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13, border: "1px dashed #1f2937", borderRadius: 8 }}>
+        <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13, border: "1px dashed #1f2937", borderRadius: 8, marginBottom: 28 }}>
           Add realized trades to see the equity curve
         </div>
       )}
 
-      {/* Equity Table */}
-      <div style={{ marginTop: 28 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em" }}>Portfolio Data</div>
-          <button onClick={addRow} style={btnPrimary}>+ Add Row</button>
-        </div>
-
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <Th>Date</Th>
-                <Th style={{ textAlign: "right" }}>Unrealized PnL</Th>
-                <Th style={{ textAlign: "right" }}>Realized PnL</Th>
-                <Th style={{ textAlign: "right" }}>Fees</Th>
-                <Th style={{ textAlign: "right" }}>Deposit</Th>
-                <Th style={{ textAlign: "right" }}>Withdrawal</Th>
-                <Th style={{ textAlign: "right" }}>Cum. Deposit</Th>
-                <Th style={{ textAlign: "right" }}>Portfolio Value</Th>
-                <Th style={{ textAlign: "right" }}>Return %</Th>
-                <Th style={{ textAlign: "right" }}>Index</Th>
-                <Th style={{ textAlign: "right" }}>Drawdown</Th>
-                <Th style={{ width: 30 }}></Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => (
-                <tr key={row.id}
-                  style={{ borderBottom: "1px solid #0d1829" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <td style={{ padding: "4px 6px" }}>
-                    <input type="date" value={row.date || ""} onChange={e => updateRow(row.id, "date", e.target.value)}
-                      onBlur={() => saveRow(row)} style={{ ...cellInput, width: 120, colorScheme: "dark" }} />
-                  </td>
-                  <td style={{ padding: "4px 6px" }}>
-                    <input type="number" value={row.unrealized_pnl ?? ""} onChange={e => updateRow(row.id, "unrealized_pnl", e.target.value)}
-                      onBlur={() => saveRow(row)} style={{ ...cellInput, textAlign: "right", width: 90, color: pnlColor(row.unrealized_pnl) }} />
-                  </td>
-                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: pnlColor(row.realized_pnl), fontVariantNumeric: "tabular-nums" }}>
-                    {row.realized_pnl != null ? `${row.realized_pnl >= 0 ? "+" : ""}$${Math.abs(row.realized_pnl).toFixed(0)}` : "—"}
-                  </td>
-                  <td style={{ padding: "4px 6px" }}>
-                    <input type="number" value={row.fees ?? ""} onChange={e => updateRow(row.id, "fees", e.target.value)}
-                      onBlur={() => saveRow(row)} style={{ ...cellInput, textAlign: "right", width: 70 }} />
-                  </td>
-                  <td style={{ padding: "4px 6px" }}>
-                    <input type="number" value={row.deposit ?? ""} onChange={e => updateRow(row.id, "deposit", e.target.value)}
-                      onBlur={() => saveRow(row)} style={{ ...cellInput, textAlign: "right", width: 80, color: "#86efac" }} />
-                  </td>
-                  <td style={{ padding: "4px 6px" }}>
-                    <input type="number" value={row.withdrawal ?? ""} onChange={e => updateRow(row.id, "withdrawal", e.target.value)}
-                      onBlur={() => saveRow(row)} style={{ ...cellInput, textAlign: "right", width: 80, color: "#fca5a5" }} />
-                  </td>
-                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#9ca3af", fontVariantNumeric: "tabular-nums" }}>
-                    {row.cumulative_deposit != null ? `$${row.cumulative_deposit.toFixed(0)}` : "—"}
-                  </td>
-                  <td style={{ padding: "4px 6px" }}>
-                    <input type="number" value={row.portfolio_value ?? ""} onChange={e => updateRow(row.id, "portfolio_value", e.target.value)}
-                      onBlur={() => saveRow(row)} style={{ ...cellInput, textAlign: "right", width: 90, color: "#e5e7eb", fontWeight: 600 }} />
-                  </td>
-                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, fontWeight: 600, color: pnlColor(row.return_pct), fontVariantNumeric: "tabular-nums" }}>
-                    {row.return_pct != null ? `${row.return_pct >= 0 ? "+" : ""}${row.return_pct.toFixed(2)}%` : "—"}
-                  </td>
-                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>
-                    {row.index != null ? row.index.toFixed(1) : "—"}
-                  </td>
-                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: pnlColor(row.drawdown), fontVariantNumeric: "tabular-nums" }}>
-                    {row.drawdown != null ? `${row.drawdown.toFixed(2)}%` : "—"}
-                  </td>
-                  <td style={{ padding: "4px 6px", textAlign: "center" }}>
-                    <DeleteBtn onClick={() => deleteRow(row.id)} />
-                  </td>
+      {/* Portfolio Data table */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Portfolio Data</div>
+        {tableRows.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px", color: "#374151", fontSize: 13 }}>No performance data yet.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
+              <thead>
+                <tr>
+                  <Th>Week</Th>
+                  <Th style={{ textAlign: "right" }}>Unrealized</Th>
+                  <Th style={{ textAlign: "right" }}>Realized (Cum.)</Th>
+                  <Th style={{ textAlign: "right" }}>Deposit</Th>
+                  <Th style={{ textAlign: "right" }}>Withdrawal</Th>
+                  <Th style={{ textAlign: "right" }}>Net Capital</Th>
+                  <Th style={{ textAlign: "right" }}>Portfolio Value</Th>
+                  <Th style={{ textAlign: "right" }}>Return %</Th>
+                  <Th style={{ textAlign: "right" }}>Index</Th>
+                  <Th style={{ textAlign: "right" }}>Drawdown</Th>
+                  <Th style={{ textAlign: "right" }}>SPX</Th>
+                  <Th style={{ textAlign: "right" }}>SPX Index</Th>
+                  <Th style={{ textAlign: "right" }}>SPX DD</Th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {rows.length === 0 && (
-          <div style={{ textAlign: "center", padding: "32px", color: "#374151", fontSize: 13 }}>
-            No equity entries yet. Click "+ Add Row" to get started.
+              </thead>
+              <tbody>
+                {tableRows.map((row, i) => (
+                  <tr key={row.date}
+                    style={{ borderBottom: "1px solid #0d1829", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
+                    onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)"}
+                  >
+                    <td style={{ padding: "4px 8px", color: "#6b7280", whiteSpace: "nowrap" }}>{row.date}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: pnlColor(row.weekly_unrealized) }}>{fmtUsd(row.weekly_unrealized, true)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: pnlColor(row.cum_realized) }}>{fmtUsd(row.cum_realized, true)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#86efac" }}>{fmtUsd(row.deposit)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#fca5a5" }}>{fmtUsd(row.withdrawal)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#9ca3af" }}>{fmtUsd(row.capital)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#e5e7eb", fontWeight: 600 }}>{fmtUsd(row.account_value)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: pnlColor(row.port_return) }}>{fmtPct(row.port_return)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.port_index != null ? (row.port_index >= 100 ? "#86efac" : "#fca5a5") : "#6b7280" }}>{fmtIdx(row.port_index)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.drawdown < -0.0001 ? "#fca5a5" : "#4b5563" }}>{row.drawdown < -0.0001 ? fmtPct(row.drawdown) : "—"}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#6b7280" }}>{row.spx_price != null ? row.spx_price.toFixed(2) : "—"}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.spx_index != null ? (row.spx_index >= 100 ? "#86efac" : "#fca5a5") : "#6b7280" }}>{fmtIdx(row.spx_index)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.spx_drawdown != null && row.spx_drawdown < -0.0001 ? "#fca5a5" : "#4b5563" }}>{row.spx_drawdown != null && row.spx_drawdown < -0.0001 ? fmtPct(row.spx_drawdown) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

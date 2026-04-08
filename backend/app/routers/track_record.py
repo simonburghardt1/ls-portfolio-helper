@@ -471,23 +471,25 @@ async def equity_performance(db: Session = Depends(get_db)):
         all_weeks.append(w)
         w += datetime.timedelta(weeks=1)
 
-    cum_pnl = 0.0
-    cum_cap = 0.0
-    result  = []
+    cum_pnl      = 0.0
+    cum_cap      = 0.0
+    cum_realized = 0.0
+    result       = []
     for week in all_weeks:
         cap_delta    = weekly_cap.get(week, 0.0)
         extra        = unrealized if week == current_mon else 0.0
-        weekly_total = weekly_pnl.get(week, 0.0) + extra
+        wr           = weekly_pnl.get(week, 0.0)
+        weekly_total = wr + extra
         cum_pnl     += weekly_total
         cum_cap     += cap_delta
-        weekly_realized   = weekly_pnl.get(week, 0.0)
-        weekly_unrealized = extra
+        cum_realized += wr
         result.append({
             "date":               week.isoformat(),
             "weekly_pnl":         round(weekly_total, 2),
-            "weekly_realized":    round(weekly_realized, 2),
-            "weekly_unrealized":  round(weekly_unrealized, 2),
+            "weekly_realized":    round(wr, 2),
+            "weekly_unrealized":  round(extra, 2),
             "cum_pnl":            round(cum_pnl, 2),
+            "cum_realized":       round(cum_realized, 2),
             "cap_delta":          round(cap_delta, 2),
             "capital":            round(cum_cap, 2),
             "account_value":      round(cum_cap + cum_pnl, 2),
@@ -498,19 +500,24 @@ async def equity_performance(db: Session = Depends(get_db)):
 
 @router.get("/equity/spy")
 def equity_spy(db: Session = Depends(get_db)):
-    """Return SPY prices indexed to 100 from the first equity entry date."""
-    first = db.query(func.min(EquityEntry.date)).scalar()
+    """Return SPY prices indexed to 100 from the first trade/equity-entry date."""
+    trade_min = db.query(func.min(RealizedTrade.exit_date)).scalar()
+    entry_min = db.query(func.min(EquityEntry.date)).scalar()
+    candidates = [d for d in [trade_min, entry_min] if d]
+    first = min(candidates) if candidates else None
     if not first:
         return {"dates": [], "values": []}
     try:
-        data = yf.download("SPY", start=first.isoformat(), progress=False, auto_adjust=True)
-        closes = data["Close"].dropna()
+        # Start from Monday of the first week so SPY always covers the first perf week
+        first_mon = first - datetime.timedelta(days=first.weekday())
+        closes = yf.Ticker("SPY").history(start=first_mon.isoformat())["Close"].dropna()
         if closes.empty:
-            return {"dates": [], "values": []}
+            return {"dates": [], "values": [], "raw": []}
         base = float(closes.iloc[0])
         return {
             "dates":  [str(d.date()) for d in closes.index],
             "values": [round(float(v) / base * 100, 3) for v in closes],
+            "raw":    [round(float(v), 2) for v in closes],
         }
     except Exception as exc:
         return {"dates": [], "values": [], "error": str(exc)}
