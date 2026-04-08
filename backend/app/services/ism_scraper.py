@@ -2,6 +2,7 @@
 ISM Manufacturing Report scraper.
 Sources:
   - PRNewswire press releases (historical, ~10 years)
+  - ismworld.org (current/recent reports, monthly scheduler)
 URL discovery uses PRNewswire's search page, which returns static HTML.
 """
 
@@ -164,12 +165,14 @@ def parse_html(html: str, url: str) -> Optional[dict]:
         return None
 
     industry_rankings = _parse_industry_rankings(soup)
+    respondent_comments = _parse_respondent_comments(soup)
 
     return {
-        "date":               report_date,
-        "components":         components,
-        "industry_rankings":  industry_rankings,
-        "source_url":         url,
+        "date":                report_date,
+        "components":          components,
+        "industry_rankings":   industry_rankings,
+        "respondent_comments": respondent_comments,
+        "source_url":          url,
     }
 
 
@@ -262,7 +265,14 @@ def _try_float(text: str) -> Optional[float]:
 
 # Each entry: (component_col, direction_sign, keyword_regex)
 # The full compiled pattern is: keyword + up to 150 chars (non-period) + "are/is: LIST."
+
+_MONTHS_RE = r"(?:january|february|march|april|may|june|july|august|september|october|november|december)"
+
 _COMP_DIR_PATTERNS: list[tuple[str, int, str]] = [
+    # Overall PMI — "manufacturing industries reporting growth in March — listed in order — are: ..."
+    # Month name distinguishes this from component-specific paragraphs ("growth in new orders")
+    ("pmi", +1, r"manufacturing\s+industries\s+reporting\s+(?:growth|expansion)\s+in\s+" + _MONTHS_RE),
+    ("pmi", -1, r"industries\s+reporting\s+contraction\s+in\s+" + _MONTHS_RE),
     # New Orders
     ("new_orders", +1, r"(?:growth|an?\s+increase|increas\w+|expan\w+)\s+in\s+new\s+orders"),
     ("new_orders", -1, r"(?:a\s+)?(?:decline|decrease|decreas\w+|contraction|contract\w+|reduction)\s+in\s+new\s+orders"),
@@ -326,6 +336,56 @@ def _parse_industry_rankings(soup: BeautifulSoup) -> dict[str, list[dict]]:
     return rankings
 
 
+# ── Respondent comments parser ─────────────────────────────────────────────────
+
+_COMMENT_RE = re.compile(
+    r'["\u201c\u2018]'          # opening quote (straight, curly double, or curly single)
+    r'(.+?)'                     # quote body (non-greedy)
+    r'["\u201d\u2019]'          # closing quote
+    r'\s*'
+    r'[\(\[]?'                   # optional open paren/bracket
+    r'([A-Z][^)\]\n]{3,80})'    # industry name: capital start, 4-80 chars
+    r'[\)\]]?\s*$',
+    re.DOTALL,
+)
+
+
+def _parse_respondent_comments(soup: BeautifulSoup) -> dict[str, str]:
+    """
+    Parse the "WHAT RESPONDENTS ARE SAYING" section.
+    Returns {industry_name: comment_text}.
+    """
+    comments: dict[str, str] = {}
+
+    # Find the section heading
+    target_ul = None
+    for tag in soup.find_all(["h2", "h3", "h4", "p", "b", "strong"]):
+        if "what respondents are saying" in tag.get_text().lower():
+            # Walk siblings until we hit a <ul>
+            for sib in tag.find_next_siblings():
+                if sib.name == "ul":
+                    target_ul = sib
+                    break
+                if sib.name in ("h2", "h3", "h4"):
+                    break  # hit the next section heading without finding a <ul>
+            break
+
+    # Collect <li> elements from the target <ul>, or fall back to all <li>s in the doc
+    items = target_ul.find_all("li") if target_ul else soup.find_all("li")
+
+    for li in items:
+        text = li.get_text(" ", strip=True)
+        m = _COMMENT_RE.search(text)
+        if not m:
+            continue
+        quote   = m.group(1).strip()
+        industry = _title_case_industry(m.group(2).strip().rstrip(".,;"))
+        if industry and quote and industry not in comments:
+            comments[industry] = quote
+
+    return comments
+
+
 def _split_industry_list(raw: str) -> list[str]:
     """Parse '; '-separated industry list, stripping 'and', trailing punctuation."""
     raw = raw.strip().rstrip(".")
@@ -352,3 +412,118 @@ def _title_case_industry(name: str) -> str:
 
 def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+# ── Latest report from PRNewswire (fast, 1-page search) ───────────────────────
+
+async def scrape_latest_from_prnewswire() -> Optional[dict]:
+    """
+    Find and scrape the most recent ISM Manufacturing PRNewswire release.
+    Uses Bing News RSS (machine-readable, no JS required) to locate the article URL,
+    then scrapes it with the existing PRNewswire parser.
+    """
+    import xml.etree.ElementTree as ET
+    import urllib.parse
+
+    rss_queries = [
+        "ISM manufacturing PMI report prnewswire",
+        "manufacturing ISM report on business prnewswire",
+    ]
+
+    found: list[str] = []
+
+    async with httpx.AsyncClient(headers=HEADERS, timeout=20, follow_redirects=True) as client:
+        for query in rss_queries:
+            rss_url = f"https://www.bing.com/news/search?q={urllib.parse.quote(query)}&format=RSS"
+            try:
+                resp = await client.get(rss_url)
+                root = ET.fromstring(resp.text)
+                for item in root.findall(".//item"):
+                    link_el = item.find("link")
+                    if link_el is None or not link_el.text:
+                        continue
+                    href = link_el.text.strip()
+                    # Bing wraps links in a redirect — decode the real URL from url= param
+                    if "apiclick.aspx" in href and "url=" in href:
+                        params = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                        href = params.get("url", [href])[0]
+                    if href not in found:
+                        found.append(href)
+                if found:
+                    break
+            except Exception as exc:
+                log.warning("Bing RSS error: %s", exc)
+
+    if not found:
+        log.warning("No URLs found via Bing News RSS.")
+        return None
+
+    log.info("Bing RSS candidates: %s", found)
+
+    # Try each URL — our parser works on any site that publishes the full press release
+    for url in found:
+        try:
+            data = await scrape_report(url)
+            if data is not None:
+                log.info("Latest ISM report scraped from %s: %s", url, data["date"])
+                return data
+        except Exception as exc:
+            log.warning("Failed to scrape %s: %s", url, exc)
+
+    return None
+
+
+# ── ISM Website scraper ────────────────────────────────────────────────────────
+
+ISM_BASE = (
+    "https://www.ismworld.org/supply-management-news-and-reports/"
+    "reports/ism-pmi-reports/pmi/{month}/"
+)
+
+
+async def scrape_ismworld_report(month_name: str, year: int) -> Optional[dict]:
+    """
+    Fetch and parse the ISM Manufacturing PMI report directly from ismworld.org.
+
+    Args:
+        month_name: lowercase month name, e.g. "march"
+        year:       report year, e.g. 2026
+
+    Returns a dict ready for DB insertion via _upsert_report, or None on failure.
+    """
+    url = ISM_BASE.format(month=month_name.lower())
+    log.info("Fetching ISM report from %s", url)
+
+    try:
+        async with httpx.AsyncClient(headers=HEADERS, timeout=30, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+    except Exception as exc:
+        log.warning("Failed to fetch ISM website (%s): %s", url, exc)
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # ISM website blocks plain HTTP requests (returns ~1KB bot-detection shell).
+    # This function is kept as a placeholder but currently returns None.
+    log.warning(
+        "ismworld.org returned %d bytes with no tables — site blocks plain HTTP. "
+        "Use scrape_latest_from_prnewswire() instead.",
+        len(resp.text),
+    )
+    return None
+
+    # ── Industry rankings ─────────────────────────────────────────────────────
+    # Paragraph format is identical to PRNewswire — reuse existing parser.
+    industry_rankings = _parse_industry_rankings(soup)
+
+    log.info(
+        "ISM website scrape OK: %s %d — %d components, %d ranked components",
+        month_name, year, len(components), len(industry_rankings),
+    )
+    return {
+        "date":              report_date,
+        "components":        components,
+        "industry_rankings": industry_rankings,
+        "source_url":        url,
+    }

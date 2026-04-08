@@ -57,6 +57,13 @@ export default function IsmManufacturingPage() {
   const [allRankings, setAllRankings]         = useState(null);
   const [rankingsLoading, setRankingsLoading] = useState(false);
 
+  // Comments tab state
+  const [commentsIndustryList, setCommentsIndustryList] = useState([]);
+  const [commentsIndustry, setCommentsIndustry]         = useState(null);
+  const [commentsComponent, setCommentsComponent]       = useState("pmi");
+  const [commentsData, setCommentsData]                 = useState(null);
+  const [commentsLoading, setCommentsLoading]           = useState(false);
+
   useEffect(() => {
     fetch(`${API}/api/ism/manufacturing/series`)
       .then((r) => r.json())
@@ -65,6 +72,30 @@ export default function IsmManufacturingPage() {
   }, []);
 
   const components = series ? Object.keys(series) : Object.keys(COMPONENT_COLORS);
+
+  // Load industry list when tab opens or component changes
+  useEffect(() => {
+    if (tab !== "comments" || commentsIndustryList.length > 0) return;
+    fetch(`${API}/api/ism/manufacturing/rankings?component=${commentsComponent}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const list = (d.industries || []).sort();
+        setCommentsIndustryList(list);
+        if (list.length > 0 && !commentsIndustry) setCommentsIndustry(list[0]);
+      })
+      .catch(() => {});
+  }, [tab, commentsComponent, commentsIndustryList]);
+
+  // Load history when industry or component changes
+  useEffect(() => {
+    if (tab !== "comments" || !commentsIndustry) return;
+    setCommentsLoading(true);
+    setCommentsData(null);
+    fetch(`${API}/api/ism/manufacturing/industry-history?industry=${encodeURIComponent(commentsIndustry)}&component=${commentsComponent}`)
+      .then((r) => r.json())
+      .then((d) => { setCommentsData(d); setCommentsLoading(false); })
+      .catch(() => setCommentsLoading(false));
+  }, [tab, commentsIndustry, commentsComponent]);
 
   useEffect(() => {
     if (tab !== "rankings" || allRankings !== null) return;
@@ -129,7 +160,7 @@ export default function IsmManufacturingPage() {
         <>
           {/* Tabs */}
           <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #1f2937" }}>
-            {[["chart","Time Series"],["heatmap","Heatmap"],["rankings","Sector Rankings"]].map(([t, label]) => (
+            {[["chart","Time Series"],["heatmap","Heatmap"],["rankings","Sector Rankings"],["comments","Industry Comments"]].map(([t, label]) => (
               <button key={t} onClick={() => setTab(t)} style={{
                 background: "transparent", border: "none", cursor: "pointer",
                 padding: "8px 16px", fontSize: 13, fontWeight: 500,
@@ -192,10 +223,46 @@ export default function IsmManufacturingPage() {
               ? <LoadingState />
               : <RankingsView allRankings={allRankings} labels={labels} components={components} />
           )}
+
+          {/* ── Industry Comments Tab ── */}
+          {tab === "comments" && (
+            commentsLoading
+              ? <LoadingState />
+              : <IndustryCommentsView
+                  industryList={commentsIndustryList}
+                  selectedIndustry={commentsIndustry}
+                  onIndustryChange={(ind) => { setCommentsIndustry(ind); setCommentsData(null); }}
+                  components={components}
+                  labels={labels}
+                  selectedComponent={commentsComponent}
+                  onComponentChange={(c) => { setCommentsComponent(c); setCommentsIndustryList([]); setCommentsData(null); }}
+                  data={commentsData}
+                />
+          )}
         </>
       )}
     </PageShell>
   );
+}
+
+// ── Shared score color helper ──────────────────────────────────────────────────
+
+function scoreColor(s) {
+  if (!s) return "#ca8a04";
+  if (s >= 10) return "#14532d";
+  if (s >= 7)  return "#166534";
+  if (s >= 4)  return "#16a34a";
+  if (s >= 1)  return "#4ade80";
+  if (s <= -10) return "#7f1d1d";
+  if (s <= -7)  return "#991b1b";
+  if (s <= -4)  return "#ef4444";
+  return "#fca5a5";
+}
+
+function scoreTextColor(s) {
+  if (!s) return "#e5e7eb";
+  if (Math.abs(s) >= 4) return "#e5e7eb";
+  return "#111827";
 }
 
 // ── Heatmap (dates = rows, components = columns) ───────────────────────────────
@@ -338,24 +405,6 @@ function ComponentRankHeatmap({ data }) {
     <div style={{ fontSize: 12, color: "#374151" }}>No industry data for this component.</div>
   );
 
-  function scoreColor(s) {
-    if (!s) return "#ca8a04";   // amber-600 — neutral midpoint
-    if (s >= 10) return "#14532d";
-    if (s >= 7)  return "#166534";
-    if (s >= 4)  return "#16a34a";
-    if (s >= 1)  return "#4ade80";
-    if (s <= -10) return "#7f1d1d";
-    if (s <= -7)  return "#991b1b";
-    if (s <= -4)  return "#ef4444";
-    return "#fca5a5";
-  }
-
-  function textColor(s) {
-    if (!s) return "#e5e7eb";
-    if (Math.abs(s) >= 4) return "#e5e7eb";
-    return "#111827";
-  }
-
   const cellW = 36;
   const industryW = 210;
 
@@ -399,7 +448,7 @@ function ComponentRankHeatmap({ data }) {
                   width: cellW, height: 18, flexShrink: 0, marginRight: 1,
                   background: scoreColor(s), borderRadius: 2,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 8, color: textColor(s), fontWeight: 600,
+                  fontSize: 8, color: scoreTextColor(s), fontWeight: 600,
                 }}>
                   {s !== 0 ? s : "0"}
                 </div>
@@ -422,6 +471,87 @@ function ComponentRankHeatmap({ data }) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Industry Comments Tab ──────────────────────────────────────────────────────
+
+const SELECT_STYLE = {
+  background: "#0f172a", border: "1px solid #374151", borderRadius: 6,
+  color: "#e5e7eb", fontSize: 13, padding: "5px 10px", cursor: "pointer",
+};
+
+function ScoreBadge({ score, totalGrowing, totalContracting }) {
+  if (score > 0) return (
+    <span style={{ background: "#16a34a", color: "#fff", borderRadius: 4, padding: "2px 10px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>
+      Growing · {score}/{totalGrowing}
+    </span>
+  );
+  if (score < 0) return (
+    <span style={{ background: "#dc2626", color: "#fff", borderRadius: 4, padding: "2px 10px", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>
+      Contracting · {Math.abs(score)}/{totalContracting}
+    </span>
+  );
+  return <span style={{ color: "#374151", fontSize: 12 }}>—</span>;
+}
+
+function IndustryCommentsView({ industryList, selectedIndustry, onIndustryChange, components, labels, selectedComponent, onComponentChange, data }) {
+  if (industryList.length === 0) {
+    return (
+      <div style={{ color: "#6b7280", fontSize: 13, padding: "40px 0" }}>
+        No rankings data available. Fetch the latest ISM report from the admin page first.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Controls */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <select value={selectedIndustry || ""} onChange={(e) => onIndustryChange(e.target.value)} style={SELECT_STYLE}>
+          {industryList.map((ind) => (
+            <option key={ind} value={ind}>{ind}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Table */}
+      {!data ? (
+        <div style={{ color: "#6b7280", fontSize: 13 }}>Loading…</div>
+      ) : data.rows?.length === 0 ? (
+        <div style={{ color: "#6b7280", fontSize: 13 }}>No data for this industry.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #1f2937" }}>
+                <th style={{ textAlign: "left", padding: "8px 12px", color: "#6b7280", fontWeight: 600, width: 80 }}>Month</th>
+                <th style={{ textAlign: "left", padding: "8px 12px", color: "#6b7280", fontWeight: 600, width: 160 }}>PMI Score</th>
+                <th style={{ textAlign: "left", padding: "8px 12px", color: "#6b7280", fontWeight: 600 }}>Respondent Comment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.rows || []).map((row, i) => (
+                <tr key={row.date} style={{ background: i % 2 === 0 ? "#0f172a" : "#111827" }}>
+                  <td style={{ padding: "10px 12px", color: "#9ca3af", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                    {fmtDate(row.date)}
+                  </td>
+                  <td style={{ padding: "10px 12px", verticalAlign: "top" }}>
+                    <ScoreBadge score={row.score} totalGrowing={row.total_growing} totalContracting={row.total_contracting} />
+                  </td>
+                  <td style={{ padding: "10px 12px", color: row.comment ? "#d1d5db" : "#374151", lineHeight: 1.5, verticalAlign: "top" }}>
+                    {row.comment ? `"${row.comment}"` : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 12, fontSize: 11, color: "#4b5563" }}>
+            Comments available from March 2026 forward.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

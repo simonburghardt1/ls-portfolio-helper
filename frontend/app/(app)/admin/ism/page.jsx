@@ -6,6 +6,26 @@ export default function IsmAdminPage() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const [fetchStatus, setFetchStatus] = useState(null);
+
+  async function handleFetchLatest() {
+    setFetchLoading(true);
+    setFetchStatus(null);
+    try {
+      const res = await fetch("http://localhost:8000/api/ism/manufacturing/fetch-latest", { method: "POST" });
+      const data = await res.json();
+      if (data.status === "ok") {
+        setFetchStatus({ ok: true, message: `${data.message} (${data.components_found} components)` });
+      } else {
+        setFetchStatus({ ok: false, message: data.message || "Unknown error." });
+      }
+    } catch (e) {
+      setFetchStatus({ ok: false, message: e.message });
+    } finally {
+      setFetchLoading(false);
+    }
+  }
 
   async function handleImport() {
     const urls = text
@@ -34,7 +54,27 @@ export default function IsmAdminPage() {
 
   return (
     <div style={{ color: "#e5e7eb", fontFamily: "Arial, sans-serif", maxWidth: 900, margin: "0 auto", padding: "28px 24px" }}>
-      <h1 style={{ fontSize: 24, marginBottom: 6 }}>ISM Manufacturing — Data Import</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <h1 style={{ fontSize: 24, margin: 0 }}>ISM Manufacturing — Data Import</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {fetchStatus && (
+            <span style={{ fontSize: 13, color: fetchStatus.ok ? "#4ade80" : "#f87171" }}>
+              {fetchStatus.message}
+            </span>
+          )}
+          <button
+            onClick={handleFetchLatest}
+            disabled={fetchLoading}
+            style={{
+              background: fetchLoading ? "#1e3a5f" : "#0f3460", color: "#93c5fd",
+              border: "1px solid #1e3a5f", borderRadius: 8, padding: "8px 16px",
+              cursor: fetchLoading ? "not-allowed" : "pointer", fontWeight: 600, fontSize: 13,
+            }}
+          >
+            {fetchLoading ? "Fetching…" : "Fetch Latest"}
+          </button>
+        </div>
+      </div>
       <p style={{ color: "#9ca3af", fontSize: 14, marginBottom: 24 }}>
         Paste PRNewswire URLs (one per line). Find them by searching Google for:<br />
         <code style={{ background: "#0f172a", border: "1px solid #1f2937", padding: "4px 8px", borderRadius: 6, color: "#93c5fd", display: "inline-block", marginTop: 6 }}>

@@ -8,6 +8,11 @@ Jobs:
   07:20  Refresh NFIB OPT_INDEX + components by industry
   07:30  Refresh NFIB OPT_INDEX + components by Census region
   22:00  Market Regime daily update (after US market close 16:00 ET = 20:00 UTC + buffer)
+
+  Monthly (days 1-3 of each month, 16:00 UTC):
+    ISM Manufacturing PMI — releases on the 1st business day of each month at 10:00 ET.
+    Running on days 1, 2, and 3 (weekday filter handles weekend skips) ensures we always
+    catch it regardless of which day of the week the 1st falls on.
 """
 
 import logging
@@ -24,6 +29,8 @@ from app.services.macro_cache import get_series
 from app.services.nfib import refresh_all_components, refresh_all_industries, refresh_all_regions
 from app.services.market_regime import update_market_data
 from app.core.config import settings
+from app.services.ism_scraper import scrape_latest_from_prnewswire
+from app.routers.ism import _upsert_report as _ism_upsert
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +101,23 @@ async def _job_fred():
         db.close()
 
 
+async def _job_ism():
+    """Scrape the latest ISM Manufacturing report from PRNewswire."""
+    db = SessionLocal()
+    try:
+        data = await scrape_latest_from_prnewswire()
+        if data is None:
+            log.warning("ISM monthly scrape returned no data.")
+            return
+        _ism_upsert(db, data)
+        db.commit()
+        log.info("ISM monthly scrape OK: %s, %d components.", data["date"], len(data["components"]))
+    except Exception as exc:
+        log.warning("ISM monthly scrape failed: %s", exc)
+    finally:
+        db.close()
+
+
 async def _job_market_regime():
     db = SessionLocal()
     try:
@@ -113,4 +137,5 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(_job_nfib_industries, CronTrigger(hour=7, minute=20), id="nfib_industries_daily")
     scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
     scheduler.add_job(_job_market_regime,   CronTrigger(hour=22, minute=0), id="market_regime_daily")
+    scheduler.add_job(_job_ism, CronTrigger(day="1,2,3", hour=16, minute=0), id="ism_monthly")
     return scheduler

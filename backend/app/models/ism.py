@@ -46,3 +46,15 @@ class IsmMfgIndustryRank(Base):
     __table_args__ = (
         UniqueConstraint("date", "component", "industry", name="uq_ism_rank"),
     )
+
+
+class IsmMfgComment(Base):
+    """One respondent quote per industry per monthly report (from 'WHAT RESPONDENTS ARE SAYING')."""
+    __tablename__ = "ism_mfg_comment"
+
+    id:       Mapped[int]  = mapped_column(Integer, primary_key=True, autoincrement=True)
+    date:     Mapped[date] = mapped_column(Date, ForeignKey("ism_mfg_report.date"), nullable=False)
+    industry: Mapped[str]  = mapped_column(String(120), nullable=False)
+    comment:  Mapped[str]  = mapped_column(String(2000), nullable=False)
+
+    __table_args__ = (UniqueConstraint("date", "industry", name="uq_ism_comment"),)
