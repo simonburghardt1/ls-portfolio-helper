@@ -455,9 +455,10 @@ def add_withdrawal(payload: CapitalIn, db: Session = Depends(get_db)):
 @router.get("/equity/performance")
 async def equity_performance(db: Session = Depends(get_db)):
     """Weekly cumulative PnL from realized trades + current unrealized, with no gaps."""
-    trades    = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
-    positions = db.query(LivePosition).all()
-    entries   = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
+    trades        = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
+    positions     = db.query(LivePosition).all()
+    entries       = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
+    cash_positions = db.query(CashPosition).all()
 
     from collections import defaultdict
 
@@ -481,30 +482,44 @@ async def equity_performance(db: Session = Depends(get_db)):
     all_dates   = set(weekly_pnl.keys()) | set(weekly_cap.keys())
     first_mon   = min(all_dates) if all_dates else current_mon
 
-    # ── Historical price data for all stock tickers ──────────────────────────
+    # ── Historical price data for all stock tickers + EURUSD ─────────────────
     import pandas as pd
 
     stock_positions = [p for p in positions if " " not in p.ticker]
     option_positions = [p for p in positions if " " in p.ticker]
     stock_trades    = [t for t in trades if " " not in t.ticker]
 
+    # Foreign cash positions that have a cost-basis rate (only these have FX PnL)
+    # Foreign cash positions that have a cost-basis rate (only these generate FX PnL)
+    fx_cash = [cp for cp in cash_positions if cp.currency != "EUR" and cp.rate_at_import is not None]
+    # Build FX ticker list: "USDEUR=X" gives EUR per 1 USD, same convention as rate_at_import
+    fx_tickers = [f"{cp.currency}EUR=X" for cp in fx_cash]
+
     all_stock_tickers = list(
         {p.ticker.upper() for p in stock_positions} |
         {t.ticker.upper() for t in stock_trades}
     )
     closes_df: "pd.DataFrame | None" = None
-    if all_stock_tickers:
+    fx_rate_df: "pd.DataFrame | None" = None   # columns = e.g. "USDEUR=X"
+    download_tickers = all_stock_tickers + fx_tickers
+    if download_tickers:
         try:
             raw = yf.download(
-                all_stock_tickers, start=first_mon.isoformat(),
+                download_tickers, start=first_mon.isoformat(),
                 auto_adjust=True, progress=False,
             )["Close"]
             if isinstance(raw, pd.Series):
-                raw = raw.to_frame(name=all_stock_tickers[0])
+                raw = raw.to_frame(name=download_tickers[0])
             # Strip timezone so asof() comparisons work with plain date timestamps
             if hasattr(raw.index, "tz") and raw.index.tz is not None:
                 raw.index = raw.index.tz_localize(None)
-            closes_df = raw
+            if all_stock_tickers:
+                stock_cols = [c for c in all_stock_tickers if c in raw.columns]
+                closes_df = raw[stock_cols] if stock_cols else None
+            if fx_tickers:
+                available_fx = [c for c in fx_tickers if c in raw.columns]
+                if available_fx:
+                    fx_rate_df = raw[available_fx]
         except Exception as exc:
             log.warning("equity_performance: history fetch failed: %s", exc)
 
@@ -516,6 +531,13 @@ async def equity_performance(db: Session = Depends(get_db)):
             metrics = compute_position_metrics(pos, opt_prices.get(pos.ticker.upper()))
             if metrics["pnl_dollar"] is not None:
                 option_unrealized += metrics["pnl_dollar"]
+
+    # ── FX cash unrealized — live rate, added only to the current week ────────
+    fx_unrealized = 0.0
+    for cp in fx_cash:
+        live_rate = await fetch_fx_rate(cp.currency)   # EUR per foreign unit
+        if live_rate is not None:
+            fx_unrealized += (live_rate - cp.rate_at_import) * cp.amount
 
     # Generate every Monday in range
     all_weeks: list[datetime.date] = []
@@ -550,7 +572,12 @@ async def equity_performance(db: Session = Depends(get_db)):
                 sign  = 1 if pos.side == "long" else -1
                 extra += (float(price) - pos.avg_price_in) * pos.shares * sign
 
-            # Stock realized trades that were open at this week's end
+            # Stock realized trades that were open at this week's end.
+            # Use price-interpolation against IBKR's verified pnl_dollar instead of
+            # (price - entry) * shares, because shares may be inflated by the
+            # instrument multiplier for some tickers.
+            # Formula: unrealized = (price - entry) / (exit - entry) * pnl_dollar
+            # Works for both long and short without separate sign handling.
             for t in stock_trades:
                 if t.entry_date > week_friday or t.exit_date <= week_friday:
                     continue
@@ -560,17 +587,42 @@ async def equity_performance(db: Session = Depends(get_db)):
                 price = closes_df[col].asof(fri_ts)
                 if pd.isna(price):
                     continue
-                sign  = 1 if t.side == "long" else -1
-                extra += (float(price) - t.avg_entry_price) * t.shares * sign
+                price_span = t.avg_exit_price - t.avg_entry_price
+                if price_span == 0:
+                    continue
+                fraction = (float(price) - t.avg_entry_price) / price_span
+                # Clamp fraction: if |price_span| is tiny relative to price movement
+                # (data inconsistency from multiplier mis-parsing) the fraction blows up.
+                # A fraction beyond ±3 means the market moved 3× the total trade journey —
+                # beyond that the position would almost certainly have been stopped out.
+                fraction = max(-3.0, min(3.0, fraction))
+                extra += fraction * t.pnl_dollar
 
-        # Option unrealized only for the current week
+        # Option unrealized only for the current week (can't price options historically)
         if week == current_mon:
             extra += option_unrealized
+            extra += fx_unrealized
+        elif fx_rate_df is not None:
+            # Historical FX PnL: USDEUR=X gives EUR per 1 USD — same convention as rate_at_import.
+            fri_ts_fx = pd.Timestamp(week_friday)
+            for cp in fx_cash:
+                col = f"{cp.currency}EUR=X"
+                if col not in fx_rate_df.columns:
+                    continue
+                eur_per_foreign = fx_rate_df[col].asof(fri_ts_fx)
+                if pd.isna(eur_per_foreign):
+                    continue
+                extra += (float(eur_per_foreign) - cp.rate_at_import) * cp.amount
 
-        weekly_total  = wr + extra
-        cum_pnl      += weekly_total
-        cum_cap      += cap_delta
+        # cum_pnl = total realized so far + current unrealized level.
+        # Do NOT accumulate extra — it is already a cumulative level (entry-to-EOW),
+        # not a weekly delta. Summing it would double-count every open week.
         cum_realized += wr
+        prev_unrealized = result[-1]["weekly_unrealized"] if result else 0.0
+        weekly_unrealized_delta = extra - prev_unrealized
+        weekly_total  = wr + weekly_unrealized_delta
+        cum_pnl       = cum_realized + extra
+        cum_cap      += cap_delta
         result.append({
             "date":               week.isoformat(),
             "weekly_pnl":         round(weekly_total, 2),
