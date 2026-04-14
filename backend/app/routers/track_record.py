@@ -1,6 +1,8 @@
+import asyncio
 import datetime
 from datetime import timezone
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -9,13 +11,14 @@ from sqlalchemy.orm import Session
 import yfinance as yf
 
 from app.db.session import get_db
-from app.models.track_record import EquityEntry, LivePosition, RealizedTrade
+from app.models.track_record import CashPosition, EquityEntry, LivePosition, RealizedTrade
 from app.services.track_record import (
     compute_equity_stats,
     compute_position_metrics,
     compute_trade_pnl,
     compute_trade_stats,
     compute_volatility,
+    fetch_fx_rate,
     fetch_prices,
     fetch_ticker_info,
 )
@@ -85,7 +88,7 @@ def _pos_to_dict(pos: LivePosition, current_price: float | None) -> dict:
 
 
 def _trade_to_dict(t: RealizedTrade) -> dict:
-    days = (t.exit_date - t.entry_date).days
+    days = int(np.busday_count(t.entry_date, t.exit_date))
     return {
         "id":              t.id,
         "ticker":          t.ticker,
@@ -106,8 +109,9 @@ def _trade_to_dict(t: RealizedTrade) -> dict:
 
 # ─── Ticker info ──────────────────────────────────────────────────────────────
 
-@router.get("/ticker-info/{ticker}")
+@router.get("/ticker-info/{ticker:path}")
 async def ticker_info(ticker: str):
+    # ticker may be URL-encoded (e.g. 'ETHA%2017APR26%2015%20C') — FastAPI decodes automatically
     return await fetch_ticker_info(ticker.upper())
 
 
@@ -472,21 +476,46 @@ async def equity_performance(db: Session = Depends(get_db)):
     if not weekly_pnl and not weekly_cap and not positions:
         return []
 
-    # Current unrealized PnL from live positions
-    unrealized = 0.0
-    if positions:
-        tickers = list({p.ticker.upper() for p in positions})
-        prices  = await fetch_prices(tickers)
-        for pos in positions:
-            price = prices.get(pos.ticker.upper())
-            if price is not None:
-                sign = 1.0 if pos.side == "long" else -1.0
-                unrealized += (price - pos.avg_price_in) * pos.shares * sign
-
     today       = datetime.date.today()
     current_mon = today - datetime.timedelta(days=today.weekday())
     all_dates   = set(weekly_pnl.keys()) | set(weekly_cap.keys())
     first_mon   = min(all_dates) if all_dates else current_mon
+
+    # ── Historical price data for all stock tickers ──────────────────────────
+    import pandas as pd
+
+    stock_positions = [p for p in positions if " " not in p.ticker]
+    option_positions = [p for p in positions if " " in p.ticker]
+    stock_trades    = [t for t in trades if " " not in t.ticker]
+
+    all_stock_tickers = list(
+        {p.ticker.upper() for p in stock_positions} |
+        {t.ticker.upper() for t in stock_trades}
+    )
+    closes_df: "pd.DataFrame | None" = None
+    if all_stock_tickers:
+        try:
+            raw = yf.download(
+                all_stock_tickers, start=first_mon.isoformat(),
+                auto_adjust=True, progress=False,
+            )["Close"]
+            if isinstance(raw, pd.Series):
+                raw = raw.to_frame(name=all_stock_tickers[0])
+            # Strip timezone so asof() comparisons work with plain date timestamps
+            if hasattr(raw.index, "tz") and raw.index.tz is not None:
+                raw.index = raw.index.tz_localize(None)
+            closes_df = raw
+        except Exception as exc:
+            log.warning("equity_performance: history fetch failed: %s", exc)
+
+    # ── Option unrealized — live prices, added only to the current week ───────
+    option_unrealized = 0.0
+    if option_positions:
+        opt_prices = await fetch_prices([p.ticker.upper() for p in option_positions])
+        for pos in option_positions:
+            metrics = compute_position_metrics(pos, opt_prices.get(pos.ticker.upper()))
+            if metrics["pnl_dollar"] is not None:
+                option_unrealized += metrics["pnl_dollar"]
 
     # Generate every Monday in range
     all_weeks: list[datetime.date] = []
@@ -500,12 +529,47 @@ async def equity_performance(db: Session = Depends(get_db)):
     cum_realized = 0.0
     result       = []
     for week in all_weeks:
-        cap_delta    = weekly_cap.get(week, 0.0)
-        extra        = unrealized if week == current_mon else 0.0
-        wr           = weekly_pnl.get(week, 0.0)
-        weekly_total = wr + extra
-        cum_pnl     += weekly_total
-        cum_cap     += cap_delta
+        cap_delta   = weekly_cap.get(week, 0.0)
+        wr          = weekly_pnl.get(week, 0.0)
+        week_friday = week + datetime.timedelta(days=4)
+        extra       = 0.0
+
+        if closes_df is not None:
+            fri_ts = pd.Timestamp(week_friday)
+
+            # Stock live positions open at this week's end
+            for pos in stock_positions:
+                if pos.entry_date > week_friday:
+                    continue
+                col = pos.ticker.upper()
+                if col not in closes_df.columns:
+                    continue
+                price = closes_df[col].asof(fri_ts)
+                if pd.isna(price):
+                    continue
+                sign  = 1 if pos.side == "long" else -1
+                extra += (float(price) - pos.avg_price_in) * pos.shares * sign
+
+            # Stock realized trades that were open at this week's end
+            for t in stock_trades:
+                if t.entry_date > week_friday or t.exit_date <= week_friday:
+                    continue
+                col = t.ticker.upper()
+                if col not in closes_df.columns:
+                    continue
+                price = closes_df[col].asof(fri_ts)
+                if pd.isna(price):
+                    continue
+                sign  = 1 if t.side == "long" else -1
+                extra += (float(price) - t.avg_entry_price) * t.shares * sign
+
+        # Option unrealized only for the current week
+        if week == current_mon:
+            extra += option_unrealized
+
+        weekly_total  = wr + extra
+        cum_pnl      += weekly_total
+        cum_cap      += cap_delta
         cum_realized += wr
         result.append({
             "date":               week.isoformat(),
@@ -594,6 +658,62 @@ def delete_equity(entry_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+# ─── Cash Positions ───────────────────────────────────────────────────────────
+
+class CashIn(BaseModel):
+    amount: float
+
+
+@router.get("/cash-positions")
+async def list_cash_positions(db: Session = Depends(get_db)):
+    """Return all cash positions with live FX rates and EUR equivalent."""
+    positions = db.query(CashPosition).order_by(CashPosition.currency.asc()).all()
+    result = []
+    for pos in positions:
+        live_rate = await fetch_fx_rate(pos.currency)
+        eur_value = round(pos.amount * live_rate, 2) if live_rate is not None else None
+        fx_pnl    = (
+            round((live_rate - pos.rate_at_import) * pos.amount, 2)
+            if live_rate is not None and pos.rate_at_import is not None
+            else None
+        )
+        result.append({
+            "currency":        pos.currency,
+            "amount":          pos.amount,
+            "rate_at_import":  pos.rate_at_import,
+            "live_rate":       live_rate,
+            "eur_value":       eur_value,
+            "fx_pnl":          fx_pnl,
+        })
+    return result
+
+
+@router.put("/cash-positions/{currency}")
+async def upsert_cash_position(currency: str, payload: CashIn, db: Session = Depends(get_db)):
+    """Manually create or update a cash position by currency code."""
+    ccy      = currency.upper()
+    live_rate = await fetch_fx_rate(ccy)
+    now       = datetime.datetime.now(timezone.utc)
+    existing  = db.query(CashPosition).filter(CashPosition.currency == ccy).first()
+    if existing:
+        existing.amount         = payload.amount
+        existing.rate_at_import = live_rate
+        existing.updated_at     = now
+    else:
+        db.add(CashPosition(currency=ccy, amount=payload.amount,
+                            rate_at_import=live_rate, updated_at=now))
+    db.commit()
+    return {"currency": ccy, "amount": payload.amount, "rate_at_import": live_rate}
+
+
+@router.delete("/cash-positions/{currency}", status_code=204)
+def delete_cash_position(currency: str, db: Session = Depends(get_db)):
+    pos = db.query(CashPosition).filter(CashPosition.currency == currency.upper()).first()
+    if pos:
+        db.delete(pos)
+        db.commit()
+
+
 # ─── IBKR CSV Import ───────────────────────────────────────────────────────────
 
 from app.services.ibkr_parser import parse_ibkr_csv  # noqa: E402
@@ -605,12 +725,14 @@ class IbkrImportIn(BaseModel):
 
 @router.delete("/clear-all", status_code=200)
 def clear_all(db: Session = Depends(get_db)):
-    """Delete all realized trades, live positions, and equity entries."""
+    """Delete all realized trades, live positions, equity entries, and cash positions."""
     trades    = db.query(RealizedTrade).delete()
     positions = db.query(LivePosition).delete()
     entries   = db.query(EquityEntry).delete()
+    cash      = db.query(CashPosition).delete()
     db.commit()
-    return {"deleted_trades": trades, "deleted_positions": positions, "deleted_equity_entries": entries}
+    return {"deleted_trades": trades, "deleted_positions": positions,
+            "deleted_equity_entries": entries, "deleted_cash_positions": cash}
 
 
 @router.post("/ibkr/preview")
@@ -620,12 +742,24 @@ def ibkr_preview(payload: IbkrImportIn):
 
 
 @router.post("/ibkr/confirm")
-def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
+async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
     """Parse IBKR CSV and save trades / positions / equity entry to DB."""
     parsed = parse_ibkr_csv(payload.csv_text)
 
     if "error" in parsed:
         raise HTTPException(status_code=400, detail=parsed["error"])
+
+    # Pre-fetch company names for all unique tickers
+    unique_tickers = {
+        t["ticker"].upper() for t in parsed.get("trades", [])
+    } | {
+        p["ticker"].upper() for p in parsed.get("open_positions", [])
+    }
+    infos = await asyncio.gather(*[fetch_ticker_info(tk) for tk in unique_tickers], return_exceptions=True)
+    name_map = {
+        tk: (info.get("company_name") if isinstance(info, dict) else None)
+        for tk, info in zip(unique_tickers, infos)
+    }
 
     trades_imported    = 0
     trades_skipped     = 0
@@ -655,7 +789,7 @@ def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
 
         trade = RealizedTrade(
             ticker          = t["ticker"].upper(),
-            company_name    = None,
+            company_name    = name_map.get(t["ticker"].upper()),
             side            = t["side"],
             shares          = shares,
             avg_entry_price = t["avg_entry_price"],
@@ -684,6 +818,7 @@ def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
 
         pos = LivePosition(
             ticker       = p["ticker"].upper(),
+            company_name = name_map.get(p["ticker"].upper()),
             entry_date   = entry_d,
             side         = p["side"],
             shares       = p["shares"],
@@ -715,12 +850,46 @@ def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
             ))
         equity_created = True
 
+    # ── Cash positions ───────────────────────────────────────────────────────
+    # Build the canonical set from the CSV (Cash-Bericht gives one row per ccy).
+    # Store full dict so we carry the IBKR cost-basis rate (Einstands Kurs).
+    cash_by_ccy: dict[str, dict] = {}
+    for cp in parsed.get("cash_positions", []):
+        ccy = cp["currency"].upper()
+        cash_by_ccy[ccy] = {"amount": cp["amount"], "rate_at_import": cp.get("rate_at_import")}
+
+    # Delete any cash positions not present in this import — removes stale
+    # records (e.g. a currency that was previously parsed incorrectly).
+    if cash_by_ccy:
+        db.query(CashPosition).filter(
+            CashPosition.currency.notin_(list(cash_by_ccy.keys()))
+        ).delete(synchronize_session=False)
+
+    cash_imported = 0
+    for ccy, data in cash_by_ccy.items():
+        amt             = data["amount"]
+        ibkr_rate       = data.get("rate_at_import")
+        # Prefer IBKR cost-basis rate (Einstands Kurs) for meaningful FX PnL.
+        # Fall back to live rate only for base currency (EUR) which has no entry.
+        cost_basis_rate = ibkr_rate if ibkr_rate is not None else await fetch_fx_rate(ccy)
+        now = datetime.datetime.now(timezone.utc)
+        existing_cp = db.query(CashPosition).filter(CashPosition.currency == ccy).first()
+        if existing_cp:
+            existing_cp.amount         = amt
+            existing_cp.rate_at_import = cost_basis_rate
+            existing_cp.updated_at     = now
+        else:
+            db.add(CashPosition(currency=ccy, amount=amt,
+                                rate_at_import=cost_basis_rate, updated_at=now))
+        cash_imported += 1
+
     db.commit()
 
     return {
         "trades_imported":    trades_imported,
         "trades_skipped":     trades_skipped,
         "positions_imported": positions_imported,
+        "cash_imported":      cash_imported,
         "equity_entry_saved": equity_created,
         "parse_warnings":     parsed.get("parse_warnings", []),
     }

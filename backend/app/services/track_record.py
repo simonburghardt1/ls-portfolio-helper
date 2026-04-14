@@ -15,44 +15,136 @@ import yfinance as yf
 
 log = logging.getLogger(__name__)
 
+# yfinance prints noisy "possibly delisted" warnings for illiquid/expired options —
+# suppress at WARNING level since we handle failures gracefully in our own code.
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
+
+# ─── Options: IBKR → OCC format ──────────────────────────────────────────────
+
+_MONTHS = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+
+def ibkr_to_occ(ticker: str) -> str | None:
+    """Convert IBKR option format 'EOSE 17APR26 10 C' → OCC 'EOSE260417C00010000'.
+
+    yfinance accepts OCC-format option tickers natively.
+    Returns None if the ticker is not a recognised IBKR option string.
+    """
+    parts = ticker.split()
+    if len(parts) != 4:
+        return None
+    sym, date_str, strike_str, opt_type = parts
+    try:
+        day    = int(date_str[:2])
+        mon    = _MONTHS[date_str[2:5].upper()]
+        yr     = int(date_str[5:7])
+        strike = int(round(float(strike_str) * 1000))
+        return f"{sym}{yr:02d}{mon:02d}{day:02d}{opt_type.upper()}{strike:08d}"
+    except (ValueError, KeyError):
+        return None
+
+
+def _option_display_name(sym: str, date_str: str, strike_str: str, opt_type: str) -> str:
+    """Human-readable name, e.g. 'ETHA Call $15 Apr-26'."""
+    label    = "Call" if opt_type.upper() == "C" else "Put"
+    mon_abbr = date_str[2:5].capitalize()
+    yr       = date_str[5:7]
+    return f"{sym} {label} ${strike_str} {mon_abbr}-{yr}"
+
+
+def _fetch_option_price(occ: str) -> float | None:
+    """Fetch latest price for an OCC-format option ticker.
+
+    fast_info.last_price can raise KeyError('currentTradingPeriod') for illiquid
+    or near-expiry options; fall through to history in that case.
+    """
+    try:
+        t = yf.Ticker(occ)
+        price = None
+        try:
+            price = t.fast_info.last_price
+        except Exception:
+            pass  # fall through to history
+        if price is None:
+            hist = t.history(period="5d")
+            if not hist.empty:
+                price = float(hist["Close"].dropna().iloc[-1])
+        return round(float(price), 4) if price is not None else None
+    except Exception:
+        return None  # silently return None for expired / illiquid options
+
 
 # ─── Price / ticker info ──────────────────────────────────────────────────────
 
 async def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
     """Batch-fetch latest close prices for a list of tickers via yfinance.
-    Option tickers (OCC format with spaces, e.g. 'ONDS 17APR26 11 C') are skipped silently.
+
+    Stock tickers are downloaded in one batch.
+    IBKR-format option tickers (e.g. 'ONDS 17APR26 11 C') are converted to OCC
+    format and fetched individually.
     """
     if not tickers:
         return {}
-    # Options can't be priced via yfinance — exclude them upfront
-    stock_tickers = [t for t in tickers if " " not in t]
+    stock_tickers  = [t for t in tickers if " " not in t]
+    option_tickers = [t for t in tickers if " " in t]
     result: dict[str, float | None] = {t.upper(): None for t in tickers}
-    if not stock_tickers:
-        return result
-    try:
-        data = yf.download(stock_tickers, period="5d", progress=False, auto_adjust=True)
-        closes = data["Close"] if len(stock_tickers) > 1 else data["Close"].rename(stock_tickers[0])
-        for ticker in stock_tickers:
-            try:
-                series = closes[ticker] if len(stock_tickers) > 1 else closes
-                val = series.dropna().iloc[-1]
-                result[ticker.upper()] = round(float(val), 4)
-            except Exception:
-                pass
-        return result
-    except Exception as exc:
-        log.warning("fetch_prices failed: %s", exc)
-        return result
+
+    # ── Stocks: batch download ───────────────────────────────────────────────
+    if stock_tickers:
+        try:
+            data   = yf.download(stock_tickers, period="5d", progress=False, auto_adjust=True)
+            closes = data["Close"] if len(stock_tickers) > 1 else data["Close"].rename(stock_tickers[0])
+            for ticker in stock_tickers:
+                try:
+                    series = closes[ticker] if len(stock_tickers) > 1 else closes
+                    val    = series.dropna().iloc[-1]
+                    result[ticker.upper()] = round(float(val), 4)
+                except Exception:
+                    pass
+        except Exception as exc:
+            log.warning("fetch_prices (stocks) failed: %s", exc)
+
+    # ── Options: OCC conversion + individual fetch ───────────────────────────
+    for ticker in option_tickers:
+        occ = ibkr_to_occ(ticker)
+        if not occ:
+            continue
+        price = _fetch_option_price(occ)
+        if price is not None:
+            result[ticker.upper()] = price
+
+    return result
 
 
 async def fetch_ticker_info(ticker: str) -> dict:
-    """Fetch company name and current price for a single ticker."""
+    """Fetch company name and current price for a single ticker.
+
+    Handles both plain stock tickers and IBKR-format option strings
+    (e.g. 'ETHA 17APR26 15 C').
+    """
     result = {"company_name": None, "current_price": None}
+
+    # ── Options ──────────────────────────────────────────────────────────────
+    parts = ticker.split()
+    if len(parts) == 4:
+        occ = ibkr_to_occ(ticker)
+        if occ:
+            sym, date_str, strike_str, opt_type = parts
+            result["company_name"] = _option_display_name(sym, date_str, strike_str, opt_type)
+            price = _fetch_option_price(occ)
+            if price is not None:
+                result["current_price"] = price
+        return result
+
+    # ── Stocks ───────────────────────────────────────────────────────────────
     try:
-        t = yf.Ticker(ticker)
+        t    = yf.Ticker(ticker)
         info = t.info
         result["company_name"] = info.get("shortName") or info.get("longName") or ticker.upper()
-        # Fast price: use regularMarketPrice first, fall back to history
         price = info.get("regularMarketPrice") or info.get("currentPrice")
         if price is None:
             hist = t.history(period="5d")
@@ -65,21 +157,44 @@ async def fetch_ticker_info(ticker: str) -> dict:
     return result
 
 
+async def fetch_fx_rate(ccy: str, base: str = "EUR") -> float | None:
+    """Fetch live exchange rate: how many `base` units equal 1 `ccy` unit."""
+    if ccy == base:
+        return 1.0
+    try:
+        t     = yf.Ticker(f"{ccy}{base}=X")
+        price = t.fast_info.last_price
+        return round(float(price), 6) if price else None
+    except Exception as exc:
+        log.warning("fetch_fx_rate(%s/%s) failed: %s", ccy, base, exc)
+        return None
+
+
 # ─── Position metrics ─────────────────────────────────────────────────────────
 
 def compute_position_metrics(pos, current_price: float | None) -> dict:
-    """Compute derived fields for one live position."""
+    """Compute derived fields for one live position.
+
+    Option positions (IBKR format: 'ETHA 17APR26 15 C') store shares as the
+    number of contracts.  Multiply by 100 (the standard equity-option contract
+    size) to convert to notional exposure and dollar P&L.
+    """
     today = datetime.date.today()
     entry = pos.entry_date if hasattr(pos, "entry_date") else pos["entry_date"]
     if isinstance(entry, str):
         entry = datetime.date.fromisoformat(entry)
 
-    days_in_trade = (today - entry).days
-    sign = 1.0 if (pos.side if hasattr(pos, "side") else pos["side"]) == "long" else -1.0
+    days_in_trade = int(np.busday_count(entry, today))
+    ticker = pos.ticker if hasattr(pos, "ticker") else (pos.get("ticker", "") if hasattr(pos, "get") else "")
+    sign   = 1.0 if (pos.side if hasattr(pos, "side") else pos["side"]) == "long" else -1.0
     shares = pos.shares if hasattr(pos, "shares") else pos["shares"]
     avg_in = pos.avg_price_in if hasattr(pos, "avg_price_in") else pos["avg_price_in"]
     stop   = pos.stop   if hasattr(pos, "stop")   else pos.get("stop")
     target = pos.target if hasattr(pos, "target") else pos.get("target")
+
+    # Options: 1 contract = 100 underlying shares
+    is_option      = len(ticker.split()) == 4
+    contract_mult  = 100 if is_option else 1
 
     r_r = None
     if stop is not None and target is not None and avg_in != stop:
@@ -93,10 +208,11 @@ def compute_position_metrics(pos, current_price: float | None) -> dict:
     pnl_pct        = None
 
     if current_price is not None:
-        gross_exposure = round(shares * current_price, 2)
-        net_exposure   = round(gross_exposure * sign, 2)
-        pnl_dollar     = round((current_price - avg_in) * shares * sign, 2)
-        invested       = avg_in * shares
+        notional       = shares * current_price * contract_mult
+        gross_exposure = round(abs(notional), 2)
+        net_exposure   = round(notional * sign, 2)
+        pnl_dollar     = round((current_price - avg_in) * shares * contract_mult * sign, 2)
+        invested       = avg_in * shares * contract_mult
         pnl_pct        = round(pnl_dollar / invested * 100, 2) if invested else None
 
     return {

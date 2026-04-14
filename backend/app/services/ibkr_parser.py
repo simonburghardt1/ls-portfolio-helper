@@ -17,8 +17,10 @@ log = logging.getLogger(__name__)
 
 def _parse_sections(content: str) -> dict:
     """
-    Return {section_name: {"headers": [...], "rows": [[...], ...]}}
-    Skips SubTotal / Total rows.
+    Return {section_name: {"headers": [...], "rows": [[...], ...], "sub_rows": [[...], ...]}}
+
+    "rows"     — Data rows only (trade/position detail lines).
+    "sub_rows" — SubTotal and Total rows (used by summary sections like Devisenpositionen).
     """
     content = content.lstrip("\ufeff").lstrip("ï»¿")
 
@@ -33,11 +35,14 @@ def _parse_sections(content: str) -> dict:
         data     = row[2:]
 
         if row_type == "Header":
-            sections.setdefault(section, {"headers": [], "rows": []})
+            sections.setdefault(section, {"headers": [], "rows": [], "sub_rows": []})
             sections[section]["headers"] = [c.strip() for c in data]
         elif row_type == "Data":
-            sections.setdefault(section, {"headers": [], "rows": []})
+            sections.setdefault(section, {"headers": [], "rows": [], "sub_rows": []})
             sections[section]["rows"].append([c.strip() for c in data])
+        elif row_type in ("SubTotal", "Total"):
+            sections.setdefault(section, {"headers": [], "rows": [], "sub_rows": []})
+            sections[section]["sub_rows"].append([c.strip() for c in data])
 
     return sections
 
@@ -260,12 +265,14 @@ def _extract_trades(sections: dict, multipliers: dict[str, int]) -> list[dict]:
                 })
                 del pending[sym]
 
-    return trades
+    # Collect earliest open date per still-open ticker (unmatched opening entries)
+    open_dates = {sym: entries[0]["date"] for sym, entries in open_q.items() if entries}
+    return trades, open_dates
 
 
 # ─── Open positions ───────────────────────────────────────────────────────────
 
-def _extract_open_positions(sections: dict, multipliers: dict[str, int]) -> list[dict]:
+def _extract_open_positions(sections: dict, multipliers: dict[str, int], open_dates: dict | None = None) -> list[dict]:
     sec     = sections.get("Offene Positionen", {})
     headers = sec.get("headers", [])
     rows    = sec.get("rows",    [])
@@ -286,13 +293,18 @@ def _extract_open_positions(sections: dict, multipliers: dict[str, int]) -> list
         price = _float(row[col_price])
         if not sym or qty == 0:
             continue
-        mult = multipliers.get(sym, 1)
+        # Options (space in sym) are always stored as contracts; the ×100 multiplier
+        # is applied downstream in compute_position_metrics. This avoids relying on
+        # the multiplier dict lookup which often fails for open-position symbols.
+        is_option = " " in sym
+        mult       = 1 if is_option else multipliers.get(sym, 1)
+        entry_date = (open_dates or {}).get(sym, datetime.date.today())
         positions.append({
             "ticker":       sym,
             "side":         "long" if qty > 0 else "short",
             "shares":       abs(qty) * mult,
             "avg_price_in": price,
-            "entry_date":   datetime.date.today().isoformat(),
+            "entry_date":   entry_date.isoformat(),
         })
     return positions
 
@@ -316,6 +328,88 @@ def _extract_unrealized_pnl(sections: dict) -> float:
             if len(row) > col_total:
                 return _float(row[col_total])
     return 0.0
+
+
+# ─── Cash positions ──────────────────────────────────────────────────────────
+
+def _extract_cash_positions(sections: dict, base_currency: str = "EUR") -> list[dict]:
+    """Extract per-currency ending cash balances from the Cash-Bericht section.
+
+    Reads "Endbarsaldo" rows — the most explicit ending-balance label in the
+    report.  The "Währung" column gives the ISO currency code; "Gesamt" gives
+    the total amount in that currency's native denomination.
+
+    Skips:
+    - The base currency (EUR) — that is the account denomination, not a
+      foreign cash position worth tracking separately.
+    - "Basiswährungsübersicht" rows — these are EUR-equivalent aggregates,
+      not per-currency balances.
+
+    Returns [{"currency": "USD", "amount": 1047161.55}, ...].
+    """
+    base_ccy = base_currency.upper()
+    sec     = sections.get("Cash-Bericht", {})
+    headers = sec.get("headers", [])
+    rows    = sec.get("rows", [])
+
+    if not rows:
+        log.warning("_extract_cash_positions: Cash-Bericht section not found. "
+                    "Available sections: %s", list(sections.keys()))
+        return []
+
+    # Cash-Bericht headers: Währungsübersicht, Währung, Gesamt, Wertpapiere, Futures
+    col_label = _idx(headers, "Währungsübersicht", 0)
+    col_ccy   = _idx(headers, "Währung",           1)
+    col_amt   = _idx(headers, "Gesamt",            2)
+
+    result = []
+    for row in rows:
+        if len(row) <= max(col_label, col_ccy, col_amt):
+            continue
+        label = row[col_label].strip()
+        ccy   = row[col_ccy].strip()
+
+        # Only the ending balance row
+        if label != "Endbarsaldo":
+            continue
+        # Skip only the aggregate EUR-equivalent summary row
+        if not ccy or "übersicht" in ccy.lower():
+            continue
+
+        amt = _float(row[col_amt])
+        if amt != 0:
+            result.append({"currency": ccy.upper(), "amount": amt, "rate_at_import": None})
+
+    if not result:
+        log.warning("_extract_cash_positions: no Endbarsaldo rows found in Cash-Bericht")
+        return []
+
+    # ── Enrich with cost-basis FX rate from Devisenpositionen ────────────────
+    # Devisenpositionen headers: Vermögenswertkategorie, Währung, Beschreibung,
+    #   Menge, Einstands Kurs, Kostenbasis in EUR, Schlusskurs, Wert in EUR,
+    #   Unrealisierter Gewinn/Verlust in EUR, Code
+    # "Beschreibung" is the HELD currency (e.g. "USD"), "Einstands Kurs" is the
+    # EUR-per-unit cost basis rate recorded by IBKR when the position was opened.
+    dev_sec     = sections.get("Devisenpositionen", {})
+    dev_headers = dev_sec.get("headers", [])
+    dev_rows    = dev_sec.get("rows",    [])
+    col_held = _idx(dev_headers, "Beschreibung",  2)
+    col_rate = _idx(dev_headers, "Einstands Kurs", 4)
+    cost_basis: dict[str, float] = {}
+    for row in dev_rows:
+        if len(row) <= max(col_held, col_rate):
+            continue
+        held = row[col_held].strip().upper()
+        rate = _float(row[col_rate])
+        if held and rate != 0:
+            cost_basis[held] = rate
+
+    for entry in result:
+        entry["rate_at_import"] = cost_basis.get(entry["currency"])
+
+    log.info("_extract_cash_positions: found %d entries (cost basis: %s)",
+             len(result), list(cost_basis.keys()))
+    return result
 
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
@@ -354,11 +448,12 @@ def parse_ibkr_csv(content: str) -> dict:
             except ValueError:
                 pass
 
-    multipliers = _extract_multipliers(sections)
-    nav         = _extract_nav(sections)
-    trades      = _extract_trades(sections, multipliers)
-    positions   = _extract_open_positions(sections, multipliers)
-    unrealized  = _extract_unrealized_pnl(sections)
+    multipliers        = _extract_multipliers(sections)
+    nav                = _extract_nav(sections)
+    trades, open_dates = _extract_trades(sections, multipliers)
+    positions          = _extract_open_positions(sections, multipliers, open_dates)
+    unrealized         = _extract_unrealized_pnl(sections)
+    cash_positions     = _extract_cash_positions(sections, base_currency=base_currency)
 
     equity_entry = None
     if nav["end"] > 0:
@@ -375,6 +470,7 @@ def parse_ibkr_csv(content: str) -> dict:
         "base_currency":  base_currency,
         "trades":         trades,
         "open_positions": positions,
+        "cash_positions": cash_positions,
         "equity_entry":   equity_entry,
         "parse_warnings": warnings,
     }

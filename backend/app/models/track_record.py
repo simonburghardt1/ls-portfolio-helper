@@ -45,6 +45,17 @@ class RealizedTrade(Base):
     created_at:      Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.datetime.now(timezone.utc))
 
 
+class CashPosition(Base):
+    """Foreign-currency cash balance, updated on each IBKR import."""
+    __tablename__ = "cash_positions"
+
+    id:             Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
+    currency:       Mapped[str]               = mapped_column(String(10),           unique=True)
+    amount:         Mapped[float]             = mapped_column(Float)
+    rate_at_import: Mapped[float | None]      = mapped_column(Float,                nullable=True)  # EUR per 1 unit
+    updated_at:     Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
+
+
 class EquityEntry(Base):
     """Weekly/periodic equity curve data point."""
     __tablename__ = "equity_entries"

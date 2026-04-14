@@ -91,6 +91,12 @@ function SidePill({ side, onClick }) {
 }
 
 // ─── Debounce hook ─────────────────────────────────────────────────────────────
+function tradingDays(start, end) {
+  let n = 0, d = new Date(start), e = new Date(end);
+  while (d < e) { const w = d.getDay(); if (w && w < 6) n++; d.setDate(d.getDate() + 1); }
+  return n;
+}
+
 function useDebounce(fn, delay) {
   const timer = useRef(null);
   return useCallback((...args) => {
@@ -104,17 +110,22 @@ function useDebounce(fn, delay) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function LivePortfolioTab() {
-  const [rows,    setRows]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving,  setSaving]  = useState({});
+  const [rows,     setRows]     = useState([]);
+  const [cashRows, setCashRows] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [saving,   setSaving]   = useState({});
 
   useEffect(() => { loadPositions(); }, []);
 
   async function loadPositions() {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/track-record/positions`);
-      setRows(await res.json());
+      const [posRes, cashRes] = await Promise.all([
+        fetch(`${API}/api/track-record/positions`),
+        fetch(`${API}/api/track-record/cash-positions`),
+      ]);
+      setRows(await posRes.json());
+      if (cashRes.ok) setCashRows(await cashRes.json());
     } finally {
       setLoading(false);
     }
@@ -164,7 +175,7 @@ function LivePortfolioTab() {
   async function onTickerBlur(row) {
     if (!row.ticker || row.ticker === "NEW") return;
     try {
-      const res  = await fetch(`${API}/api/track-record/ticker-info/${row.ticker}`);
+      const res  = await fetch(`${API}/api/track-record/ticker-info/${encodeURIComponent(row.ticker)}`);
       const info = await res.json();
       const updated = {
         ...row,
@@ -179,12 +190,15 @@ function LivePortfolioTab() {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
   }
 
-  // KPI summary
+  // KPI summary (include FX PnL from cash positions)
   const gross_exp   = rows.reduce((s, r) => s + Math.abs(r.gross_exposure ?? 0), 0);
   const net_exp     = rows.reduce((s, r) => s + (r.net_exposure ?? 0), 0);
   const invested    = rows.reduce((s, r) => s + ((r.shares ?? 0) * (r.avg_price_in ?? 0)), 0);
-  const total_pnl   = rows.reduce((s, r) => s + (r.pnl_dollar ?? 0), 0);
+  const fx_pnl      = cashRows.reduce((s, r) => s + (r.fx_pnl ?? 0), 0);
+  const total_pnl   = rows.reduce((s, r) => s + (r.pnl_dollar ?? 0), 0) + fx_pnl;
   const total_pnlp  = invested ? (total_pnl / invested * 100) : null;
+  const cash_eur    = cashRows.reduce((s, r) => s + (r.eur_value ?? 0), 0);
+  const account_val = cash_eur + net_exp;
 
   if (loading) return <div style={{ color: "#4b5563", fontSize: 13, padding: "24px 0" }}>Loading positions…</div>;
 
@@ -192,10 +206,11 @@ function LivePortfolioTab() {
     <div>
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-        <KpiCard label="Gross Exposure" value={`$${(gross_exp / 1000).toFixed(1)}K`} />
-        <KpiCard label="Net Exposure"   value={`$${(net_exp  / 1000).toFixed(1)}K`}  valueColor={pnlColor(net_exp)} />
+        <KpiCard label="Account Value"    value={`€${(account_val / 1000).toFixed(1)}K`} valueColor="#e5e7eb" />
+        <KpiCard label="Gross Exposure"   value={`$${(gross_exp / 1000).toFixed(1)}K`} />
+        <KpiCard label="Net Exposure"     value={`${net_exp >= 0 ? "+" : "-"}$${Math.abs(net_exp / 1000).toFixed(1)}K`}  valueColor={pnlColor(net_exp)} />
         <KpiCard label="Invested Capital" value={`$${(invested / 1000).toFixed(1)}K`} />
-        <KpiCard label="$ PnL"  value={`${total_pnl >= 0 ? "+" : ""}$${Math.abs(total_pnl).toFixed(0)}`} valueColor={pnlColor(total_pnl)} />
+        <KpiCard label="$ PnL"  value={`${total_pnl >= 0 ? "+" : "-"}$${Math.abs(total_pnl).toFixed(0)}`} valueColor={pnlColor(total_pnl)} />
         <KpiCard label="% PnL"  value={total_pnlp != null ? `${total_pnlp >= 0 ? "+" : ""}${total_pnlp.toFixed(2)}%` : "—"} valueColor={pnlColor(total_pnlp)} />
       </div>
 
@@ -288,10 +303,10 @@ function LivePortfolioTab() {
                   {row.gross_exposure != null ? `$${Math.abs(row.gross_exposure).toFixed(0)}` : "—"}
                 </td>
                 <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: pnlColor(row.net_exposure), fontVariantNumeric: "tabular-nums" }}>
-                  {row.net_exposure != null ? `${row.net_exposure >= 0 ? "+" : ""}$${row.net_exposure.toFixed(0)}` : "—"}
+                  {row.net_exposure != null ? `${row.net_exposure >= 0 ? "+" : "-"}$${Math.abs(row.net_exposure).toFixed(0)}` : "—"}
                 </td>
                 <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, fontWeight: 600, color: pnlColor(row.pnl_dollar), fontVariantNumeric: "tabular-nums" }}>
-                  {row.pnl_dollar != null ? `${row.pnl_dollar >= 0 ? "+" : ""}$${Math.abs(row.pnl_dollar).toFixed(0)}` : "—"}
+                  {row.pnl_dollar != null ? `${row.pnl_dollar >= 0 ? "+" : "-"}$${Math.abs(row.pnl_dollar).toFixed(0)}` : "—"}
                 </td>
                 <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, fontWeight: 600, color: pnlColor(row.pnl_pct), fontVariantNumeric: "tabular-nums" }}>
                   {row.pnl_pct != null ? `${row.pnl_pct >= 0 ? "+" : ""}${row.pnl_pct.toFixed(2)}%` : "—"}
@@ -302,9 +317,52 @@ function LivePortfolioTab() {
               </tr>
             ))}
           </tbody>
+          {cashRows.length > 0 && (
+            <tbody>
+              <tr>
+                <td colSpan={17} style={{ padding: "6px 10px", fontSize: 10, color: "#374151", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", borderTop: "1px solid #1e3a5f" }}>
+                  Cash Positions
+                </td>
+              </tr>
+              {cashRows.map(cr => (
+                <tr key={cr.currency}
+                  style={{ borderBottom: "1px solid #0d1829" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  {/* col 1: # */}
+                  <td style={{ padding: "6px 10px", fontSize: 11, color: "#374151", textAlign: "center" }}>—</td>
+                  {/* col 2: Ticker */}
+                  <td style={{ padding: "4px 6px", fontFamily: "monospace", fontWeight: 700, fontSize: 13, color: "#f9fafb" }}>{cr.currency}</td>
+                  {/* col 3: Company */}
+                  <td style={{ padding: "4px 6px", fontSize: 12, color: "#9ca3af" }}>Cash</td>
+                  {/* col 4+5+6: Entry Date + Days + L/S */}
+                  <td colSpan={3} style={{ padding: "6px 10px", fontSize: 12, color: "#6b7280", textAlign: "center" }}>—</td>
+                  {/* col 7: Shares → cash amount in native currency */}
+                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>
+                    {cr.amount != null ? cr.amount.toLocaleString("de-DE", { maximumFractionDigits: 2 }) : "—"}
+                  </td>
+                  {/* col 8+9+10+11+12: Avg In + Current + Stop + Target + R/R */}
+                  <td colSpan={5} style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#6b7280" }}>—</td>
+                  {/* col 13: Gross Exp → EUR equivalent */}
+                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>
+                    {cr.eur_value != null ? `€${cr.eur_value.toLocaleString("de-DE", { maximumFractionDigits: 0 })}` : "—"}
+                  </td>
+                  {/* col 14: Net Exp → — */}
+                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#6b7280" }}>—</td>
+                  {/* col 15: $ PnL → FX PnL */}
+                  <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: pnlColor(cr.fx_pnl), fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                    {cr.fx_pnl != null ? `${cr.fx_pnl >= 0 ? "+" : "-"}€${Math.abs(cr.fx_pnl).toFixed(0)}` : "—"}
+                  </td>
+                  {/* col 16+17: % PnL + actions */}
+                  <td colSpan={2}></td>
+                </tr>
+              ))}
+            </tbody>
+          )}
         </table>
       </div>
-      {rows.length === 0 && (
+      {rows.length === 0 && cashRows.length === 0 && (
         <div style={{ textAlign: "center", padding: "32px", color: "#374151", fontSize: 13 }}>
           No open positions. Click "+ Add Position" to get started.
         </div>
@@ -394,7 +452,7 @@ function RealizedPnlTab() {
     if (!row.ticker || row.ticker === "NEW") return;
     let updatedRow = { ...row };
     try {
-      const res = await fetch(`${API}/api/track-record/ticker-info/${row.ticker}`);
+      const res = await fetch(`${API}/api/track-record/ticker-info/${encodeURIComponent(row.ticker)}`);
       const info = await res.json();
       if (info.company_name && !row.company_name) {
         updatedRow = { ...row, company_name: info.company_name };
@@ -459,7 +517,7 @@ function RealizedPnlTab() {
           <tbody>
             {trades.map((row, i) => {
               const days = row.entry_date && row.exit_date
-                ? Math.round((new Date(row.exit_date) - new Date(row.entry_date)) / 86400000)
+                ? tradingDays(row.entry_date, row.exit_date)
                 : null;
               return (
                 <tr key={row.id}
@@ -508,7 +566,7 @@ function RealizedPnlTab() {
                     {row.pnl_pct != null ? `${row.pnl_pct >= 0 ? "+" : ""}${row.pnl_pct.toFixed(2)}%` : "—"}
                   </td>
                   <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, fontWeight: 600, color: pnlColor(row.pnl_dollar), fontVariantNumeric: "tabular-nums" }}>
-                    {row.pnl_dollar != null ? `${row.pnl_dollar >= 0 ? "+" : ""}$${Math.abs(row.pnl_dollar).toFixed(0)}` : "—"}
+                    {row.pnl_dollar != null ? `${row.pnl_dollar >= 0 ? "+" : "-"}$${Math.abs(row.pnl_dollar).toFixed(0)}` : "—"}
                   </td>
                   <td style={{ padding: "4px 6px", textAlign: "center" }}>
                     <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", display: "inline-block", background: row.pnl_dollar >= 0 ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)", color: row.pnl_dollar >= 0 ? "#86efac" : "#fca5a5" }}>
