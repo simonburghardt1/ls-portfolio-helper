@@ -18,6 +18,7 @@ from app.routers.portfolios import router as portfolios_router
 from app.routers.market import router as market_router
 from app.routers.cot import router as cot_router
 from app.routers.track_record import router as track_record_router
+from app.routers.cpi_ppi import router as cpi_ppi_router
 from app.scheduler import create_scheduler
 
 
@@ -54,6 +55,7 @@ app.include_router(portfolios_router)
 app.include_router(market_router)
 app.include_router(cot_router)
 app.include_router(track_record_router)
+app.include_router(cpi_ppi_router)
 
 
 # Keep your hello endpoint if you want

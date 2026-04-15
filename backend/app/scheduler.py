@@ -35,7 +35,18 @@ from app.routers.ism import _upsert_report as _ism_upsert
 log = logging.getLogger(__name__)
 
 # Add series IDs here to include them in the daily FRED refresh
-FRED_SERIES = ["UMCSENT", "PERMIT", "HOUST", "COMPUTSA"]
+FRED_SERIES = [
+    "UMCSENT", "PERMIT", "HOUST", "COMPUTSA",
+    # CPI / PPI headline
+    "CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE", "PPIACO",
+    # CPI components
+    "CPIUFDSL", "CPIFABNS", "CUSR0000SEFV",
+    "CPIHOSNS", "CUSR0000SAH1", "CUSR0000SAH2",
+    "CPIAPPSL",
+    "CPITRNSL", "CUSR0000SETA01", "CUSR0000SETA02", "CUSR0000SETB",
+    "CPIMEDSL", "CUSR0000SAM2",
+    "CPIRECSL", "CPIEDUSL", "CPIOGSSL",
+]
 
 
 async def _job_uom():

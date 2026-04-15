@@ -63,6 +63,15 @@ const INDICATORS = [
     statusSeries: null,
     isCot:       true,
   },
+  {
+    key:         "cpi-ppi",
+    label:       "CPI & PPI",
+    description: "21 FRED series: CPI All Items, Core CPI, PCE, Core PCE, PPI, and 16 CPI subcategories. Monthly data — cache TTL is 32 days; use Fetch Data to force a refresh after new monthly releases.",
+    statusUrl:   `${API}/api/cpi-ppi/status`,
+    refreshUrl:  `${API}/api/cpi-ppi/refresh`,
+    statusSeries: null,
+    isCpiPpi:    true,
+  },
 ];
 
 export default function IndicatorsAdminPage() {
@@ -188,8 +197,25 @@ export default function IndicatorsAdminPage() {
                   <div style={{ fontSize: 12, color: "#374151" }}>No data yet — run Seed to fetch full history.</div>
                 ) : null}
 
+                {/* CPI/PPI status */}
+                {ind.isCpiPpi && (
+                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                    <StatusItem
+                      label="Series Cached"
+                      value={status ? `${status.count} / ${status.total_series}` : "—"}
+                      valueColor={status?.count === status?.total_series ? "#9ca3af" : "#f59e0b"}
+                    />
+                    <StatusItem label="Data Through"  value={status?.latest_date ?? "—"} />
+                    <StatusItem
+                      label="Last Fetched"
+                      value={status?.fetched_at ? formatRelative(status.fetched_at) : "Never"}
+                      valueColor={status?.fetched_at ? "#6b7280" : "#f59e0b"}
+                    />
+                  </div>
+                )}
+
                 {/* Per-series status rows */}
-                {!ind.isCot && ind.statusSeries ? (
+                {!ind.isCot && !ind.isCpiPpi && ind.statusSeries ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {ind.statusSeries.map(s => {
                       const row = status?.[s.key];
@@ -212,7 +238,7 @@ export default function IndicatorsAdminPage() {
                       );
                     })}
                   </div>
-                ) : !ind.isCot ? (
+                ) : !ind.isCot && !ind.isCpiPpi ? (
                   // Flat status (NFIB)
                   <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                     <StatusItem label="Data Points" value={status?.count      ?? "—"} />
@@ -224,7 +250,8 @@ export default function IndicatorsAdminPage() {
                       valueColor={status?.fetched_at ? "#6b7280" : "#f59e0b"}
                     />
                   </div>
-                ) : null}
+                ) : null }
+
 
                 {/* Result after fetch */}
                 {result && (
