@@ -3,7 +3,7 @@ Background scheduler — runs once on app startup.
 
 Jobs:
   07:00  Scrape University of Michigan (ICS / ICC / ICE)
-  07:05  Refresh FRED series (UMCSENT, PERMIT, HOUST, COMPUTSA)
+  07:05  Refresh FRED series (UMCSENT, PERMIT, HOUST, COMPUTSA, all CPI/PPI components)
   07:10  Refresh NFIB component series
   07:20  Refresh NFIB OPT_INDEX + components by industry
   07:30  Refresh NFIB OPT_INDEX + components by Census region
@@ -11,8 +11,9 @@ Jobs:
 
   Monthly (days 1-3 of each month, 16:00 UTC):
     ISM Manufacturing PMI — releases on the 1st business day of each month at 10:00 ET.
-    Running on days 1, 2, and 3 (weekday filter handles weekend skips) ensures we always
-    catch it regardless of which day of the week the 1st falls on.
+
+  Monthly (days 10-15 of each month, 15:00 UTC):
+    CPI/PPI refresh — BLS CPI releases on the 10th–15th of each month.
 """
 
 import logging
@@ -31,6 +32,7 @@ from app.services.market_regime import update_market_data
 from app.core.config import settings
 from app.services.ism_scraper import scrape_latest_from_prnewswire
 from app.routers.ism import _upsert_report as _ism_upsert
+from app.routers.cpi_ppi import ALL_CPI_SERIES_IDS
 
 log = logging.getLogger(__name__)
 
@@ -39,13 +41,8 @@ FRED_SERIES = [
     "UMCSENT", "PERMIT", "HOUST", "COMPUTSA",
     # CPI / PPI headline
     "CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE", "PPIACO",
-    # CPI components
-    "CPIUFDSL", "CPIFABNS", "CUSR0000SEFV",
-    "CPIHOSNS", "CUSR0000SAH1", "CUSR0000SAH2",
-    "CPIAPPSL",
-    "CPITRNSL", "CUSR0000SETA01", "CUSR0000SETA02", "CUSR0000SETB",
-    "CPIMEDSL", "CUSR0000SAM2",
-    "CPIRECSL", "CPIEDUSL", "CPIOGSSL",
+    # CPI components — kept in sync with ALL_CPI_SERIES_IDS from cpi_ppi router
+    *ALL_CPI_SERIES_IDS,
 ]
 
 
@@ -129,6 +126,25 @@ async def _job_ism():
         db.close()
 
 
+async def _job_fred_cpi():
+    """Monthly CPI refresh — runs on days 10-15 to catch the BLS release (around the 10th-15th)."""
+    db = SessionLocal()
+    fred = FredClient(api_key=settings.FRED_API_KEY)
+    try:
+        for series_id in ALL_CPI_SERIES_IDS + ["CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE", "PPIACO"]:
+            try:
+                row = db.get(MacroCache, series_id)
+                if row:
+                    row.fetched_at = datetime.now(timezone.utc) - timedelta(hours=25)
+                    db.commit()
+                await get_series(db, fred, series_id)
+                log.info("CPI monthly refresh OK: %s", series_id)
+            except Exception as exc:
+                log.warning("CPI monthly refresh failed for %s: %s", series_id, exc)
+    finally:
+        db.close()
+
+
 async def _job_market_regime():
     db = SessionLocal()
     try:
@@ -148,5 +164,6 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(_job_nfib_industries, CronTrigger(hour=7, minute=20), id="nfib_industries_daily")
     scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
     scheduler.add_job(_job_market_regime,   CronTrigger(hour=22, minute=0), id="market_regime_daily")
-    scheduler.add_job(_job_ism, CronTrigger(day="1,2,3", hour=16, minute=0), id="ism_monthly")
+    scheduler.add_job(_job_ism,      CronTrigger(day="1,2,3",        hour=16, minute=0),  id="ism_monthly")
+    scheduler.add_job(_job_fred_cpi, CronTrigger(day="10,11,12,13,14,15", hour=15, minute=0), id="cpi_monthly")
     return scheduler

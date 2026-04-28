@@ -37,25 +37,51 @@ HEADLINE_SERIES = {
 # (series_id, label, parent_id or None, approx CPI weight %)
 
 CPI_COMPONENTS: dict[str, tuple[str, str | None, float]] = {
-    "CPIUFDSL":       ("Food & Beverages",          None,           13.5),
-    "CPIFABNS":       ("Food at Home",              "CPIUFDSL",      8.2),
-    "CUSR0000SEFV":   ("Food Away from Home",       "CPIUFDSL",      5.3),
-    "CPIHOSNS":       ("Housing",                   None,           36.2),
-    "CUSR0000SAH1":   ("Shelter",                   "CPIHOSNS",     32.5),
-    "CUSR0000SAH2":   ("Fuels & Utilities",          "CPIHOSNS",      3.7),
-    "CPIAPPSL":       ("Apparel",                   None,            2.6),
-    "CPITRNSL":       ("Transportation",             None,           15.1),
-    "CUSR0000SETA01": ("New Vehicles",              "CPITRNSL",      3.9),
-    "CUSR0000SETA02": ("Used Cars & Trucks",        "CPITRNSL",      2.4),
-    "CUSR0000SETB":   ("Motor Fuel",                "CPITRNSL",      3.3),
-    "CPIMEDSL":       ("Medical Care",              None,            8.3),
-    "CUSR0000SAM2":   ("Medical Care Services",     "CPIMEDSL",      6.9),
-    "CPIRECSL":       ("Recreation",                None,            5.5),
-    "CPIEDUSL":       ("Education & Communication", None,            6.9),
-    "CPIOGSSL":       ("Other Goods & Services",    None,            3.2),
+    # ── Food ─────────────────────────────────────────────────────────────────
+    "CPIUFDSL":        ("Food & Beverages",                    None,             13.5),
+    "CPIFABNS":        ("Food at Home",                        "CPIUFDSL",        8.2),
+    "CUSR0000SAF111":  ("Cereals & Bakery Products",           "CPIFABNS",        1.0),
+    "CUSR0000SAF112":  ("Meats, Poultry, Fish & Eggs",         "CPIFABNS",        1.9),
+    "CUSR0000SAF113":  ("Fruits & Vegetables",                 "CPIFABNS",        1.1),
+    "CUSR0000SEFJ":    ("Dairy & Related Products",            "CPIFABNS",        0.8),
+    "CUSR0000SAF114":  ("Nonalcoholic Beverages",              "CPIFABNS",        1.0),
+    "CUSR0000SEFV":    ("Food Away from Home",                 "CPIUFDSL",        5.3),
+    # ── Housing ───────────────────────────────────────────────────────────────
+    "CPIHOSNS":        ("Housing",                             None,             36.2),
+    "CUSR0000SAH1":    ("Shelter",                             "CPIHOSNS",       32.5),
+    "CUSR0000SEHA":    ("Rent of Primary Residence",           "CUSR0000SAH1",    7.7),
+    "CUSR0000SEHC01":  ("Owners' Equivalent Rent",             "CUSR0000SAH1",   26.8),
+    "CUSR0000SEHB":    ("Lodging Away from Home",              "CUSR0000SAH1",    0.9),
+    "CUSR0000SAH2":    ("Fuels & Utilities",                   "CPIHOSNS",        3.7),
+    # ── Apparel ───────────────────────────────────────────────────────────────
+    "CPIAPPSL":        ("Apparel",                             None,              2.6),
+    "CUSR0000SAA1":    ("Men's & Boys' Apparel",               "CPIAPPSL",        0.7),
+    "CUSR0000SAA2":    ("Women's & Girls' Apparel",            "CPIAPPSL",        1.1),
+    "CUSR0000SEAE":    ("Footwear",                            "CPIAPPSL",        0.7),
+    # ── Transportation ────────────────────────────────────────────────────────
+    "CPITRNSL":        ("Transportation",                      None,             15.1),
+    "CUSR0000SETA01":  ("New Vehicles",                        "CPITRNSL",        3.9),
+    "CUSR0000SETA02":  ("Used Cars & Trucks",                  "CPITRNSL",        2.4),
+    "CUSR0000SETB":    ("Motor Fuel",                          "CPITRNSL",        3.3),
+    "CUSR0000SETD":    ("Motor Vehicle Maintenance & Repair",  "CPITRNSL",        1.0),
+    "CUSR0000SETG":    ("Public Transportation",               "CPITRNSL",        1.3),
+    # ── Medical Care ─────────────────────────────────────────────────────────
+    "CPIMEDSL":        ("Medical Care",                        None,              8.3),
+    "CUSR0000SAM1":    ("Medical Care Commodities",            "CPIMEDSL",        1.4),
+    "CUSR0000SAM2":    ("Medical Care Services",               "CPIMEDSL",        6.9),
+    "CUSR0000SEMD":    ("Hospital & Related Services",         "CUSR0000SAM2",    2.4),
+    # ── Recreation ───────────────────────────────────────────────────────────
+    "CPIRECSL":        ("Recreation",                          None,              5.5),
+    # ── Education & Communication ─────────────────────────────────────────────
+    "CPIEDUSL":        ("Education & Communication",           None,              6.9),
+    "CUSR0000SAE1":    ("Education",                           "CPIEDUSL",        3.0),
+    "CUSR0000SAE2":    ("Communication",                       "CPIEDUSL",        3.5),
+    # ── Other ────────────────────────────────────────────────────────────────
+    "CPIOGSSL":        ("Other Goods & Services",              None,              3.2),
 }
 
-ALL_SERIES_IDS = list(HEADLINE_SERIES.keys()) + list(CPI_COMPONENTS.keys())
+ALL_CPI_SERIES_IDS  = list(CPI_COMPONENTS.keys())
+ALL_SERIES_IDS      = list(HEADLINE_SERIES.keys()) + ALL_CPI_SERIES_IDS
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

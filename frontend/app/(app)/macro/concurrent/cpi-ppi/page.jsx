@@ -54,14 +54,6 @@ function yoyColor(v) {
   return "#1d4ed8";
 }
 
-function streakArrows(streak) {
-  if (streak === 0) return <span style={{ color: "#6b7280" }}>—</span>;
-  const abs   = Math.abs(streak);
-  const up    = streak > 0;
-  const color = up ? "#f87171" : "#60a5fa";
-  const arrow = up ? "↑" : "↓";
-  return <span style={{ color, letterSpacing: 1 }}>{arrow.repeat(Math.min(abs, 6))}</span>;
-}
 
 function fmt1(v) { return v == null ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "%"; }
 
@@ -310,81 +302,108 @@ function ComponentsTab({ components }) {
 
   const toggleExpand = (sid) => setExpanded((e) => ({ ...e, [sid]: !e[sid] }));
 
-  // Split into top-level and children
-  const topLevel  = Object.entries(components).filter(([, c]) => !c.parent);
-  const childMap  = {};
-  Object.entries(components).forEach(([sid, c]) => {
-    if (c.parent) {
-      if (!childMap[c.parent]) childMap[c.parent] = [];
-      childMap[c.parent].push([sid, c]);
-    }
-  });
+  // Build child map — any series whose parent exists in components
+  const childMap = useMemo(() => {
+    const map = {};
+    Object.entries(components).forEach(([sid, c]) => {
+      if (c.parent) {
+        if (!map[c.parent]) map[c.parent] = [];
+        map[c.parent].push(sid);
+      }
+    });
+    return map;
+  }, [components]);
+
+  const topLevel = useMemo(
+    () => Object.keys(components).filter((sid) => !components[sid].parent),
+    [components]
+  );
+
+  // Derive 5 month column headers from the first available component
+  const monthLabels = useMemo(() => {
+    const first = Object.values(components)[0];
+    if (!first?.dates?.length) return [];
+    return first.dates.slice(-5).map((d) => {
+      const parts = d.split("-");
+      return new Date(+parts[0], +parts[1] - 1).toLocaleDateString("en", { month: "short", year: "2-digit" });
+    });
+  }, [components]);
 
   const selectedComp = selected ? components[selected] : null;
   const chartDataset = selectedComp
-    ? [{
-        dates:       selectedComp.dates,
-        data:        selectedComp.yoy,
-        borderColor: "#3b82f6",
-        borderWidth: 2,
-        label:       selectedComp.label + " YoY%",
-      }]
+    ? [{ dates: selectedComp.dates, data: selectedComp.yoy, borderColor: "#3b82f6", borderWidth: 2, label: selectedComp.label + " YoY%" }]
     : null;
 
-  function ComponentRow({ sid, comp, isChild }) {
+  const ROW_BG = ["#060c18", "#040a12", "#020810"];
+
+  function ComponentRow({ sid, depth }) {
+    const comp = components[sid];
+    if (!comp) return null;
     const isSelected = selected === sid;
     const hasChildren = !!childMap[sid];
     const isOpen = expanded[sid];
+    const baseBg = ROW_BG[Math.min(depth, 2)];
+
     return (
       <tr
         onClick={() => setSelected(isSelected ? null : sid)}
-        style={{
-          background: isSelected ? "#0f2744" : isChild ? "#040a12" : "#060c18",
-          cursor: "pointer",
-          borderBottom: "1px solid #0d1829",
-          transition: "background 0.1s",
-        }}
+        style={{ background: isSelected ? "#0f2744" : baseBg, cursor: "pointer", borderBottom: "1px solid #0d1829", transition: "background 0.1s" }}
         onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#0a1628"; }}
-        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = isChild ? "#040a12" : "#060c18"; }}
+        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = isSelected ? "#0f2744" : baseBg; }}
       >
-        <td style={{ padding: "7px 12px", fontSize: 12, color: "#e5e7eb", whiteSpace: "nowrap" }}>
-          {isChild ? (
-            <span style={{ color: "#6b7280" }}>└ {comp.label}</span>
-          ) : (
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              {hasChildren && (
-                <span
-                  style={{ color: "#4b5563", cursor: "pointer", fontSize: 10, minWidth: 12 }}
-                  onClick={(e) => { e.stopPropagation(); toggleExpand(sid); }}
-                >
-                  {isOpen ? "▼" : "▶"}
-                </span>
-              )}
-              <span style={{ fontWeight: 600 }}>{comp.label}</span>
-            </span>
-          )}
+        {/* Category */}
+        <td style={{ padding: "7px 12px", paddingLeft: 12 + depth * 20, fontSize: 12, color: depth === 0 ? "#e5e7eb" : "#9ca3af", whiteSpace: "nowrap" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {hasChildren ? (
+              <span
+                style={{ color: "#4b5563", cursor: "pointer", fontSize: 10, minWidth: 12, flexShrink: 0 }}
+                onClick={(e) => { e.stopPropagation(); toggleExpand(sid); }}
+              >
+                {isOpen ? "▼" : "▶"}
+              </span>
+            ) : (
+              <span style={{ minWidth: 12, flexShrink: 0 }} />
+            )}
+            <span style={{ fontWeight: depth === 0 ? 600 : 400 }}>{comp.label}</span>
+          </span>
         </td>
-        <td style={{ padding: "7px 12px", fontSize: 12, color: "#6b7280", textAlign: "right" }}>
+        {/* Weight */}
+        <td style={{ padding: "7px 12px", fontSize: 11, color: "#4b5563", textAlign: "right", whiteSpace: "nowrap" }}>
           {comp.weight.toFixed(1)}%
         </td>
+        {/* 5 absolute value cells coloured by MoM direction */}
+        {comp.values.slice(-5).map((v, i) => {
+          const momVal = comp.mom[comp.mom.length - 5 + i];
+          return (
+            <td key={i} style={{
+              padding: "7px 10px", fontSize: 12, textAlign: "right", fontWeight: 500,
+              color: "#e5e7eb",
+              background: momVal != null ? momColor(momVal) + "44" : undefined,
+              whiteSpace: "nowrap",
+            }}>
+              {v != null ? v.toFixed(1) : "—"}
+            </td>
+          );
+        })}
+        {/* YoY% */}
         <td style={{
           padding: "7px 12px", fontSize: 12, textAlign: "right", fontWeight: 600,
-          color: "#e5e7eb",
-          background: comp.latest_mom != null ? momColor(comp.latest_mom) + "55" : undefined,
-        }}>
-          {fmt1(comp.latest_mom)}
-        </td>
-        <td style={{
-          padding: "7px 12px", fontSize: 12, textAlign: "right", fontWeight: 600,
-          color: "#e5e7eb",
-          background: comp.latest_yoy != null ? yoyColor(comp.latest_yoy) + "55" : undefined,
+          color: comp.latest_yoy != null ? yoyColor(comp.latest_yoy) : "#374151",
+          whiteSpace: "nowrap",
         }}>
           {fmt1(comp.latest_yoy)}
         </td>
-        <td style={{ padding: "7px 12px", textAlign: "center" }}>
-          {streakArrows(comp.streak ?? 0)}
-        </td>
       </tr>
+    );
+  }
+
+  function renderRows(sid, depth) {
+    const children = childMap[sid] ?? [];
+    return (
+      <React.Fragment key={sid}>
+        <ComponentRow sid={sid} depth={depth} />
+        {expanded[sid] && children.map((csid) => renderRows(csid, depth + 1))}
+      </React.Fragment>
     );
   }
 
@@ -394,36 +413,23 @@ function ComponentsTab({ components }) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid #1f2937" }}>
-              {["Category", "Weight", "MoM%", "YoY%", "Trend"].map((h, i) => (
-                <th key={h} style={{
-                  padding: "10px 12px", fontSize: 11, fontWeight: 600, color: "#4b5563",
-                  textTransform: "uppercase", letterSpacing: "0.07em",
-                  textAlign: i <= 1 ? "left" : i === 4 ? "center" : "right",
-                }}>
-                  {h}
-                </th>
+              <th style={{ ...thStyle, textAlign: "left" }}>Category</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Weight</th>
+              {monthLabels.map((lbl) => (
+                <th key={lbl} style={{ ...thStyle, textAlign: "right" }}>{lbl}</th>
               ))}
+              <th style={{ ...thStyle, textAlign: "right" }}>YoY%</th>
             </tr>
           </thead>
           <tbody>
-            {topLevel.map(([sid, comp]) => (
-              <React.Fragment key={sid}>
-                <ComponentRow sid={sid} comp={comp} isChild={false} />
-                {expanded[sid] && (childMap[sid] ?? []).map(([csid, ccomp]) => (
-                  <ComponentRow key={csid} sid={csid} comp={ccomp} isChild={true} />
-                ))}
-              </React.Fragment>
-            ))}
+            {topLevel.map((sid) => renderRows(sid, 0))}
           </tbody>
         </table>
       </div>
 
-      {/* Selected series chart */}
       {selectedComp && chartDataset && (
         <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 8 }}>
-            {selectedComp.label} — YoY % Change
-          </div>
+          <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 8 }}>{selectedComp.label} — YoY % Change</div>
           <div style={{ ...card, padding: "16px 8px 8px" }}>
             <LineChart dates={null} datasets={chartDataset} referenceLine={0} />
           </div>
@@ -437,6 +443,11 @@ function ComponentsTab({ components }) {
     </div>
   );
 }
+
+const thStyle = {
+  padding: "10px 12px", fontSize: 11, fontWeight: 600, color: "#4b5563",
+  textTransform: "uppercase", letterSpacing: "0.07em",
+};
 
 // ── Insights Tab ──────────────────────────────────────────────────────────────
 
