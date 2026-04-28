@@ -8,6 +8,8 @@ from app.services.portfolio import (
     download_prices,
     build_portfolio_return_series,
     cumulative_series,
+    compute_drawdown_series,
+    compute_risk_metrics,
     summary_returns,
     benchmark_return_series,
     beta_adjust,
@@ -48,7 +50,7 @@ async def portfolio_backtest(payload: BacktestRequest, db: Session = Depends(get
 
         prices = download_prices(all_tickers, period="2y")
 
-        portfolio_returns = build_portfolio_return_series(
+        portfolio_returns, ticker_weighted = build_portfolio_return_series(
             prices[portfolio_tickers], positions
         )
         portfolio_cumulative = cumulative_series(portfolio_returns)
@@ -78,13 +80,21 @@ async def portfolio_backtest(payload: BacktestRequest, db: Session = Depends(get
                 }
             )
 
+        contributions = {
+            t: round(float((1 + s.reindex(combined.index).fillna(0)).cumprod().iloc[-1] - 1), 6)
+            for t, s in ticker_weighted.items()
+        }
+
         response = {
             "summary": summary_returns(combined["portfolio"]),
             "benchmark_summary": summary_returns(combined["spy"]),
+            "risk_metrics": compute_risk_metrics(aligned_portfolio_returns),
+            "contributions": contributions,
             "series": {
                 "dates": [d.strftime("%Y-%m-%d") for d in combined.index],
                 "portfolio": combined["portfolio"].round(6).tolist(),
                 "benchmark": combined["spy"].round(6).tolist(),
+                "drawdown": compute_drawdown_series(combined["portfolio"]).round(6).tolist(),
             },
             "daily": daily_rows,
         }

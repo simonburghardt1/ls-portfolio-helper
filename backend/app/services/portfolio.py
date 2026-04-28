@@ -242,10 +242,10 @@ def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:
 
 def build_portfolio_return_series(
     prices: pd.DataFrame, positions: list[dict]
-) -> pd.Series:
+) -> tuple[pd.Series, dict[str, pd.Series]]:
     returns = prices.pct_change().dropna()
 
-    weighted_returns = []
+    weighted: dict[str, pd.Series] = {}
 
     for pos in positions:
         ticker = pos["ticker"].upper()
@@ -256,14 +256,41 @@ def build_portfolio_return_series(
             raise ValueError(f"Ticker {ticker} not found in downloaded data.")
 
         sign = 1.0 if side == "long" else -1.0
-        weighted_returns.append(returns[ticker] * weight * sign)
+        weighted[ticker] = returns[ticker] * weight * sign
 
-    portfolio_returns = pd.concat(weighted_returns, axis=1).sum(axis=1)
-    return portfolio_returns
+    portfolio_returns = pd.concat(list(weighted.values()), axis=1).sum(axis=1)
+    return portfolio_returns, weighted
 
 
 def cumulative_series(portfolio_returns: pd.Series) -> pd.Series:
     return (1 + portfolio_returns).cumprod() - 1
+
+
+def compute_drawdown_series(cumulative: pd.Series) -> pd.Series:
+    wealth = 1 + cumulative
+    running_max = wealth.cummax()
+    return wealth / running_max - 1
+
+
+def compute_risk_metrics(portfolio_returns: pd.Series, periods_per_year: int = 252) -> dict:
+    r = portfolio_returns.dropna()
+    if len(r) < 2:
+        return {}
+    std = float(r.std())
+    mean_r = float(r.mean())
+    ann_vol = std * (periods_per_year ** 0.5)
+    sharpe = float((mean_r / std) * (periods_per_year ** 0.5)) if std else None
+    downside = r[r < 0]
+    ds_std = float(downside.std()) if len(downside) > 1 else None
+    sortino = float((mean_r / ds_std) * (periods_per_year ** 0.5)) if ds_std else None
+    cum = cumulative_series(r)
+    max_dd = float(compute_drawdown_series(cum).min())
+    return {
+        "sharpe":  round(sharpe,  3) if sharpe  is not None else None,
+        "sortino": round(sortino, 3) if sortino is not None else None,
+        "max_dd":  round(max_dd,  4),
+        "ann_vol": round(ann_vol, 4),
+    }
 
 
 def rolling_period_return(cumulative: pd.Series, lookback_days: int) -> float | None:
@@ -277,8 +304,10 @@ def rolling_period_return(cumulative: pd.Series, lookback_days: int) -> float | 
 
 def summary_returns(cumulative: pd.Series) -> dict:
     return {
-        "3M": rolling_period_return(cumulative, 63),
-        "6M": rolling_period_return(cumulative, 126),
+        "1W":  rolling_period_return(cumulative, 5),
+        "1M":  rolling_period_return(cumulative, 21),
+        "3M":  rolling_period_return(cumulative, 63),
+        "6M":  rolling_period_return(cumulative, 126),
         "12M": rolling_period_return(cumulative, 252),
     }
 

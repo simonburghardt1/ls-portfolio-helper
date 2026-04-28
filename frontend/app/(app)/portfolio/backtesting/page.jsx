@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import LineChart from "@/app/components/LineChart";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const API = "http://localhost:8000";
 
@@ -42,6 +43,11 @@ export default function BacktestingPage() {
   const [savedPortfolios,   setSavedPortfolios]   = useState([]);
   const [selectedPortfolio, setSelectedPortfolio] = useState("");
   const [loadedName,        setLoadedName]        = useState(null);
+
+  // Compare portfolio state
+  const [comparePortfolioId,     setComparePortfolioId]     = useState("");
+  const [comparePortfolioResult, setComparePortfolioResult] = useState(null);
+  const [comparePortfolioStatus, setComparePortfolioStatus] = useState("idle");
 
   useEffect(() => {
     fetch(`${API}/api/portfolios`)
@@ -234,6 +240,30 @@ export default function BacktestingPage() {
     }
   }
 
+  async function runPortfolioComparison() {
+    const p = savedPortfolios.find(p => String(p.id) === comparePortfolioId);
+    if (!p) return;
+    setComparePortfolioStatus("loading");
+    try {
+      const res = await fetch(`${API}/api/portfolio/backtest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ positions: p.positions }),
+      });
+      if (!res.ok) throw new Error(`Server ${res.status}`);
+      setComparePortfolioResult(await res.json());
+      setComparePortfolioStatus("done");
+    } catch {
+      setComparePortfolioStatus("error");
+    }
+  }
+
+  function clearPortfolioComparison() {
+    setComparePortfolioResult(null);
+    setComparePortfolioStatus("idle");
+    setComparePortfolioId("");
+  }
+
   function clearRegimeComparison() {
     setResult(prev => {
       if (!prev) return prev;
@@ -245,19 +275,41 @@ export default function BacktestingPage() {
 
   // ── Chart / table helpers ──────────────────────────────────────────────────
 
-  function getFilteredChartData(result, timeframe) {
+  const TF_DAYS = { "1W": 5, "1M": 21, "3M": 63, "6M": 126, "12M": 252 };
+
+  function getFilteredChartData(result, timeframe, compareResult) {
     if (!result?.series) return null;
-    const { dates, portfolio, benchmark, regime_adjusted } = result.series;
-    const days = timeframe === "3M" ? 63 : timeframe === "6M" ? 126 : 252;
+    const { dates, portfolio, benchmark, regime_adjusted, drawdown } = result.series;
+    const days = TF_DAYS[timeframe] ?? 252;
     const start = Math.max(0, dates.length - days);
     const d = dates.slice(start), p = portfolio.slice(start), b = benchmark.slice(start);
     const ra = regime_adjusted ? regime_adjusted.slice(start) : null;
+    const dd = drawdown ? drawdown.slice(start) : null;
     if (!p.length || !b.length) return null;
+
+    const rebase = (arr) => arr.map(v => ((1 + v) / (1 + arr[0]) - 1) * 100);
+
+    let comparison = null;
+    if (compareResult?.series) {
+      const compMap = {};
+      compareResult.series.dates.forEach((dt, i) => { compMap[dt] = compareResult.series.portfolio[i]; });
+      const firstDate = d.find(dt => compMap[dt] != null);
+      if (firstDate != null) {
+        const compBase = compMap[firstDate];
+        comparison = d.map(dt => {
+          const v = compMap[dt];
+          return v != null ? ((1 + v) / (1 + compBase) - 1) * 100 : null;
+        });
+      }
+    }
+
     return {
       dates: d,
-      portfolio:       p.map(v => ((1 + v) / (1 + p[0]) - 1) * 100),
-      benchmark:       b.map(v => ((1 + v) / (1 + b[0]) - 1) * 100),
-      regime_adjusted: ra ? ra.map(v => ((1 + v) / (1 + ra[0]) - 1) * 100) : null,
+      portfolio:       rebase(p),
+      benchmark:       rebase(b),
+      regime_adjusted: ra ? rebase(ra) : null,
+      comparison,
+      drawdown:        dd ? dd.map(v => v != null ? +(v * 100).toFixed(3) : null) : null,
     };
   }
 
@@ -281,8 +333,9 @@ export default function BacktestingPage() {
   }
 
   const summary   = computeSummary(positions);
-  const chartData = getFilteredChartData(result, selectedTimeframe);
+  const chartData = getFilteredChartData(result, selectedTimeframe, comparePortfolioResult);
   const tableRows = getTableRows(result, tableFrequency);
+  const compareName = savedPortfolios.find(p => String(p.id) === comparePortfolioId)?.name ?? null;
   const hasBetas  = Object.keys(betas).length > 0;
 
   return (
@@ -574,29 +627,77 @@ export default function BacktestingPage() {
           <>
             {/* Period returns */}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              {["3M", "6M", "12M"].map(p => (
+              {["1W", "1M", "3M", "6M", "12M"].map(p => (
                 <ReturnCard key={p} label={`${p} Return`} value={result.summary[p]} />
               ))}
             </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: result.summary_regime ? 12 : 24 }}>
-              {["3M", "6M", "12M"].map(p => (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: result.summary_regime || comparePortfolioResult ? 12 : 24 }}>
+              {["1W", "1M", "3M", "6M", "12M"].map(p => (
                 <ReturnCard key={`b-${p}`} label={`${p} S&P 500`} value={result.benchmark_summary[p]} color="#f59e0b" />
               ))}
             </div>
+            {comparePortfolioResult && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: result.summary_regime ? 12 : 24 }}>
+                {["1W", "1M", "3M", "6M", "12M"].map(p => (
+                  <ReturnCard key={`cp-${p}`} label={`${p} ${compareName ?? "Compare"}`} value={comparePortfolioResult.summary[p]} color="#10b981" />
+                ))}
+              </div>
+            )}
             {result.summary_regime && (
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-                {["3M", "6M", "12M"].map(p => (
+                {["1W", "1M", "3M", "6M", "12M"].map(p => (
                   <ReturnCard key={`ra-${p}`} label={`${p} Regime-Adj`} value={result.summary_regime[p]} color="#a78bfa" />
                 ))}
               </div>
             )}
 
+            {/* Compare portfolio panel */}
+            <div style={{ background: "#080e1a", border: `1px solid ${comparePortfolioResult ? "rgba(16,185,129,0.3)" : "#1f2937"}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>Compare portfolio:</span>
+                <select
+                  value={comparePortfolioId}
+                  onChange={e => { setComparePortfolioId(e.target.value); setComparePortfolioResult(null); setComparePortfolioStatus("idle"); }}
+                  style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 6, padding: "5px 10px", fontSize: 12, color: "#e5e7eb", cursor: "pointer" }}
+                >
+                  <option value="">— select portfolio —</option>
+                  {savedPortfolios.map(p => (
+                    <option key={p.id} value={String(p.id)}>{p.name} ({p.positions.length} pos)</option>
+                  ))}
+                </select>
+                <button
+                  onClick={runPortfolioComparison}
+                  disabled={!comparePortfolioId || comparePortfolioStatus === "loading"}
+                  style={!comparePortfolioId || comparePortfolioStatus === "loading" ? btnDisabled : { ...btnBase, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.35)", color: "#10b981" }}
+                >
+                  {comparePortfolioStatus === "loading" ? "Loading…" : comparePortfolioStatus === "done" ? "↻ Rerun" : "Compare"}
+                </button>
+                {comparePortfolioResult && (
+                  <button onClick={clearPortfolioComparison} title="Remove" style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}
+                    onMouseEnter={e => e.currentTarget.style.color = "#fca5a5"}
+                    onMouseLeave={e => e.currentTarget.style.color = "#6b7280"}
+                  >×</button>
+                )}
+                {comparePortfolioStatus === "error" && <span style={{ fontSize: 11, color: "#fca5a5" }}>Failed</span>}
+              </div>
+            </div>
+
+            {/* Risk metrics strip */}
+            {result.risk_metrics && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+                <RiskCard label="Sharpe Ratio"  value={result.risk_metrics.sharpe}  format="ratio" />
+                <RiskCard label="Sortino Ratio" value={result.risk_metrics.sortino} format="ratio" />
+                <RiskCard label="Max Drawdown"  value={result.risk_metrics.max_dd}  format="pct" alwaysRed />
+                <RiskCard label="Ann. Volatility" value={result.risk_metrics.ann_vol} format="pct" neutral />
+              </div>
+            )}
+
             {/* Cumulative chart */}
-            <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: 20, marginBottom: 16 }}>
+            <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: 20, marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>CUMULATIVE PERFORMANCE</span>
                 <div style={{ display: "flex", gap: 6 }}>
-                  {["3M", "6M", "12M"].map(tf => (
+                  {["1W", "1M", "3M", "6M", "12M"].map(tf => (
                     <button key={tf} onClick={() => setSelectedTimeframe(tf)} style={selectedTimeframe === tf ? btnPrimary : btnSecondary}>
                       {tf}
                     </button>
@@ -607,12 +708,83 @@ export default function BacktestingPage() {
                 <LineChart dates={chartData.dates} datasets={[
                   { label: "Portfolio",      data: chartData.portfolio,       borderColor: "#60a5fa", backgroundColor: "rgba(96,165,250,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
                   { label: "S&P 500 (SPY)",  data: chartData.benchmark,       borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
+                  ...(chartData.comparison ? [
+                    { label: compareName ?? "Comparison", data: chartData.comparison, borderColor: "#10b981", backgroundColor: "rgba(16,185,129,0.1)", borderWidth: 2, pointRadius: 0, tension: 0.25 },
+                  ] : []),
                   ...(chartData.regime_adjusted ? [
                     { label: "Regime-Adjusted", data: chartData.regime_adjusted, borderColor: "#a78bfa", backgroundColor: "rgba(167,139,250,0.1)", borderWidth: 2, pointRadius: 0, tension: 0.25 },
                   ] : []),
                 ]} />
               )}
             </div>
+
+            {/* Drawdown chart */}
+            {chartData?.drawdown && (
+              <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", marginBottom: 16 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>DRAWDOWN</span>
+                <ResponsiveContainer width="100%" height={180} style={{ marginTop: 12 }}>
+                  <AreaChart data={chartData.dates.map((date, i) => ({ date, value: chartData.drawdown[i] }))} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="date" tick={{ fill: "#6b7280", fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                    <YAxis
+                      tick={{ fill: "#6b7280", fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={v => `${v.toFixed(0)}%`}
+                      domain={["auto", 0]}
+                      width={48}
+                    />
+                    <Tooltip
+                      contentStyle={{ background: "#0d1829", border: "1px solid #1f2937", borderRadius: 6, fontSize: 12 }}
+                      labelStyle={{ color: "#9ca3af" }}
+                      formatter={v => [`${v != null ? v.toFixed(2) : "—"}%`, "Drawdown"]}
+                    />
+                    <Area type="monotone" dataKey="value" stroke="#ef4444" fill="rgba(239,68,68,0.15)" strokeWidth={1.5} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Stock contribution */}
+            {result.contributions && Object.keys(result.contributions).length > 0 && (
+              <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+                <div style={{ padding: "14px 20px", borderBottom: "1px solid #1f2937" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>STOCK CONTRIBUTION</span>
+                </div>
+                <div style={{ padding: "12px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {Object.entries(result.contributions)
+                    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                    .map(([ticker, contrib]) => {
+                      const pos = positions.find(p => p.ticker.toUpperCase() === ticker);
+                      const isLong = pos?.side === "long";
+                      const pct = +(contrib * 100).toFixed(2);
+                      const barMax = Math.max(...Object.values(result.contributions).map(v => Math.abs(v))) * 100;
+                      const barWidth = Math.min(100, Math.abs(pct) / barMax * 100);
+                      return (
+                        <div key={ticker} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <span style={{
+                            minWidth: 60, fontSize: 12, fontWeight: 700, fontFamily: "ui-monospace, monospace",
+                            padding: "2px 8px", borderRadius: 4, textAlign: "center",
+                            background: isLong ? "rgba(22,163,74,0.15)" : "rgba(220,38,38,0.15)",
+                            color:      isLong ? "#86efac" : "#fca5a5",
+                          }}>{ticker}</span>
+                          <span style={{ fontSize: 11, color: "#4b5563", minWidth: 36 }}>{isLong ? "LONG" : "SHORT"}</span>
+                          <span style={{ fontSize: 11, color: "#4b5563", minWidth: 40 }}>{pos ? `${(pos.weight * 100).toFixed(0)}%` : ""}</span>
+                          <div style={{ flex: 1, height: 6, background: "#0d1829", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{
+                              height: "100%", width: `${barWidth}%`, borderRadius: 3,
+                              background: pct >= 0 ? "#22c55e" : "#ef4444",
+                            }} />
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 68, textAlign: "right", color: pct >= 0 ? "#86efac" : "#fca5a5" }}>
+                            {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                          </span>
+                        </div>
+                      );
+                    })
+                  }
+                </div>
+              </div>
+            )}
 
             {/* Returns table */}
             <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, overflow: "hidden" }}>
@@ -689,6 +861,24 @@ function KpiCardLink({ href, label, value, valueColor, loading }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+function RiskCard({ label, value, format, alwaysRed, neutral }) {
+  let color = "#e5e7eb";
+  if (value != null) {
+    if (alwaysRed) color = "#fca5a5";
+    else if (neutral) color = "#9ca3af";
+    else color = value > 1 ? "#86efac" : value > 0 ? "#f59e0b" : "#fca5a5";
+  }
+  const display = value == null ? "—"
+    : format === "pct" ? `${(value * 100).toFixed(2)}%`
+    : value.toFixed(2);
+  return (
+    <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 18px", minWidth: 140 }}>
+      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{display}</div>
+    </div>
   );
 }
 
