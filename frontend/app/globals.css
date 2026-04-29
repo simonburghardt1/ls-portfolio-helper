@@ -1,13 +1,46 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  /* ── Backgrounds ──────────────────────────────────────────── */
+  --bg-base:    #020617;
+  --bg-surface: #080e1a;
+  --bg-elevated:#0f172a;
+  --bg-subtle:  #111827;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* ── Primary accent — Emerald green ─────────────────────── */
+  --green-400:  #34d399;
+  --green-500:  #10b981;
+  --green-600:  #059669;
+  --green-900:  #064e3b;
+  --green-muted:#065f46;
+
+  /* ── Secondary — Blue (chart lines / informational only) ─── */
+  --blue-400:   #60a5fa;
+  --blue-muted: #1e3a5f;
+
+  /* ── Text hierarchy ──────────────────────────────────────── */
+  --text-primary:   #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
+  --text-ghost:     #334155;
+
+  /* ── Borders ─────────────────────────────────────────────── */
+  --border:       #1e2d3d;
+  --border-light: #0f1d2e;
+
+  /* ── Radius ──────────────────────────────────────────────── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+
+  /* ── Font sizes — 5-level scale ──────────────────────────── */
+  --font-2xl: 28px;   /* KPI values, large numbers */
+  --font-xl:  22px;   /* page titles, chart series name */
+  --font-lg:  16px;   /* card titles, section sub-headers */
+  --font-base:13px;   /* body text, buttons, table cells */
+  --font-sm:  11px;   /* uppercase labels, table headers, badges */
+
+  /* ── Status / semantic colors ────────────────────────────── */
+  --positive:  #22c55e;
+  --negative:  #ef4444;
+  --caution:   #f59e0b;
 }
 
 html,
@@ -17,8 +50,8 @@ body {
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--text-primary);
+  background: var(--bg-base);
   font-family: Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -33,10 +66,4 @@ body {
 a {
   color: inherit;
   text-decoration: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
 }

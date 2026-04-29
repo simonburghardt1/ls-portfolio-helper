@@ -49,7 +49,7 @@ const NAV = [
     groups: [
       {
         label: "Portfolio",
-        href: "/portfolio",   // clicking the group header navigates here
+        href: "/portfolio",
         items: [
           { label: "Backtesting",              href: "/portfolio/backtesting" },
           { label: "Heatmap",                  href: "/portfolio/heatmap" },
@@ -98,21 +98,21 @@ export default function Sidebar() {
 
   return (
     <aside style={{
-      width: 240,
+      width: 220,
       minHeight: "100vh",
-      background: "#080e1a",
-      borderRight: "1px solid #1f2937",
+      background: "var(--bg-surface)",
+      borderRight: "1px solid var(--border)",
       display: "flex",
       flexDirection: "column",
       flexShrink: 0,
       overflowY: "auto",
     }}>
       {/* Logo */}
-      <div style={{ padding: "24px 16px 20px", borderBottom: "1px solid #1f2937", flexShrink: 0 }}>
-        <div style={{ fontSize: 13, color: "#3b82f6", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 2 }}>
+      <div style={{ padding: "24px 16px 20px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <div style={{ fontSize: 13, color: "var(--green-500)", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 2 }}>
           LS PLATFORM
         </div>
-        <div style={{ fontSize: 11, color: "#4b5563", letterSpacing: "0.05em" }}>
+        <div style={{ fontSize: 11, color: "var(--text-ghost)", letterSpacing: "0.05em" }}>
           TRADING & PORTFOLIO
         </div>
       </div>
@@ -121,8 +121,6 @@ export default function Sidebar() {
       <nav style={{ flex: 1, padding: "12px 8px" }}>
         {NAV.map((block) => (
           <div key={block.section} style={{ marginBottom: 4 }}>
-
-            {/* Section header — top-level soon item */}
             {block.soon ? (
               <div style={sectionItemStyle(true)}>
                 <span style={{ flex: 1 }}>{block.section}</span>
@@ -139,21 +137,20 @@ export default function Sidebar() {
                   return (
                     <div key={groupKey} style={{ marginBottom: 2 }}>
 
-                      {/* Group header (collapsible) — optionally a link if group.href is set */}
                       {group.label && (group.href ? (
                         <div style={{ display: "flex", alignItems: "center" }}>
                           <Link href={group.href} style={{ textDecoration: "none", flex: 1 }}>
-                            <div style={{ ...groupHeaderStyle, color: pathname === group.href ? "#e5e7eb" : undefined }}>
+                            <div style={{ ...groupHeaderStyle, color: pathname === group.href ? "var(--text-primary)" : undefined }}>
                               {isOpen
-                                ? <ChevronDown size={13} style={{ flexShrink: 0, color: "#6b7280" }} />
-                                : <ChevronRight size={13} style={{ flexShrink: 0, color: "#6b7280" }} />
+                                ? <ChevronDown size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
+                                : <ChevronRight size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
                               }
                               <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
                             </div>
                           </Link>
                           <button
                             onClick={() => toggleGroup(groupKey)}
-                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "#4b5563" }}
+                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-ghost)" }}
                             title={isOpen ? "Collapse" : "Expand"}
                           >
                             {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -165,14 +162,13 @@ export default function Sidebar() {
                           style={groupHeaderStyle}
                         >
                           {isOpen
-                            ? <ChevronDown size={13} style={{ flexShrink: 0, color: "#6b7280" }} />
-                            : <ChevronRight size={13} style={{ flexShrink: 0, color: "#6b7280" }} />
+                            ? <ChevronDown size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
+                            : <ChevronRight size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
                           }
                           <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
                         </button>
                       ))}
 
-                      {/* Items */}
                       {(group.label == null || isOpen) && (
                         <div style={{ paddingLeft: group.label ? 8 : 0 }}>
                           {group.items.map((item) => {
@@ -205,20 +201,20 @@ export default function Sidebar() {
       </nav>
 
       {/* User + Logout */}
-      <div style={{ padding: "12px 8px", borderTop: "1px solid #1f2937", flexShrink: 0 }}>
+      <div style={{ padding: "12px 8px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
         {user && (
           <div style={{ padding: "6px 8px", marginBottom: 4 }}>
-            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 1 }}>Signed in as</div>
-            <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 1 }}>Signed in as</div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {user.email}
             </div>
           </div>
         )}
         <button
           onClick={handleLogout}
-          style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px", background: "transparent", border: "none", borderRadius: 6, color: "#6b7280", fontSize: 13, cursor: "pointer" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "#111827"; e.currentTarget.style.color = "#e5e7eb"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#6b7280"; }}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px", background: "transparent", border: "none", borderRadius: "var(--radius-sm)", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
         >
           <LogOut size={14} />
           <span>Logout</span>
@@ -230,7 +226,7 @@ export default function Sidebar() {
 
 function SoonBadge() {
   return (
-    <span style={{ fontSize: 9, color: "#4b5563", background: "#111827", border: "1px solid #1f2937", padding: "1px 5px", borderRadius: 3, letterSpacing: "0.05em", flexShrink: 0 }}>
+    <span style={{ fontSize: 9, color: "var(--text-ghost)", background: "var(--bg-elevated)", border: "1px solid var(--border)", padding: "1px 5px", borderRadius: 3, letterSpacing: "0.05em", flexShrink: 0 }}>
       SOON
     </span>
   );
@@ -239,7 +235,7 @@ function SoonBadge() {
 const sectionLabelStyle = {
   fontSize: 10,
   fontWeight: 700,
-  color: "#3b4c6b",
+  color: "var(--text-muted)",
   letterSpacing: "0.08em",
   padding: "10px 8px 4px",
   textTransform: "uppercase",
@@ -253,8 +249,8 @@ const groupHeaderStyle = {
   padding: "6px 8px",
   background: "transparent",
   border: "none",
-  borderRadius: 6,
-  color: "#6b7280",
+  borderRadius: "var(--radius-sm)",
+  color: "var(--text-muted)",
   fontSize: 12,
   fontWeight: 500,
   cursor: "pointer",
@@ -267,9 +263,9 @@ function sectionItemStyle(disabled) {
     alignItems: "center",
     gap: 8,
     padding: "8px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
     fontSize: 13,
-    color: disabled ? "#374151" : "#9ca3af",
+    color: disabled ? "var(--text-ghost)" : "var(--text-secondary)",
     cursor: "default",
   };
 }
@@ -281,11 +277,14 @@ function itemStyle(isActive, disabled) {
     justifyContent: "space-between",
     gap: 8,
     padding: "6px 8px",
-    borderRadius: 6,
+    borderRadius: "var(--radius-sm)",
+    borderLeft: isActive ? "2px solid var(--green-500)" : "2px solid transparent",
+    paddingLeft: isActive ? 6 : 8,
     fontSize: 12,
-    color: disabled ? "#374151" : isActive ? "#e5e7eb" : "#9ca3af",
-    background: isActive ? "#1e3a5f" : "transparent",
+    color: disabled ? "var(--text-ghost)" : isActive ? "var(--green-400)" : "var(--text-muted)",
+    background: isActive ? "var(--green-900)" : "transparent",
     cursor: disabled ? "default" : "pointer",
     marginBottom: 1,
+    transition: "background 0.1s, color 0.1s",
   };
 }

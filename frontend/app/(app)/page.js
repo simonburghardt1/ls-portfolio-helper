@@ -66,29 +66,40 @@ export default function Page() {
     kpis: kpis.filter((k) => k.group === g),
   }));
 
+  const statusColor = status === "Live" ? "var(--positive)" : status === "Loading..." ? "var(--caution)" : "var(--negative)";
+
   return (
-    <div style={{ color: "#e5e7eb", fontFamily: "Arial, sans-serif" }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 24px 40px" }}>
+    <div style={{ color: "var(--text-primary)" }}>
+      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "32px 36px 48px" }}>
 
         {/* Header */}
         <header style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
-          marginBottom: 28, paddingBottom: 18, borderBottom: "1px solid #1f2937",
+          marginBottom: 32, paddingBottom: 20, borderBottom: "1px solid var(--border)",
         }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 28 }}>Macro Dashboard</h1>
-            <div style={{ marginTop: 6, color: "#9ca3af", fontSize: 14 }}>FRED data · Leading & concurrent indicators</div>
+            <h1 style={{ margin: 0, fontSize: "var(--font-xl)", fontWeight: 700, color: "var(--text-primary)" }}>
+              Macro Dashboard
+            </h1>
+            <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: "var(--font-base)" }}>
+              FRED data · Leading &amp; concurrent indicators
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button
               onClick={() => loadData(selectedSeriesId)}
-              style={{ background: "#2563eb", color: "white", border: "none", borderRadius: 10, padding: "10px 16px", cursor: "pointer", fontWeight: 600 }}
+              style={{
+                background: "var(--green-900)", color: "var(--green-400)",
+                border: "1px solid var(--green-muted)", borderRadius: "var(--radius-sm)",
+                padding: "8px 16px", cursor: "pointer", fontWeight: 600, fontSize: "var(--font-base)",
+              }}
             >
               Refresh
             </button>
             <div style={{
-              fontSize: 14, color: status === "Live" ? "#86efac" : status === "Loading..." ? "#fcd34d" : "#fca5a5",
-              background: "#0f172a", border: "1px solid #374151", padding: "10px 14px", borderRadius: 10,
+              fontSize: "var(--font-base)", color: statusColor,
+              background: "var(--bg-elevated)", border: "1px solid var(--border)",
+              padding: "8px 14px", borderRadius: "var(--radius-sm)",
             }}>
               {status}
             </div>
@@ -98,7 +109,10 @@ export default function Page() {
         {/* KPI Groups */}
         {grouped.map(({ label, kpis: groupKpis }) => (
           <section key={label} style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#3b4c6b", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+            <div style={{
+              fontSize: "var(--font-sm)", fontWeight: 600, color: "var(--text-ghost)",
+              letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10,
+            }}>
               {label}
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -121,30 +135,36 @@ export default function Page() {
 
         {/* Chart */}
         <section style={{
-          marginTop: 12, background: "#0f172a", border: "1px solid #1f2937",
-          borderRadius: 20, padding: 22, boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
+          marginTop: 12, background: "var(--bg-surface)", border: "1px solid var(--border)",
+          borderRadius: "var(--radius-md)", padding: 24,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Selected Series</div>
-              <h2 style={{ margin: 0, fontSize: 22 }}>{chartSeries ? chartSeries.name : "—"}</h2>
+              <div style={{ fontSize: "var(--font-sm)", color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
+                Selected Series
+              </div>
+              <h2 style={{ margin: 0, fontSize: "var(--font-xl)", fontWeight: 700, color: "var(--text-primary)" }}>
+                {chartSeries ? chartSeries.name : "—"}
+              </h2>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {["1Y", "5Y", "10Y", "MAX"].map((range) => (
                 <button key={range} onClick={() => handleRangeClick(range)} style={{
-                  background: selectedRange === range ? "#2563eb" : "#020617",
-                  color: "white", border: "1px solid #374151", borderRadius: 8,
-                  padding: "6px 12px", cursor: "pointer", fontSize: 13,
+                  background: selectedRange === range ? "var(--green-900)" : "transparent",
+                  color: selectedRange === range ? "var(--green-400)" : "var(--text-muted)",
+                  border: `1px solid ${selectedRange === range ? "var(--green-muted)" : "var(--border)"}`,
+                  borderRadius: "var(--radius-sm)", padding: "6px 12px",
+                  cursor: "pointer", fontSize: "var(--font-base)", fontWeight: 500,
                 }}>
                   {range}
                 </button>
               ))}
               {chartSeries?.values?.length > 0 && (
-                <div style={{ background: "#020617", border: "1px solid #374151", borderRadius: 10, padding: "8px 14px" }}>
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>Latest</div>
-                  <div style={{ fontSize: 18, fontWeight: 600 }}>
+                <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "8px 14px" }}>
+                  <div style={{ fontSize: "var(--font-sm)", color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>Latest</div>
+                  <div style={{ fontSize: "var(--font-lg)", fontWeight: 600, color: "var(--text-primary)", marginTop: 2 }}>
                     {Number(chartSeries.values.at(-1)).toFixed(2)}
-                    <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 4 }}>{chartSeries.unit}</span>
+                    <span style={{ fontSize: "var(--font-sm)", color: "var(--text-secondary)", marginLeft: 4 }}>{chartSeries.unit}</span>
                   </div>
                 </div>
               )}
@@ -158,12 +178,12 @@ export default function Page() {
               datasets={[{
                 label: chartSeries.name,
                 data: chartSeries.values,
-                borderColor: "#3b82f6",
+                borderColor: "var(--green-500)",
                 borderWidth: 2,
               }]}
             />
           ) : (
-            <div style={{ color: "#9ca3af", height: 380, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ color: "var(--text-muted)", height: 380, display: "flex", alignItems: "center", justifyContent: "center" }}>
               Loading chart...
             </div>
           )}
