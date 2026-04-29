@@ -14,9 +14,9 @@ log = logging.getLogger(__name__)
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-THRESHOLD_UP   =  0.25
-THRESHOLD_DOWN = -0.25
-WEIGHTS        = {"bmsb": 0.35, "breadth": 0.30, "vix": 0.20, "credit": 0.15}
+THRESHOLD_UP   =  0.2
+THRESHOLD_DOWN = -0.2
+WEIGHTS        = {"bmsb": 0.30, "breadth": 0.28, "vix": 0.17, "credit": 0.25}
 BAND_BREACH_PCT = 0.01
 
 # Daily-bar equivalents of weekly periods (1 week ≈ 5 trading days):
@@ -345,6 +345,68 @@ def get_regime_from_db(db: Session) -> dict:
             "vix":     [r.score_vix     for r in rows],
             "credit":  [r.score_credit  for r in rows],
         },
+    }
+
+
+def compare_regime_weights(db: Session, config_a: dict, config_b: dict) -> dict:
+    """Re-apply two weight configs to stored component scores and return regime stats."""
+    rows = db.execute(
+        select(MarketRegimeRow).order_by(MarketRegimeRow.date)
+    ).scalars().all()
+
+    if not rows:
+        return {}
+
+    dates      = [r.date for r in rows]
+    spy_prices = [r.spy_price for r in rows]
+    raw_scores = [
+        {"bmsb": r.score_bmsb, "breadth": r.score_breadth, "vix": r.score_vix, "credit": r.score_credit}
+        for r in rows
+    ]
+
+    spy_ret = [None] * len(spy_prices)
+    for i in range(1, len(spy_prices)):
+        p0, p1 = spy_prices[i - 1], spy_prices[i]
+        if p0 and p1 and p0 != 0:
+            spy_ret[i] = p1 / p0 - 1
+
+    def stats_for(weights):
+        composite_raw = []
+        for s in raw_scores:
+            total_w = total_s = 0.0
+            for k, w in weights.items():
+                v = s.get(k)
+                if v is not None and not (isinstance(v, float) and pd.isna(v)):
+                    total_s += w * v
+                    total_w += w
+            composite_raw.append(total_s / total_w if total_w else None)
+
+        raw_series = pd.Series([v if v is not None else float("nan") for v in composite_raw])
+        smoothed   = raw_series.ewm(span=SMOOTH_SPAN, adjust=False).mean()
+        regimes    = [_regime_from_score(v) for v in smoothed]
+
+        valid  = [(r, ret) for r, ret in zip(regimes, spy_ret) if r is not None]
+        total  = len(valid)
+        counts = {lbl: sum(1 for r, _ in valid if r == lbl) for lbl in ("up", "ranging", "down")}
+        pct    = {lbl: round(counts[lbl] / total * 100, 1) if total else 0 for lbl in ("up", "ranging", "down")}
+
+        transitions = sum(
+            1 for i in range(1, len(regimes))
+            if regimes[i] is not None and regimes[i - 1] is not None and regimes[i] != regimes[i - 1]
+        )
+
+        avg_ret = {}
+        for lbl in ("up", "ranging", "down"):
+            rets = [ret for r, ret in valid if r == lbl and ret is not None]
+            avg_ret[lbl] = round(float(np.mean(rets)) * 100, 4) if rets else None
+
+        return {"pct_time": pct, "transitions": transitions, "avg_daily_return_pct": avg_ret}
+
+    return {
+        "config_a":   stats_for(config_a),
+        "config_b":   stats_for(config_b),
+        "row_count":  len(rows),
+        "date_range": [dates[0].isoformat(), dates[-1].isoformat()],
     }
 
 

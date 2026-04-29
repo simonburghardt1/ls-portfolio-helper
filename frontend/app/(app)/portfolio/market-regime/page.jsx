@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   createChart,
   ColorType,
@@ -11,6 +11,8 @@ import {
 } from "lightweight-charts";
 
 const API = "http://localhost:8000";
+
+const DEFAULT_WEIGHTS = { bmsb: 0.30, breadth: 0.28, vix: 0.17, credit: 0.25 };
 
 const REGIME_COLORS = {
   up:      "rgba(22, 163, 74,  0.45)",
@@ -23,6 +25,13 @@ const REGIME_CONFIG = {
   down:    { label: "Downtrend", color: "#ef4444" },
   ranging: { label: "Ranging",   color: "#f59e0b" },
 };
+
+const COMPONENT_META = [
+  { key: "bmsb",    label: "BMSB",           color: "#10b981" },
+  { key: "breadth", label: "Market Breadth",  color: "#60a5fa" },
+  { key: "vix",     label: "VIX",             color: "#f59e0b" },
+  { key: "credit",  label: "Credit",          color: "#a78bfa" },
+];
 
 const SCORE_LABELS = [
   { key: "bmsb",    label: "BMSB"           },
@@ -40,7 +49,8 @@ const PERIODS = [
   { label: "All", years: null },
 ];
 
-const THRESHOLD = 0.25;
+const THRESHOLD = 0.2;
+const EWM_SPAN  = 10;
 
 // ─── Custom Primitive — regime background fills ───────────────────────────────
 
@@ -85,13 +95,11 @@ function buildRegimeBlocks(dates, regimes) {
   let start = null, current = null;
   for (let i = 0; i < regimes.length; i++) {
     if (regimes[i] !== current) {
-      // x2 = dates[i] (start of next bar) so the last bar of each block is fully covered
       if (current !== null) blocks.push({ regime: current, x1: start, x2: dates[i] });
       current = regimes[i]; start = dates[i];
     }
   }
   if (current !== null) {
-    // Extend last block by 7 days so the final bar is fully painted
     const d = new Date(dates[dates.length - 1]);
     d.setDate(d.getDate() + 7);
     blocks.push({ regime: current, x1: start, x2: d.toISOString().slice(0, 10) });
@@ -134,21 +142,70 @@ function getYtdReturn(dates, prices) {
   return (prices[prices.length - 1] / base - 1) * 100;
 }
 
+function recomputeComposite(data, weights) {
+  const { dates, scores } = data;
+  const weightSum = Object.values(weights).reduce((a, b) => a + b, 0);
+  const normW = weightSum > 0
+    ? Object.fromEntries(Object.entries(weights).map(([k, v]) => [k, v / weightSum]))
+    : weights;
+
+  const compositeRaw = dates.map((_, i) => {
+    let tw = 0, ts = 0;
+    for (const [k, w] of Object.entries(normW)) {
+      const v = scores[k]?.[i];
+      if (v != null && !isNaN(v)) { ts += w * v; tw += w; }
+    }
+    return tw > 0 ? ts / tw : null;
+  });
+
+  const alpha = 2 / (EWM_SPAN + 1);
+  const composite = [];
+  let prev = null;
+  for (const v of compositeRaw) {
+    if (v == null) {
+      composite.push(prev);
+    } else if (prev === null) {
+      composite.push(v);
+      prev = v;
+    } else {
+      const next = alpha * v + (1 - alpha) * prev;
+      composite.push(next);
+      prev = next;
+    }
+  }
+
+  const regimes = composite.map((v) =>
+    v == null ? null : v > THRESHOLD ? "up" : v < -THRESHOLD ? "down" : "ranging"
+  );
+
+  return { ...data, composite, regimes };
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MarketRegimePage() {
   const [data,     setData]     = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
-  const [period,   setPeriod]   = useState("All");
+  const [period,   setPeriod]   = useState("1Y");
   const [logScale, setLogScale] = useState(false);
   const [tooltip,  setTooltip]  = useState(null);
 
+  const [weights,        setWeights]        = useState(DEFAULT_WEIGHTS);
+  const [pendingWeights, setPendingWeights] = useState(DEFAULT_WEIGHTS);
+  const [weightsOpen,    setWeightsOpen]    = useState(false);
+
   const mainRef   = useRef(null);
   const subRef    = useRef(null);
+  const compRef   = useRef(null);
   const mainChart = useRef(null);
   const subChart  = useRef(null);
+  const compChart = useRef(null);
   const syncing   = useRef(false);
+
+  const isDefaultWeights = Object.entries(weights).every(
+    ([k, v]) => Math.abs(v - DEFAULT_WEIGHTS[k]) < 0.001
+  );
 
   useEffect(() => {
     fetch(`${API}/api/market/regime`)
@@ -158,15 +215,34 @@ export default function MarketRegimePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Build both charts once data arrives
+  const computedData = useMemo(() => {
+    if (!data) return null;
+    return recomputeComposite(data, weights);
+  }, [data, weights]);
+
+  // Build all three charts when computedData changes; save+restore visible range
   useEffect(() => {
-    if (!data || !mainRef.current || !subRef.current) return;
+    if (!computedData || !mainRef.current || !subRef.current || !compRef.current) return;
+
+    const savedRange = mainChart.current?.timeScale().getVisibleRange() ?? null;
 
     mainChart.current?.remove();
     subChart.current?.remove();
+    compChart.current?.remove();
 
-    const { dates, prices, ema21, sma20, regimes, composite, scores } = data;
+    const { dates, prices, ema21, sma20, regimes, composite, scores } = computedData;
     const blocks = buildRegimeBlocks(dates, regimes);
+
+    // Component labels with current weight %
+    const compLabels = Object.fromEntries(
+      COMPONENT_META.map(({ key, label, color }) => [
+        key,
+        {
+          color,
+          label: `${label} (${Math.round(weights[key] * 100)}%)`,
+        },
+      ])
+    );
 
     // ── Main chart ────────────────────────────────────────────────────────────
     const mc = createChart(mainRef.current, {
@@ -238,7 +314,6 @@ export default function MarketRegimePage() {
         .filter((p) => p.value != null)
     );
 
-    // Threshold lines at ±0.25
     const threshUp = sc.addSeries(LineSeries, {
       color: "rgba(34,197,94,0.45)", lineWidth: 1, lineStyle: 2,
       priceLineVisible: false, lastValueVisible: false,
@@ -250,23 +325,85 @@ export default function MarketRegimePage() {
     const validDates = dates.filter((_, i) => composite[i] != null);
     if (validDates.length >= 2) {
       const first = validDates[0], last = validDates[validDates.length - 1];
-      threshUp.setData([{ time: first, value:  0.25 }, { time: last, value:  0.25 }]);
-      threshDn.setData([{ time: first, value: -0.25 }, { time: last, value: -0.25 }]);
+      threshUp.setData([{ time: first, value:  0.2 }, { time: last, value:  0.2 }]);
+      threshDn.setData([{ time: first, value: -0.2 }, { time: last, value: -0.2 }]);
     }
 
     sc.timeScale().fitContent();
+
+    // ── Component signals chart ───────────────────────────────────────────────
+    const cc = createChart(compRef.current, {
+      layout: { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
+      grid: { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { visible: false } },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: "#1f2937", scaleMargins: { top: 0.05, bottom: 0.05 } },
+      timeScale: { borderColor: "#1f2937", timeVisible: true },
+      width: compRef.current.clientWidth,
+      height: 220,
+    });
+    compChart.current = cc;
+
+    for (const [key, { color, label }] of Object.entries(compLabels)) {
+      const s = cc.addSeries(LineSeries, {
+        color, lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true, title: label,
+      });
+      s.setData(
+        dates.map((d, i) => ({ time: d, value: scores?.[key]?.[i] }))
+             .filter((p) => p.value != null)
+      );
+    }
+
+    const zeroLine = cc.addSeries(LineSeries, {
+      color: "rgba(100,116,139,0.35)", lineWidth: 1, lineStyle: 2,
+      priceLineVisible: false, lastValueVisible: false,
+    });
+    const validDatesComp = dates.filter((_, i) => composite[i] != null);
+    if (validDatesComp.length >= 2) {
+      zeroLine.setData([
+        { time: validDatesComp[0], value: 0 },
+        { time: validDatesComp[validDatesComp.length - 1], value: 0 },
+      ]);
+    }
+    cc.timeScale().fitContent();
+
+    // Restore saved range or apply initial period
+    if (savedRange) {
+      mc.timeScale().setVisibleRange(savedRange);
+      sc.timeScale().setVisibleRange(savedRange);
+      cc.timeScale().setVisibleRange(savedRange);
+    } else {
+      const initialPeriod = PERIODS.find((p) => p.label === period);
+      if (initialPeriod?.years) {
+        const to = new Date(), from = new Date();
+        from.setFullYear(from.getFullYear() - initialPeriod.years);
+        const range = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+        mc.timeScale().setVisibleRange(range);
+        sc.timeScale().setVisibleRange(range);
+        cc.timeScale().setVisibleRange(range);
+      }
+    }
 
     // ── Sync time scales ──────────────────────────────────────────────────────
     mc.timeScale().subscribeVisibleTimeRangeChange((range) => {
       if (syncing.current || !range) return;
       syncing.current = true;
       sc.timeScale().setVisibleRange(range);
+      cc.timeScale().setVisibleRange(range);
       syncing.current = false;
     });
     sc.timeScale().subscribeVisibleTimeRangeChange((range) => {
       if (syncing.current || !range) return;
       syncing.current = true;
       mc.timeScale().setVisibleRange(range);
+      cc.timeScale().setVisibleRange(range);
+      syncing.current = false;
+    });
+    cc.timeScale().subscribeVisibleTimeRangeChange((range) => {
+      if (syncing.current || !range) return;
+      syncing.current = true;
+      mc.timeScale().setVisibleRange(range);
+      sc.timeScale().setVisibleRange(range);
       syncing.current = false;
     });
 
@@ -274,6 +411,7 @@ export default function MarketRegimePage() {
     const ro = new ResizeObserver(() => {
       mc.applyOptions({ width: mainRef.current?.clientWidth ?? 600 });
       sc.applyOptions({ width: subRef.current?.clientWidth ?? 600 });
+      cc.applyOptions({ width: compRef.current?.clientWidth ?? 600 });
     });
     ro.observe(mainRef.current);
 
@@ -281,10 +419,11 @@ export default function MarketRegimePage() {
       ro.disconnect();
       mc.remove(); mainChart.current = null;
       sc.remove(); subChart.current  = null;
+      cc.remove(); compChart.current = null;
     };
-  }, [data]);
+  }, [computedData]);
 
-  // Period → visible range on main (sub syncs automatically)
+  // Period → visible range
   useEffect(() => {
     if (!mainChart.current) return;
     const sel = PERIODS.find((p) => p.label === period);
@@ -308,21 +447,36 @@ export default function MarketRegimePage() {
     });
   }, [logScale]);
 
+  function handleOpenWeights() {
+    setPendingWeights(weights);
+    setWeightsOpen(true);
+  }
+
+  function handleApply() {
+    setWeights(pendingWeights);
+  }
+
+  function handleReset() {
+    setPendingWeights(DEFAULT_WEIGHTS);
+    setWeights(DEFAULT_WEIGHTS);
+  }
+
   if (loading) return <div style={{ padding: "40px 32px", color: "#4b5563", fontSize: 14 }}>Loading regime data…</div>;
   if (error)   return <div style={{ padding: "40px 32px", color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
 
-  const { dates, prices, regimes, composite, scores } = data;
-  const currentInfo   = getCurrentRegimeInfo(regimes, dates, prices);
-  const ytdReturn     = getYtdReturn(dates, prices);
-  const cfg           = currentInfo ? REGIME_CONFIG[currentInfo.regime] : null;
+  const { dates, prices, regimes, composite, scores } = computedData;
+  const currentInfo = getCurrentRegimeInfo(regimes, dates, prices);
+  const ytdReturn   = getYtdReturn(dates, prices);
+  const cfg         = currentInfo ? REGIME_CONFIG[currentInfo.regime] : null;
 
-  // Component score KPIs
   const componentKpis = SCORE_LABELS.map(({ key, label }) => {
     const score   = lastNonNull(scores?.[key]);
     const regime  = scoreToRegime(score);
     const regCfg  = regime ? REGIME_CONFIG[regime] : null;
     return { key, label, score, regime, color: regCfg?.color ?? "#6b7280", regLabel: regCfg?.label ?? "—" };
   });
+
+  const pendingSum = Object.values(pendingWeights).reduce((a, b) => a + b, 0);
 
   return (
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
@@ -331,14 +485,12 @@ export default function MarketRegimePage() {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Market Regime</h1>
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-          Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth · VIX · Credit Spreads</strong> — weekly closes.
+          Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth · VIX · Credit Spreads</strong> — daily closes.
         </p>
       </div>
 
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 14, marginBottom: 28, flexWrap: "wrap", alignItems: "stretch" }}>
-
-        {/* Composite regime — primary card */}
         {cfg && (
           <div style={{ background: "#080e1a", border: `1px solid ${cfg.color}40`, borderRadius: 10, padding: "16px 24px", minWidth: 200 }}>
             <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Composite Regime</div>
@@ -346,11 +498,13 @@ export default function MarketRegimePage() {
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color }} />
               <span style={{ fontSize: 15, fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
             </div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>{currentInfo.weeks} weeks · score {lastNonNull(composite)?.toFixed(2)}</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
+              {currentInfo.weeks} weeks · score {lastNonNull(composite)?.toFixed(2)}
+              {!isDefaultWeights && <span style={{ color: "#f59e0b", marginLeft: 6 }}>custom</span>}
+            </div>
           </div>
         )}
 
-        {/* Component score cards */}
         {componentKpis.map(({ key, label, score, color, regLabel }) => (
           <div key={key} style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", minWidth: 130 }}>
             <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{label}</div>
@@ -362,7 +516,6 @@ export default function MarketRegimePage() {
           </div>
         ))}
 
-        {/* SPY KPIs */}
         <KpiCard label="SPY Price" value={currentInfo ? `$${currentInfo.price.toFixed(2)}` : "—"} />
         <KpiCard
           label="SPY YTD"
@@ -373,8 +526,6 @@ export default function MarketRegimePage() {
 
       {/* Controls row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
-
-        {/* Legend */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
           {Object.entries(REGIME_CONFIG).map(([key, c]) => (
             <div key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
@@ -390,7 +541,6 @@ export default function MarketRegimePage() {
           </div>
         </div>
 
-        {/* Period + log buttons */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {PERIODS.map((p) => (
             <button key={p.label} onClick={() => setPeriod(p.label)} style={{
@@ -409,8 +559,70 @@ export default function MarketRegimePage() {
             color: logScale ? "#93c5fd" : "#4b5563",
             cursor: "pointer", fontWeight: logScale ? 600 : 400,
           }}>Log</button>
+          <div style={{ width: 1, height: 20, background: "#1f2937", margin: "0 4px" }} />
+          <button
+            onClick={weightsOpen ? () => setWeightsOpen(false) : handleOpenWeights}
+            style={{
+              background: !isDefaultWeights || weightsOpen ? "#1e3a5f" : "transparent",
+              border: `1px solid ${!isDefaultWeights || weightsOpen ? "#2d5a8e" : "#1f2937"}`,
+              borderRadius: 5, padding: "4px 10px", fontSize: 12,
+              color: !isDefaultWeights || weightsOpen ? "#93c5fd" : "#4b5563",
+              cursor: "pointer",
+            }}
+          >
+            ⚙ Weights{!isDefaultWeights ? " •" : ""}
+          </button>
         </div>
       </div>
+
+      {/* Weights settings panel */}
+      {weightsOpen && (
+        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "16px 20px", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
+            Component Weights
+          </div>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 12 }}>
+            {COMPONENT_META.map(({ key, label, color }) => (
+              <div key={key} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <label style={{ fontSize: 12, color, fontWeight: 500 }}>{label}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="1"
+                  value={pendingWeights[key]}
+                  onChange={(e) => setPendingWeights((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
+                  style={{ width: 72, padding: "4px 8px", background: "#0f1d2e", border: "1px solid #1e2d3d", borderRadius: 4, color: "#e2e8f0", fontSize: 13, fontVariantNumeric: "tabular-nums" }}
+                />
+              </div>
+            ))}
+          </div>
+          {Math.abs(pendingSum - 1) > 0.001 && (
+            <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 10 }}>
+              Sum: {pendingSum.toFixed(2)} — weights will be normalized to 1 on apply
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={handleApply}
+              style={{ padding: "5px 16px", background: "#1e3a5f", border: "1px solid #2d5a8e", borderRadius: 5, color: "#93c5fd", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              Apply
+            </button>
+            <button
+              onClick={handleReset}
+              style={{ padding: "5px 16px", background: "transparent", border: "1px solid #1f2937", borderRadius: 5, color: "#6b7280", fontSize: 12, cursor: "pointer" }}
+            >
+              Reset to defaults
+            </button>
+            {!isDefaultWeights && (
+              <span style={{ fontSize: 11, color: "#f59e0b", marginLeft: 4 }}>
+                Custom weights active — composite is computed client-side
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main price chart */}
       <div style={{ position: "relative", background: "#080e1a", border: "1px solid #1f2937", borderRadius: "10px 10px 0 0", overflow: "hidden" }}>
@@ -439,12 +651,34 @@ export default function MarketRegimePage() {
         <div ref={subRef} />
       </div>
 
+      {/* Component signals chart */}
+      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", marginTop: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+          Component Signals
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+          {COMPONENT_META.map(({ key, color, label }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#9ca3af" }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
+              <span style={{ color }}>
+                {label} ({Math.round(weights[key] * 100)}%)
+              </span>
+            </div>
+          ))}
+        </div>
+        <div ref={compRef} />
+      </div>
+
       {/* Algorithm note */}
       <div style={{ marginTop: 16, fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
         <strong style={{ color: "#4b5563" }}>Weights:</strong>{" "}
-        BMSB 35% · Market Breadth 30% · VIX 20% · Credit Spreads 15%.{" "}
-        Regime thresholds: composite &gt; +0.25 → <span style={{ color: "#22c55e" }}>Uptrend</span>,{" "}
-        &lt; −0.25 → <span style={{ color: "#ef4444" }}>Downtrend</span>, else <span style={{ color: "#f59e0b" }}>Ranging</span>.{" "}
+        {COMPONENT_META.map(({ key, label }, i) => (
+          <span key={key}>
+            {label} {Math.round(weights[key] * 100)}%{i < COMPONENT_META.length - 1 ? " · " : ""}
+          </span>
+        ))}.{" "}
+        Regime thresholds: composite &gt; +0.2 → <span style={{ color: "#22c55e" }}>Uptrend</span>,{" "}
+        &lt; −0.2 → <span style={{ color: "#ef4444" }}>Downtrend</span>, else <span style={{ color: "#f59e0b" }}>Ranging</span>.{" "}
         Components missing before their data inception (RSP 2003, HYG/LQD 2007) are excluded and weights renormalized.
       </div>
     </div>

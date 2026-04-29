@@ -1,12 +1,27 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from sqlalchemy import func
 from app.models.market_data import MarketRegimeRow
-from app.services.market_regime import get_regime_from_db, seed_market_data, update_market_data
+from app.services.market_regime import (
+    get_regime_from_db, seed_market_data, update_market_data, compare_regime_weights
+)
+
+
+class WeightConfig(BaseModel):
+    bmsb:    float
+    breadth: float
+    vix:     float
+    credit:  float
+
+
+class RegimeCompareRequest(BaseModel):
+    config_a: WeightConfig
+    config_b: WeightConfig
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -56,5 +71,19 @@ def market_regime_seed(db: Session = Depends(get_db)):
     try:
         seed_market_data(db)
         return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=repr(e))
+
+
+@router.post("/api/market/regime/compare")
+def regime_compare(req: RegimeCompareRequest, db: Session = Depends(get_db)):
+    """Re-apply two weight configs to stored component scores and return regime stats."""
+    try:
+        result = compare_regime_weights(db, req.config_a.model_dump(), req.config_b.model_dump())
+        if not result:
+            raise HTTPException(status_code=404, detail="No regime data in DB — run a seed first.")
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=repr(e))
