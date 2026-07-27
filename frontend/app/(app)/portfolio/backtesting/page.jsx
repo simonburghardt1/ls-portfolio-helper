@@ -203,10 +203,17 @@ export default function BacktestingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ positions: cleanPositions(positions) }),
       });
-      setResult(await res.json());
+      const json = await res.json();
+      if (!res.ok) {
+        setErrors([json.detail || `Server error ${res.status}`]);
+        setStatus("error");
+        return;
+      }
+      setResult(json);
       setStatus("done");
     } catch (e) {
       console.error(e);
+      setErrors([e.message || "Request failed"]);
       setStatus("error");
     }
   }

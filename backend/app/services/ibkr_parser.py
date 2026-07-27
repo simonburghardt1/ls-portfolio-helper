@@ -116,22 +116,40 @@ def _extract_multipliers(sections: dict) -> dict[str, int]:
     """
     Return {symbol: multiplier} from Informationen zum Finanzinstrument.
     Stocks = 1, Options = 100 (or whatever IBKR reports).
-    """
-    sec     = sections.get("Informationen zum Finanzinstrument", {})
-    headers = sec.get("headers", [])
-    rows    = sec.get("rows",    [])
 
-    col_sym  = _idx(headers, "Symbol",       1)
-    col_mult = _idx(headers, "Multiplikator", 7)
+    This section actually contains two differently-shaped row types (stock
+    rows and option rows) sharing one "Header" declaration — since only the
+    most-recently-seen header survives per section, a name-based column
+    lookup silently uses the wrong layout for whichever row type didn't
+    define the last header. The two shapes differ in column count (stocks
+    have an extra "Wertpapier-ID" column), so distinguish by that instead.
+
+    For options, IBKR's own "Symbol" column is an OCC-style code
+    (e.g. 'CCJ   260717C00110000') that never matches the human-readable
+    ticker actually used elsewhere (e.g. 'CCJ 17JUL26 110 C', found in the
+    "Beschreibung" column) — register both so lookups succeed either way.
+    """
+    sec  = sections.get("Informationen zum Finanzinstrument", {})
+    rows = sec.get("rows", [])
 
     result: dict[str, int] = {}
     for row in rows:
-        if len(row) <= max(col_sym, col_mult):
+        if len(row) >= 12:
+            # Options: category, Symbol, Beschreibung, Conid, Basiswert, Börse,
+            # Multiplikator, Verfall, Liefermonat, Typ, Ausübungskurs, Code
+            sym, desc, mult_raw = row[1].strip(), row[2].strip(), row[6]
+        elif len(row) >= 10:
+            # Stocks: category, Symbol, Beschreibung, Conid, Wertpapier-ID,
+            # Basiswert, Börse, Multiplikator, Typ, Code
+            sym, desc, mult_raw = row[1].strip(), row[2].strip(), row[7]
+        else:
             continue
-        sym  = row[col_sym].strip()
-        mult = int(_float(row[col_mult]) or 1)
+
+        mult = int(_float(mult_raw) or 1)
         if sym:
             result[sym] = mult
+        if desc and desc != sym:
+            result[desc] = mult
     return result
 
 
@@ -151,7 +169,12 @@ def _extract_trades(sections: dict, multipliers: dict[str, int]) -> list[dict]:
     Match O (open) and C (close) rows via FIFO.
 
     Handles:
-    - Multiple C;P rows closing one O position (accumulates until qty balanced).
+    - Multiple C;P rows closing one O lot (accumulates until qty balanced).
+    - A single close fill that overshoots the lot currently being closed —
+      the excess is carried forward and matched against the next FIFO lot(s)
+      instead of being folded into the current trade (which previously
+      produced trades whose shares/entry price no longer matched their own
+      pnl_dollar whenever a position was scaled into more than once).
     - Options multiplier: shares stored as contracts × multiplier.
     - PnL computed from prices (no fees, trade currency) — consistent with UI re-save.
     """
@@ -176,9 +199,9 @@ def _extract_trades(sections: dict, multipliers: dict[str, int]) -> list[dict]:
     order_rows.sort(key=lambda r: (r[col_sym] if len(r) > col_sym else "",
                                    _parse_datetime(r[col_dt]) if len(r) > col_dt else datetime.date.min))
 
-    # Per-symbol FIFO queue of open positions
+    # Per-symbol FIFO queue of open lots
     open_q: dict[str, deque] = defaultdict(deque)
-    # Per-symbol accumulator for in-progress close groups
+    # Per-symbol accumulator for the lot currently being closed
     pending: dict[str, dict] = {}
 
     trades: list[dict] = []
@@ -200,70 +223,123 @@ def _extract_trades(sections: dict, multipliers: dict[str, int]) -> list[dict]:
 
         # ── Closing row ──────────────────────────────────────────────────────
         if "C" in codes:
-            close_qty  = abs(qty)
-            real_pnl   = _float(row[col_real]) if len(row) > col_real else 0.0
+            row_close_qty = abs(qty)
+            row_real_pnl  = _float(row[col_real]) if len(row) > col_real else 0.0
 
-            # Start accumulator if not already open for this symbol
-            if sym not in pending:
-                if not open_q[sym]:
-                    log.warning("IBKR: closing row for %s with no matching open (prior period?)", sym)
+            # ── Peek: figure out which lot(s) this fill will consume, in the
+            # order they'll actually be taken, without mutating state yet.
+            # Needed because a single fill can span several FIFO lots opened
+            # at different prices — the PnL split across them should reflect
+            # each lot's own economics, not a flat per-share average.
+            plan: list[dict] = []          # [{"take": qty, "oe": open_entry|None}]
+            peek_remaining = row_close_qty
+            if sym in pending:
+                oe = pending[sym]["open_entry"]
+                lot_remaining = abs(oe["qty"]) - pending[sym]["closed_qty"]
+                take = min(peek_remaining, lot_remaining)
+                if take > 1e-12:
+                    plan.append({"take": take, "oe": oe})
+                peek_remaining -= take
+            for oe in open_q[sym]:
+                if peek_remaining <= 1e-9:
+                    break
+                take = min(peek_remaining, abs(oe["qty"]))
+                if take > 1e-12:
+                    plan.append({"take": take, "oe": oe})
+                peek_remaining -= take
+            unmatched_qty = peek_remaining   # closing more than we have opens for
+
+            # Economically-weighted split: naive per-lot PnL from that lot's
+            # own entry price vs. this fill's price, then scaled so the parts
+            # sum exactly to IBKR's reported (fee-netted) PnL for this row.
+            matched_qty = row_close_qty - unmatched_qty
+            matched_pnl_share = row_real_pnl * (matched_qty / row_close_qty) if row_close_qty else 0.0
+
+            naive_total = 0.0
+            for chunk in plan:
+                oe   = chunk["oe"]
+                sign = -1.0 if oe["qty"] < 0 else 1.0
+                chunk["naive_pnl"] = (price - oe["price"]) * chunk["take"] * oe["mult"] * sign
+                naive_total += chunk["naive_pnl"]
+
+            if naive_total != 0:
+                scale = matched_pnl_share / naive_total
+                for chunk in plan:
+                    chunk["pnl"] = chunk["naive_pnl"] * scale
+            else:
+                # Degenerate (fill price == every lot's entry price) — split by qty.
+                for chunk in plan:
+                    chunk["pnl"] = matched_pnl_share * (chunk["take"] / matched_qty) if matched_qty else 0.0
+
+            remaining = row_close_qty
+            for chunk in plan:
+                take     = chunk["take"]
+                take_pnl = chunk["pnl"]
+
+                # Start/continue accumulator for this lot
+                if sym not in pending or pending[sym]["open_entry"] is not chunk["oe"]:
+                    open_q[sym].popleft()
+                    pending[sym] = {
+                        "open_entry":  chunk["oe"],
+                        "close_fills": [],   # list of (qty, price)
+                        "pnl_sum":     0.0,  # cumulative PnL attributed to this lot
+                        "closed_qty":  0.0,
+                    }
+
+                pc  = pending[sym]
+                oe  = pc["open_entry"]
+                lot_size = abs(oe["qty"])
+
+                pc["close_fills"].append((take, price))
+                pc["pnl_sum"]    += take_pnl
+                pc["closed_qty"] += take
+                remaining        -= take
+
+                # ── Lot fully closed → create trade ───────────────────────────
+                if pc["closed_qty"] >= lot_size - 1e-9:
+                    m    = oe["mult"]
+                    side = "short" if oe["qty"] < 0 else "long"
+
+                    # Weighted avg close price across all partial fills
+                    total_close_qty = sum(q for q, _ in pc["close_fills"])
+                    avg_close       = sum(q * p for q, p in pc["close_fills"]) / total_close_qty
+                    shares          = total_close_qty * m   # contracts × multiplier
+
+                    # Use IBKR's Realisierter G&V (net of commissions), prorated
+                    # per-lot above, as authoritative PnL for this lot.
+                    pnl_dollar = round(pc["pnl_sum"], 2)
+                    invested   = oe["price"] * shares
+                    pnl_pct    = round(pnl_dollar / invested * 100, 2) if invested else 0.0
+
                     trades.append({
                         "ticker":          sym,
-                        "side":            "long" if qty < 0 else "short",
-                        "shares":          close_qty * mult,
-                        "avg_entry_price": 0.0,
-                        "avg_exit_price":  price,
-                        "entry_date":      dt.isoformat(),
+                        "side":            side,
+                        "shares":          shares,
+                        "avg_entry_price": oe["price"],
+                        "avg_exit_price":  round(avg_close, 6),
+                        "entry_date":      oe["date"].isoformat(),
                         "exit_date":       dt.isoformat(),
-                        "pnl_dollar":      real_pnl,
-                        "pnl_pct":         0.0,
-                        "comment":         "IBKR import (open in prior period)",
+                        "pnl_dollar":      pnl_dollar,
+                        "pnl_pct":         pnl_pct,
+                        "comment":         "IBKR import",
                     })
-                    continue
-                open_entry = open_q[sym].popleft()
-                pending[sym] = {
-                    "open_entry":  open_entry,
-                    "close_fills": [],   # list of (qty, price)
-                    "pnl_sum":     0.0,  # cumulative Realisierter G&V from all C rows
-                    "closed_qty":  0,
-                }
+                    del pending[sym]
 
-            pc  = pending[sym]
-            pc["close_fills"].append((close_qty, price))
-            pc["pnl_sum"]    += real_pnl
-            pc["closed_qty"] += close_qty
-
-            expected = abs(pc["open_entry"]["qty"])
-
-            # ── Fully closed → create trade ──────────────────────────────────
-            if pc["closed_qty"] >= expected:
-                oe   = pc["open_entry"]
-                m    = oe["mult"]
-                side = "short" if oe["qty"] < 0 else "long"
-
-                # Weighted avg close price across all partial fills
-                total_close_qty = sum(q for q, _ in pc["close_fills"])
-                avg_close       = sum(q * p for q, p in pc["close_fills"]) / total_close_qty
-                shares          = total_close_qty * m   # contracts × multiplier
-
-                # Use IBKR's Realisierter G&V (net of commissions) as authoritative PnL
-                pnl_dollar = round(pc["pnl_sum"], 2)
-                invested   = oe["price"] * shares
-                pnl_pct    = round(pnl_dollar / invested * 100, 2) if invested else 0.0
-
+            if unmatched_qty > 1e-9:
+                log.warning("IBKR: closing row for %s with no matching open (prior period?)", sym)
+                unmatched_pnl = row_real_pnl - matched_pnl_share
                 trades.append({
                     "ticker":          sym,
-                    "side":            side,
-                    "shares":          shares,
-                    "avg_entry_price": oe["price"],
-                    "avg_exit_price":  round(avg_close, 6),
-                    "entry_date":      oe["date"].isoformat(),
+                    "side":            "long" if qty < 0 else "short",
+                    "shares":          unmatched_qty * mult,
+                    "avg_entry_price": 0.0,
+                    "avg_exit_price":  price,
+                    "entry_date":      dt.isoformat(),
                     "exit_date":       dt.isoformat(),
-                    "pnl_dollar":      pnl_dollar,
-                    "pnl_pct":         pnl_pct,
-                    "comment":         "IBKR import",
+                    "pnl_dollar":      round(unmatched_pnl, 2),
+                    "pnl_pct":         0.0,
+                    "comment":         "IBKR import (open in prior period)",
                 })
-                del pending[sym]
 
     # Collect earliest open date per still-open ticker (unmatched opening entries)
     open_dates = {sym: entries[0]["date"] for sym, entries in open_q.items() if entries}

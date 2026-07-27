@@ -237,6 +237,20 @@ def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:
         prices.columns = tickers
 
     prices = prices.dropna(how="all")
+
+    # A ticker that failed entirely (e.g. delisted, mistyped, temporarily
+    # unavailable from the data provider) leaves a column of all-NaN. Since
+    # returns are later computed with dropna(how="any") across all tickers,
+    # a single such column would silently wipe out every row and crash much
+    # further downstream with a confusing IndexError — fail fast here instead
+    # with a message naming the actual problem ticker(s).
+    failed = [t for t in prices.columns if prices[t].isna().all()]
+    if failed:
+        raise ValueError(
+            f"No price data available for: {', '.join(failed)} "
+            "(ticker may be delisted, mistyped, or temporarily unavailable)"
+        )
+
     return prices
 
 
