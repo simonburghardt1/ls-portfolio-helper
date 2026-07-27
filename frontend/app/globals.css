@@ -1,11 +1,11 @@
 :root {
-  /* ── Backgrounds ──────────────────────────────────────────── */
-  --bg-base:    #020617;
-  --bg-surface: #080e1a;
-  --bg-elevated:#0f172a;
+  /* ── Backgrounds (Slate Mono) ─────────────────────────────── */
+  --bg-base:    #0e0f11;
+  --bg-surface: #16181b;
+  --bg-elevated:#1e2124;
   --bg-subtle:  #111827;
 
-  /* ── Primary accent — Emerald green ─────────────────────── */
+  /* ── Primary accent — Emerald green (legacy, kept for (app)/page.js) ── */
   --green-400:  #34d399;
   --green-500:  #10b981;
   --green-600:  #059669;
@@ -17,29 +17,96 @@
   --blue-muted: #1e3a5f;
 
   /* ── Text hierarchy ──────────────────────────────────────── */
-  --text-primary:   #f1f5f9;
-  --text-secondary: #94a3b8;
+  --text-primary:   #eceef0;
+  --text-secondary: #8b9096;
+  --text-disabled:  #5c6066;
   --text-muted:     #64748b;
   --text-ghost:     #334155;
 
   /* ── Borders ─────────────────────────────────────────────── */
-  --border:       #1e2d3d;
+  --border:       #2c3034;
   --border-light: #0f1d2e;
+
+  /* ── Slate Mono accent — confined to sidebar active-nav only ─ */
+  --accent:             #6b7280;
+  --nav-active-surface: rgba(107, 114, 128, 0.22);
 
   /* ── Radius ──────────────────────────────────────────────── */
   --radius-sm: 6px;
   --radius-md: 10px;
+  --radius-none:       0px;
+  --radius-nav-active: 8px;
+  --radius-full:       9999px;
 
-  /* ── Font sizes — 5-level scale ──────────────────────────── */
+  /* ── Font sizes — 5-level scale (legacy) ──────────────────── */
   --font-2xl: 28px;   /* KPI values, large numbers */
   --font-xl:  22px;   /* page titles, chart series name */
   --font-lg:  16px;   /* card titles, section sub-headers */
   --font-base:13px;   /* body text, buttons, table cells */
   --font-sm:  11px;   /* uppercase labels, table headers, badges */
 
+  /* ── IBM Plex typography (Slate Mono) ──────────────────────── */
+  --font-family-sans: var(--font-plex-sans), "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-family-mono: var(--font-plex-mono), "IBM Plex Mono", Consolas, "Cascadia Code", ui-monospace, monospace;
+
+  --text-headline-size: 34px;
+  --text-headline-weight: 700;
+  --text-headline-line-height: 1.15;
+  --text-headline-tracking: -0.02em;
+
+  --text-eyebrow-size: 12px;
+  --text-eyebrow-weight: 600;
+  --text-eyebrow-line-height: 1.3;
+  --text-eyebrow-tracking: 0.1em;
+
+  --text-body-size: 14.5px;
+  --text-body-weight: 400;
+  --text-body-line-height: 1.55;
+
+  --text-label-size: 11.5px;
+  --text-label-weight: 600;
+  --text-label-line-height: 1.3;
+  --text-label-tracking: 0.06em;
+
+  --text-data-lg-size: 24px;
+  --text-data-lg-weight: 600;
+  --text-data-lg-line-height: 1.2;
+  --text-data-lg-tracking: -0.01em;
+
+  --text-data-sm-size: 12px;
+  --text-data-sm-weight: 600;
+  --text-data-sm-line-height: 1.3;
+
+  --text-nav-section-label-size: 11px;
+  --text-nav-section-label-weight: 700;
+  --text-nav-section-label-line-height: 1.3;
+  --text-nav-section-label-tracking: 0.1em;
+
+  --text-nav-group-header-size: 12.5px;
+  --text-nav-group-header-weight: 600;
+  --text-nav-group-header-line-height: 1.3;
+  --text-nav-group-header-tracking: 0.04em;
+
+  --text-nav-item-size: 14px;
+  --text-nav-item-weight: 400;
+  --text-nav-item-line-height: 1.4;
+
+  /* ── Spacing scale (Slate Mono) ────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --sidebar-width:    252px;
+  --nav-item-indent:  22px;
+  --page-margin:      48px;
+
   /* ── Status / semantic colors ────────────────────────────── */
-  --positive:  #22c55e;
-  --negative:  #ef4444;
+  --positive:  #34d399;
+  --negative:  #f2585c;
   --caution:   #f59e0b;
 }
 
@@ -52,7 +119,7 @@ body {
 body {
   color: var(--text-primary);
   background: var(--bg-base);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-family-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

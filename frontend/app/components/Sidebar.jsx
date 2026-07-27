@@ -98,7 +98,7 @@ export default function Sidebar() {
 
   return (
     <aside style={{
-      width: 220,
+      width: "var(--sidebar-width)",
       minHeight: "100vh",
       background: "var(--bg-surface)",
       borderRight: "1px solid var(--border)",
@@ -107,20 +107,20 @@ export default function Sidebar() {
       flexShrink: 0,
       overflowY: "auto",
     }}>
-      {/* Logo */}
-      <div style={{ padding: "24px 16px 20px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        <div style={{ fontSize: 13, color: "var(--green-500)", fontWeight: 700, letterSpacing: "0.08em", marginBottom: 2 }}>
+      {/* Brand */}
+      <div style={{ padding: "26px 22px 22px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <div style={{ fontSize: 15, color: "var(--text-primary)", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 4 }}>
           LS PLATFORM
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-ghost)", letterSpacing: "0.05em" }}>
-          TRADING & PORTFOLIO
+        <div style={{ fontSize: 11, color: "var(--text-secondary)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          Trading &amp; Portfolio
         </div>
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, padding: "12px 8px" }}>
+      <nav style={{ flex: 1, padding: "18px 14px 24px" }}>
         {NAV.map((block) => (
-          <div key={block.section} style={{ marginBottom: 4 }}>
+          <div key={block.section} style={sectionWrapperStyle}>
             {block.soon ? (
               <div style={sectionItemStyle(true)}>
                 <span style={{ flex: 1 }}>{block.section}</span>
@@ -135,22 +135,22 @@ export default function Sidebar() {
                   const isOpen = collapsed[groupKey] !== true;
 
                   return (
-                    <div key={groupKey} style={{ marginBottom: 2 }}>
+                    <div key={groupKey} style={groupWrapperStyle}>
 
                       {group.label && (group.href ? (
                         <div style={{ display: "flex", alignItems: "center" }}>
                           <Link href={group.href} style={{ textDecoration: "none", flex: 1 }}>
-                            <div style={{ ...groupHeaderStyle, color: pathname === group.href ? "var(--text-primary)" : undefined }}>
+                            <div style={{ ...groupHeaderStyle, color: pathname === group.href ? "var(--text-primary)" : groupHeaderStyle.color }}>
                               {isOpen
-                                ? <ChevronDown size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
-                                : <ChevronRight size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
+                                ? <ChevronDown size={12} style={{ flexShrink: 0, color: "var(--text-secondary)" }} />
+                                : <ChevronRight size={12} style={{ flexShrink: 0, color: "var(--text-secondary)" }} />
                               }
                               <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
                             </div>
                           </Link>
                           <button
                             onClick={() => toggleGroup(groupKey)}
-                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-ghost)" }}
+                            style={{ background: "transparent", border: "none", cursor: "pointer", padding: "4px 6px", color: "var(--text-secondary)" }}
                             title={isOpen ? "Collapse" : "Expand"}
                           >
                             {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -162,15 +162,15 @@ export default function Sidebar() {
                           style={groupHeaderStyle}
                         >
                           {isOpen
-                            ? <ChevronDown size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
-                            : <ChevronRight size={13} style={{ flexShrink: 0, color: "var(--text-ghost)" }} />
+                            ? <ChevronDown size={12} style={{ flexShrink: 0, color: "var(--text-secondary)" }} />
+                            : <ChevronRight size={12} style={{ flexShrink: 0, color: "var(--text-secondary)" }} />
                           }
                           <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
                         </button>
                       ))}
 
                       {(group.label == null || isOpen) && (
-                        <div style={{ paddingLeft: group.label ? 8 : 0 }}>
+                        <div style={group.label ? itemsWrapperStyle : undefined}>
                           {group.items.map((item) => {
                             const isActive = pathname === item.href;
                             if (item.soon) {
@@ -201,20 +201,20 @@ export default function Sidebar() {
       </nav>
 
       {/* User + Logout */}
-      <div style={{ padding: "12px 8px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+      <div style={{ padding: "16px 18px 20px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
         {user && (
-          <div style={{ padding: "6px 8px", marginBottom: 4 }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 1 }}>Signed in as</div>
-            <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 3 }}>Signed in as</div>
+            <div style={{ fontSize: 13.5, color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {user.email}
             </div>
           </div>
         )}
         <button
           onClick={handleLogout}
-          style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px", background: "transparent", border: "none", borderRadius: "var(--radius-sm)", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-elevated)"; e.currentTarget.style.color = "var(--text-primary)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-muted)"; }}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 4px", background: "transparent", border: "none", borderRadius: "var(--radius-none)", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
         >
           <LogOut size={14} />
           <span>Logout</span>
@@ -226,46 +226,53 @@ export default function Sidebar() {
 
 function SoonBadge() {
   return (
-    <span style={{ fontSize: 9, color: "var(--text-ghost)", background: "var(--bg-elevated)", border: "1px solid var(--border)", padding: "1px 5px", borderRadius: 3, letterSpacing: "0.05em", flexShrink: 0 }}>
+    <span style={{ fontSize: 9.5, fontWeight: "var(--text-label-weight)", color: "var(--text-disabled)", background: "var(--bg-elevated)", border: "1px solid var(--border)", padding: "2px 6px", letterSpacing: "var(--text-label-tracking)", flexShrink: 0 }}>
       SOON
     </span>
   );
 }
 
+const sectionWrapperStyle = { marginBottom: 22 };
+
 const sectionLabelStyle = {
-  fontSize: 10,
-  fontWeight: 700,
-  color: "var(--text-muted)",
-  letterSpacing: "0.08em",
-  padding: "10px 8px 4px",
+  fontSize: "var(--text-nav-section-label-size)",
+  fontWeight: "var(--text-nav-section-label-weight)",
+  color: "var(--text-secondary)",
+  letterSpacing: "var(--text-nav-section-label-tracking)",
+  padding: "4px 10px 10px",
   textTransform: "uppercase",
+  opacity: 0.85,
 };
+
+const groupWrapperStyle = { marginBottom: 14 };
 
 const groupHeaderStyle = {
   width: "100%",
   display: "flex",
   alignItems: "center",
-  gap: 6,
-  padding: "6px 8px",
+  gap: 7,
+  padding: "6px 10px",
   background: "transparent",
   border: "none",
-  borderRadius: "var(--radius-sm)",
-  color: "var(--text-muted)",
-  fontSize: 12,
-  fontWeight: 500,
+  borderRadius: "var(--radius-none)",
+  color: "var(--text-secondary)",
+  fontSize: "var(--text-nav-group-header-size)",
+  fontWeight: "var(--text-nav-group-header-weight)",
+  letterSpacing: "var(--text-nav-group-header-tracking)",
+  textTransform: "uppercase",
   cursor: "pointer",
-  marginBottom: 1,
 };
+
+const itemsWrapperStyle = { paddingLeft: "var(--nav-item-indent)" };
 
 function sectionItemStyle(disabled) {
   return {
     display: "flex",
     alignItems: "center",
     gap: 8,
-    padding: "8px",
-    borderRadius: "var(--radius-sm)",
-    fontSize: 13,
-    color: disabled ? "var(--text-ghost)" : "var(--text-secondary)",
+    padding: "9px 12px",
+    fontSize: "var(--text-nav-item-size)",
+    color: disabled ? "var(--text-disabled)" : "var(--text-secondary)",
     cursor: "default",
   };
 }
@@ -275,16 +282,16 @@ function itemStyle(isActive, disabled) {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
-    padding: "6px 8px",
-    borderRadius: "var(--radius-sm)",
-    borderLeft: isActive ? "2px solid var(--green-500)" : "2px solid transparent",
-    paddingLeft: isActive ? 6 : 8,
-    fontSize: 12,
-    color: disabled ? "var(--text-ghost)" : isActive ? "var(--green-400)" : "var(--text-muted)",
-    background: isActive ? "var(--green-900)" : "transparent",
+    gap: 10,
+    padding: "9px 12px",
+    marginBottom: 2,
+    fontSize: "var(--text-nav-item-size)",
+    lineHeight: "var(--text-nav-item-line-height)",
+    borderRadius: isActive ? "var(--radius-nav-active)" : "var(--radius-none)",
+    background: isActive ? "var(--nav-active-surface)" : "transparent",
+    color: disabled ? "var(--text-disabled)" : isActive ? "var(--text-primary)" : "var(--text-secondary)",
+    fontWeight: isActive ? 600 : 400,
     cursor: disabled ? "default" : "pointer",
-    marginBottom: 1,
     transition: "background 0.1s, color 0.1s",
   };
 }

@@ -8,10 +8,10 @@ export default function KpiCard({ id, name, value, unit, change, good_direction,
         const arrow = change > 0 ? "▲" : "▼";
         const absChange = Math.abs(change).toFixed(2);
         changeEl = (
-            <div style={{ fontSize: 12, color, marginTop: 8, display: "flex", alignItems: "center", gap: 3 }}>
+            <div style={{ fontFamily: "var(--font-family-mono)", fontSize: "var(--text-data-sm-size)", fontWeight: "var(--text-data-sm-weight)", color, marginTop: 8, display: "flex", alignItems: "center", gap: 3 }}>
                 <span>{arrow}</span>
                 <span>{absChange}</span>
-                <span style={{ color: "var(--text-muted)", marginLeft: 2 }}>MoM</span>
+                <span style={{ fontFamily: "var(--font-family-sans)", fontWeight: 400, color: "var(--text-secondary)", marginLeft: 2 }}>MoM</span>
             </div>
         );
     }
@@ -20,28 +20,26 @@ export default function KpiCard({ id, name, value, unit, change, good_direction,
         <button
             onClick={() => onClick(id)}
             style={{
-                border: isSelected ? "1px solid var(--green-500)" : "1px solid var(--border)",
-                borderRadius: "var(--radius-md)",
+                border: isSelected ? "1px solid var(--text-secondary)" : "1px solid var(--border)",
+                borderRadius: "var(--radius-none)",
                 padding: "20px",
                 minWidth: 160,
-                background: isSelected ? "var(--green-900)" : "var(--bg-elevated)",
+                background: "var(--bg-elevated)",
                 color: "var(--text-primary)",
                 cursor: "pointer",
                 textAlign: "left",
-                transition: "all 0.2s ease",
-                boxShadow: isSelected
-                    ? "0 0 0 1px rgba(16,185,129,0.25), 0 8px 30px rgba(0,0,0,0.35)"
-                    : "0 4px 12px rgba(0,0,0,0.2)",
+                transition: "border-color 0.15s ease, box-shadow 0.15s ease",
+                boxShadow: isSelected ? "inset 0 0 0 1px rgba(139,144,150,0.35)" : "none",
             }}
         >
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
+            <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-label-size)", color: "var(--text-secondary)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "var(--text-label-tracking)", fontWeight: "var(--text-label-weight)" }}>
                 {name}
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                <div style={{ fontFamily: "var(--font-family-mono)", fontSize: "var(--text-data-lg-size)", fontWeight: "var(--text-data-lg-weight)", lineHeight: "var(--text-data-lg-line-height)", letterSpacing: "var(--text-data-lg-tracking)", fontVariantNumeric: "tabular-nums" }}>
                     {display}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{unit}</div>
+                <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-data-sm-size)", color: "var(--text-secondary)" }}>{unit}</div>
             </div>
             {changeEl}
         </button>
