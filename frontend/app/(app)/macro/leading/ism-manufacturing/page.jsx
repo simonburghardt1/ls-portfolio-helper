@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import LineChart from "@/app/components/LineChart";
+import PageHeader from "@/app/components/PageHeader";
+import Tabs from "@/app/components/Tabs";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -145,33 +148,26 @@ export default function IsmManufacturingPage() {
 
   return (
     <PageShell>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#e5e7eb", marginBottom: 4 }}>
-          ISM Manufacturing Index
-        </h1>
-        <p style={{ color: "#6b7280", fontSize: 13 }}>
-          Institute for Supply Management — Monthly PMI components
-        </p>
-      </div>
+      <PageHeader
+        title="ISM Manufacturing Index"
+        subtitle="Institute for Supply Management — Monthly PMI components"
+      />
 
       {!hasData ? (
         <EmptyState />
       ) : (
         <>
           {/* Tabs */}
-          <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid #1f2937" }}>
-            {[["chart","Time Series"],["heatmap","Heatmap"],["rankings","Sector Rankings"],["comments","Industry Comments"]].map(([t, label]) => (
-              <button key={t} onClick={() => setTab(t)} style={{
-                background: "transparent", border: "none", cursor: "pointer",
-                padding: "8px 16px", fontSize: 13, fontWeight: 500,
-                color: tab === t ? "#3b82f6" : "#6b7280",
-                borderBottom: tab === t ? "2px solid #3b82f6" : "2px solid transparent",
-                marginBottom: -1,
-              }}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            tabs={[
+              { key: "chart",    label: "Time Series" },
+              { key: "heatmap",  label: "Heatmap" },
+              { key: "rankings", label: "Sector Rankings" },
+              { key: "comments", label: "Industry Comments" },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
 
           {/* ── Chart Tab ── */}
           {tab === "chart" && (
@@ -195,14 +191,14 @@ export default function IsmManufacturingPage() {
 
               <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
                 {RANGES.map((r) => (
-                  <button key={r.label} onClick={() => setRange(r.label)} style={{
-                    padding: "3px 10px", borderRadius: 5, fontSize: 12, cursor: "pointer",
-                    border: "1px solid #374151",
-                    background: range === r.label ? "#1e3a5f" : "transparent",
-                    color: range === r.label ? "#93c5fd" : "#6b7280",
-                  }}>
+                  <Button
+                    key={r.label}
+                    variant="range-toggle"
+                    active={range === r.label}
+                    onClick={() => setRange(r.label)}
+                  >
                     {r.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
 
