@@ -258,8 +258,6 @@ const groupHeaderStyle = {
   color: "var(--text-secondary)",
   fontSize: "var(--text-nav-group-header-size)",
   fontWeight: "var(--text-nav-group-header-weight)",
-  letterSpacing: "var(--text-nav-group-header-tracking)",
-  textTransform: "uppercase",
   cursor: "pointer",
 };
 

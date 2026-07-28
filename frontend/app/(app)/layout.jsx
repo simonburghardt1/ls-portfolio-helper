@@ -10,7 +10,17 @@ export default function AppLayout({ children }) {
   if (!isAuthenticated) return null;
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#020617" }}>
+    <div
+      style={{
+        display: "flex",
+        minHeight: "100vh",
+        maxWidth: "calc(50vw + 720px)",
+        margin: "0 auto",
+        background: "var(--bg-base)",
+        borderLeft: "1px solid var(--border)",
+        borderRight: "1px solid var(--border)",
+      }}
+    >
       <Sidebar />
       <main style={{ flex: 1, overflow: "auto" }}>
         {children}

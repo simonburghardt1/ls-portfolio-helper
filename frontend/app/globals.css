@@ -1,5 +1,6 @@
 :root {
   /* ── Backgrounds (Slate Mono) ─────────────────────────────── */
+  --page-background: #05070a; /* outermost canvas, behind the centered app frame */
   --bg-base:    #0e0f11;
   --bg-surface: #16181b;
   --bg-elevated:#1e2124;
@@ -45,9 +46,9 @@
   --font-base:13px;   /* body text, buttons, table cells */
   --font-sm:  11px;   /* uppercase labels, table headers, badges */
 
-  /* ── IBM Plex typography (Slate Mono) ──────────────────────── */
-  --font-family-sans: var(--font-plex-sans), "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
-  --font-family-mono: var(--font-plex-mono), "IBM Plex Mono", Consolas, "Cascadia Code", ui-monospace, monospace;
+  /* ── Typography (Slate Mono) — system font stack, matches the approved mock ── */
+  --font-family-sans: -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-family-mono: Consolas, "Cascadia Code", ui-monospace, monospace;
 
   --text-headline-size: 34px;
   --text-headline-weight: 700;
@@ -82,10 +83,9 @@
   --text-nav-section-label-line-height: 1.3;
   --text-nav-section-label-tracking: 0.1em;
 
-  --text-nav-group-header-size: 12.5px;
+  --text-nav-group-header-size: 13px;
   --text-nav-group-header-weight: 600;
   --text-nav-group-header-line-height: 1.3;
-  --text-nav-group-header-tracking: 0.04em;
 
   --text-nav-item-size: 14px;
   --text-nav-item-weight: 400;
@@ -118,7 +118,7 @@ body {
 
 body {
   color: var(--text-primary);
-  background: var(--bg-base);
+  background: var(--page-background);
   font-family: var(--font-family-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
