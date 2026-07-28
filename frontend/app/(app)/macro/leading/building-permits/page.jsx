@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import LineChart from "@/app/components/LineChart";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -45,14 +47,10 @@ export default function BuildingPermitsPage() {
 
   return (
     <div style={{ color: "#e5e7eb", maxWidth: 1000, margin: "0 auto", padding: "28px 24px" }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#e5e7eb", marginBottom: 4 }}>
-          US Building Permits
-        </h1>
-        <p style={{ color: "#6b7280", fontSize: 13 }}>
-          US Census Bureau — Thousands of units, seasonally adjusted annual rate
-        </p>
-      </div>
+      <PageHeader
+        title="US Building Permits"
+        subtitle="US Census Bureau — Thousands of units, seasonally adjusted annual rate"
+      />
 
       {loading && <div style={{ color: "#4b5563", fontSize: 14 }}>Loading…</div>}
       {error   && <div style={{ color: "#f87171", fontSize: 14 }}>Error: {error}</div>}
@@ -71,14 +69,14 @@ export default function BuildingPermitsPage() {
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               {RANGES.map((r) => (
-                <button key={r.label} onClick={() => setRange(r.label)} style={{
-                  padding: "3px 10px", borderRadius: 5, fontSize: 12, cursor: "pointer",
-                  border: "1px solid #374151",
-                  background: range === r.label ? "#1e3a5f" : "transparent",
-                  color:      range === r.label ? "#93c5fd" : "#6b7280",
-                }}>
+                <Button
+                  key={r.label}
+                  variant="range-toggle"
+                  active={range === r.label}
+                  onClick={() => setRange(r.label)}
+                >
                   {r.label}
-                </button>
+                </Button>
               ))}
             </div>
           </div>

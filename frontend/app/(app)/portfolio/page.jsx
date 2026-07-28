@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -303,9 +304,9 @@ export default function PortfolioManagerPage() {
               ))}
             </tbody>
           </table>
-          <button onClick={addPosition} style={{ ...secondaryBtn, marginTop: 10, fontSize: 12 }}>
+          <Button variant="secondary" onClick={addPosition} style={{ marginTop: 10, fontSize: 12 }}>
             + Add Position
-          </button>
+          </Button>
         </div>
 
         {/* Weight sum hint */}
@@ -330,7 +331,7 @@ export default function PortfolioManagerPage() {
           <button onClick={savePortfolio} disabled={saving} style={primaryBtn}>
             {saving ? "Saving…" : editingId ? "Save Changes" : "Save Portfolio"}
           </button>
-          <button onClick={clearForm} style={secondaryBtn}>Clear</button>
+          <Button variant="secondary" onClick={clearForm}>Clear</Button>
         </div>
       </div>
     </div>
@@ -353,10 +354,6 @@ function Stat({ label, value, color = "#e5e7eb" }) {
 const primaryBtn = {
   background: "#1e3a5f", border: "1px solid #2d5a8e", borderRadius: 6,
   padding: "8px 18px", fontSize: 13, color: "#93c5fd", cursor: "pointer", fontWeight: 600,
-};
-const secondaryBtn = {
-  background: "transparent", border: "1px solid #1f2937", borderRadius: 6,
-  padding: "8px 14px", fontSize: 13, color: "#6b7280", cursor: "pointer",
 };
 function iconBtn(bg, color) {
   return {

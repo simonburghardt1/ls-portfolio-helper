@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -36,31 +38,24 @@ export default function ConsumerConfidenceAdminPage() {
 
   return (
     <div style={{ color: "#e5e7eb", maxWidth: 800, margin: "0 auto", padding: "28px 24px" }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
-        Consumer Confidence — Data Import
-      </h1>
-      <p style={{ color: "#9ca3af", fontSize: 14, marginBottom: 24 }}>
-        Import historical ICC or ICE data from investing.com or any CSV source.
-      </p>
+      <PageHeader
+        title="Consumer Confidence — Data Import"
+        subtitle="Import historical ICC or ICE data from investing.com or any CSV source."
+      />
 
       {/* Series selector */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>Series to import</div>
         <div style={{ display: "flex", gap: 8 }}>
           {SERIES_OPTIONS.map((opt) => (
-            <button
+            <Button
               key={opt.id}
+              variant="range-toggle"
+              active={seriesId === opt.id}
               onClick={() => setSeriesId(opt.id)}
-              style={{
-                padding: "6px 14px", borderRadius: 8, fontSize: 13, cursor: "pointer",
-                border: `1px solid ${seriesId === opt.id ? "#3b82f6" : "#374151"}`,
-                background: seriesId === opt.id ? "#1e3a5f" : "transparent",
-                color: seriesId === opt.id ? "#93c5fd" : "#6b7280",
-                fontWeight: seriesId === opt.id ? 600 : 400,
-              }}
             >
               {opt.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

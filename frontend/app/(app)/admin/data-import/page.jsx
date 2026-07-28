@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -76,10 +78,10 @@ export default function DataImportPage() {
 
   return (
     <div style={{ color: "#e5e7eb", maxWidth: 820, margin: "0 auto", padding: "28px 24px" }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Data Import</h1>
-      <p style={{ color: "#6b7280", fontSize: 13, marginBottom: 28 }}>
-        Paste historical time-series data for any indicator. One row per month.
-      </p>
+      <PageHeader
+        title="Data Import"
+        subtitle="Paste historical time-series data for any indicator. One row per month."
+      />
 
       {/* Series selector */}
       <div style={{ marginBottom: 20 }}>
@@ -150,16 +152,9 @@ export default function DataImportPage() {
 
         {/* Clear cache only for MacroCache-backed series */}
         {["UMCSENT", "UMICH_ICC", "UMICH_ICE"].includes(seriesId) && (
-          <button
-            onClick={handleClearCache}
-            style={{
-              background: "transparent", color: "#6b7280",
-              border: "1px solid #374151", borderRadius: 8, padding: "9px 16px",
-              cursor: "pointer", fontSize: 13,
-            }}
-          >
+          <Button variant="secondary" onClick={handleClearCache}>
             Clear cache (re-fetch from FRED)
-          </button>
+          </Button>
         )}
 
         {csvText.trim() && (

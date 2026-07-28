@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import KpiCard from "@/app/components/KpiCard";
 import LineChart from "@/app/components/LineChart";
+import Button from "@/app/components/Button";
 
 const KPI_GROUPS = ["Yields", "Inflation", "Employment"];
 
@@ -86,16 +87,9 @@ export default function Page() {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button
-              onClick={() => loadData(selectedSeriesId)}
-              style={{
-                background: "var(--green-900)", color: "var(--green-400)",
-                border: "1px solid var(--green-muted)", borderRadius: "var(--radius-sm)",
-                padding: "8px 16px", cursor: "pointer", fontWeight: 600, fontSize: "var(--font-base)",
-              }}
-            >
+            <Button variant="secondary" onClick={() => loadData(selectedSeriesId)}>
               Refresh
-            </button>
+            </Button>
             <div style={{
               fontSize: "var(--font-base)", color: statusColor,
               background: "var(--bg-elevated)", border: "1px solid var(--border)",
@@ -149,15 +143,14 @@ export default function Page() {
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {["1Y", "5Y", "10Y", "MAX"].map((range) => (
-                <button key={range} onClick={() => handleRangeClick(range)} style={{
-                  background: selectedRange === range ? "var(--green-900)" : "transparent",
-                  color: selectedRange === range ? "var(--green-400)" : "var(--text-muted)",
-                  border: `1px solid ${selectedRange === range ? "var(--green-muted)" : "var(--border)"}`,
-                  borderRadius: "var(--radius-sm)", padding: "6px 12px",
-                  cursor: "pointer", fontSize: "var(--font-base)", fontWeight: 500,
-                }}>
+                <Button
+                  key={range}
+                  variant="range-toggle"
+                  active={selectedRange === range}
+                  onClick={() => handleRangeClick(range)}
+                >
                   {range}
-                </button>
+                </Button>
               ))}
               {chartSeries?.values?.length > 0 && (
                 <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "8px 14px" }}>
@@ -178,7 +171,7 @@ export default function Page() {
               datasets={[{
                 label: chartSeries.name,
                 data: chartSeries.values,
-                borderColor: "var(--green-500)",
+                borderColor: "var(--green-500)", // legacy accent, intentionally untouched — out of scope for this migration
                 borderWidth: 2,
               }]}
             />
