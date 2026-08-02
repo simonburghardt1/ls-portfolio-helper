@@ -8,10 +8,14 @@ import {
   LineSeries,
   HistogramSeries,
 } from "lightweight-charts";
+import PageHeader from "@/app/components/PageHeader";
+import Tabs from "@/app/components/Tabs";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
 const TABS = ["Live Portfolio", "Realized PnL", "Equity Curve"];
+const TAB_ITEMS = TABS.map(t => ({ key: t, label: t }));
 
 const PERIODS = [
   { label: "1Y",  years: 1  },
@@ -36,7 +40,6 @@ const cellInput = {
 
 const btnBase = { borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "opacity 0.15s", border: "none" };
 const btnPrimary  = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
-const btnSecondary = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#6b7280" };
 
 function fmtMoney(v, decimals = 0) {
   if (v == null) return "—";
@@ -217,7 +220,7 @@ function LivePortfolioTab() {
       {/* Buttons */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <button onClick={addPosition} style={btnPrimary}>+ Add Position</button>
-        <button onClick={loadPositions} style={btnSecondary}>↻ Refresh Prices</button>
+        <Button variant="secondary" onClick={loadPositions}>↻ Refresh Prices</Button>
       </div>
 
       {/* Table */}
@@ -891,12 +894,7 @@ function EquityCurveTab() {
       {/* Period selector */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
         {PERIODS.map(p => (
-          <button key={p.label} onClick={() => setPeriod(p.label)} style={{
-            padding: "5px 10px", fontSize: 12, borderRadius: 5, cursor: "pointer",
-            background: period === p.label ? "#0f2040" : "transparent",
-            border:     period === p.label ? "1px solid #1e3a5f" : "1px solid #1f2937",
-            color:      period === p.label ? "#60a5fa" : "#6b7280",
-          }}>{p.label}</button>
+          <Button key={p.label} variant="range-toggle" active={period === p.label} onClick={() => setPeriod(p.label)}>{p.label}</Button>
         ))}
       </div>
 
@@ -1147,7 +1145,7 @@ function IbkrImportPanel({ onImported }) {
                 <button onClick={handleConfirm} disabled={loading} style={{ ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" }}>
                   {loading ? "Importing…" : "Confirm Import"}
                 </button>
-                <button onClick={handleClear} style={btnSecondary}>Clear</button>
+                <Button variant="secondary" onClick={handleClear}>Clear</Button>
               </div>
             </div>
           )}
@@ -1159,7 +1157,7 @@ function IbkrImportPanel({ onImported }) {
               <KpiCard label="Trades imported" value={result.trades_imported}    valueColor="#86efac" small />
               <KpiCard label="Skipped (dup)"   value={result.trades_skipped}     valueColor="#6b7280" small />
               <KpiCard label="Positions"        value={result.positions_imported} valueColor="#93c5fd" small />
-              <button onClick={handleClear} style={{ ...btnSecondary, marginLeft: 8 }}>Clear</button>
+              <Button variant="secondary" onClick={handleClear} style={{ marginLeft: 8 }}>Clear</Button>
             </div>
           )}
 
@@ -1181,32 +1179,17 @@ export default function TrackRecordPage() {
   return (
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Trading Track Record</h1>
-        <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-          Live positions, realized trades, and equity curve analytics.
-        </p>
-      </div>
+      <PageHeader title="Trading Track Record" subtitle="Live positions, realized trades, and equity curve analytics." />
 
       {/* IBKR Import Panel */}
       <IbkrImportPanel onImported={() => setImportKey(k => k + 1)} />
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 2, marginBottom: 28, borderBottom: "1px solid #1f2937" }}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: "8px 18px",
-            fontSize: 13,
-            cursor: "pointer",
-            background: "transparent",
-            border: "none",
-            borderBottom: tab === t ? "2px solid #3b82f6" : "2px solid transparent",
-            color: tab === t ? "#e5e7eb" : "#6b7280",
-            marginBottom: -1,
-            fontWeight: tab === t ? 600 : 400,
-          }}>{t}</button>
-        ))}
-      </div>
+      <Tabs
+        tabs={TAB_ITEMS}
+        active={tab}
+        onChange={setTab}
+      />
 
       {/* Content — importKey forces remount of active tab after CSV import */}
       <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "24px 28px" }}>

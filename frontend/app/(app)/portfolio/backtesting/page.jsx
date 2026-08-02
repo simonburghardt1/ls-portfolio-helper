@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import LineChart from "@/app/components/LineChart";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -350,12 +352,7 @@ export default function BacktestingPage() {
       <div style={{ maxWidth: 1300, margin: "0 auto", padding: "28px 32px 60px" }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 24 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Portfolio Backtester</h1>
-          <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-            {loadedName ? `Loaded: ${loadedName}` : "Build a long/short portfolio and backtest its historical performance."}
-          </p>
-        </div>
+        <PageHeader title="Portfolio Backtester" subtitle={loadedName ? `Loaded: ${loadedName}` : "Build a long/short portfolio and backtest its historical performance."} />
 
         {/* Load Portfolio */}
         {savedPortfolios.length > 0 && (
@@ -421,7 +418,7 @@ export default function BacktestingPage() {
           <div style={{ padding: "14px 20px", borderBottom: "1px solid #1f2937", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>POSITIONS</span>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={addRow} style={btnSecondary}>+ Add Row</button>
+              <Button variant="secondary" onClick={addRow}>+ Add Row</Button>
               <button
                 onClick={betaAdjust}
                 disabled={betaStatus === "loading"}
@@ -705,9 +702,9 @@ export default function BacktestingPage() {
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>CUMULATIVE PERFORMANCE</span>
                 <div style={{ display: "flex", gap: 6 }}>
                   {["1W", "1M", "3M", "6M", "12M"].map(tf => (
-                    <button key={tf} onClick={() => setSelectedTimeframe(tf)} style={selectedTimeframe === tf ? btnPrimary : btnSecondary}>
+                    <Button key={tf} variant="range-toggle" active={selectedTimeframe === tf} onClick={() => setSelectedTimeframe(tf)}>
                       {tf}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -801,9 +798,9 @@ export default function BacktestingPage() {
                 </span>
                 <div style={{ display: "flex", gap: 6 }}>
                   {["daily", "weekly"].map(f => (
-                    <button key={f} onClick={() => setTableFrequency(f)} style={tableFrequency === f ? btnPrimary : btnSecondary}>
+                    <Button key={f} variant="range-toggle" active={tableFrequency === f} onClick={() => setTableFrequency(f)}>
                       {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
+                    </Button>
                   ))}
                 </div>
               </div>
@@ -939,7 +936,6 @@ const btnBase = {
   transition: "opacity 0.15s",
 };
 const btnPrimary     = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
-const btnSecondary   = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#6b7280" };
 const btnBeta        = { ...btnBase, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#f59e0b" };
 const btnDisabled    = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#374151", cursor: "default" };
 const btnRegime      = { ...btnBase, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", color: "#8b7ec8" };
