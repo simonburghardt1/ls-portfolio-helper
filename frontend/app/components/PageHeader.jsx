@@ -7,7 +7,8 @@
  *
  * Props:
  *   title:    string — the page's h1 headline
- *   subtitle: string (optional) — one line of supporting body copy
+ *   subtitle: string | ReactNode (optional) — one line of supporting body copy;
+ *             accepts a JSX fragment when partial styling (e.g. a `<strong>`) is needed
  *   style:    object (optional) — merged onto the wrapper div, e.g. to cancel
  *             the default bottom margin when placed inline next to a sibling
  */

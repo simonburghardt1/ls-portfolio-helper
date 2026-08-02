@@ -9,6 +9,8 @@ import {
   HistogramSeries,
   PriceScaleMode,
 } from "lightweight-charts";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -482,12 +484,10 @@ export default function MarketRegimePage() {
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
 
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Market Regime</h1>
-        <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-          Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth · VIX · Credit Spreads</strong> — daily closes.
-        </p>
-      </div>
+      <PageHeader
+        title="Market Regime"
+        subtitle={<>Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth · VIX · Credit Spreads</strong> — daily closes.</>}
+      />
 
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 14, marginBottom: 28, flexWrap: "wrap", alignItems: "stretch" }}>
@@ -543,22 +543,23 @@ export default function MarketRegimePage() {
 
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {PERIODS.map((p) => (
-            <button key={p.label} onClick={() => setPeriod(p.label)} style={{
-              background: period === p.label ? "#1e3a5f" : "transparent",
-              border: `1px solid ${period === p.label ? "#2d5a8e" : "#1f2937"}`,
-              borderRadius: 5, padding: "4px 10px", fontSize: 12,
-              color: period === p.label ? "#93c5fd" : "#4b5563",
-              cursor: "pointer", fontWeight: period === p.label ? 600 : 400,
-            }}>{p.label}</button>
+            <Button
+              key={p.label}
+              variant="range-toggle"
+              active={period === p.label}
+              onClick={() => setPeriod(p.label)}
+            >
+              {p.label}
+            </Button>
           ))}
           <div style={{ width: 1, height: 20, background: "#1f2937", margin: "0 4px" }} />
-          <button onClick={() => setLogScale((v) => !v)} style={{
-            background: logScale ? "#1e3a5f" : "transparent",
-            border: `1px solid ${logScale ? "#2d5a8e" : "#1f2937"}`,
-            borderRadius: 5, padding: "4px 10px", fontSize: 12,
-            color: logScale ? "#93c5fd" : "#4b5563",
-            cursor: "pointer", fontWeight: logScale ? 600 : 400,
-          }}>Log</button>
+          <Button
+            variant="range-toggle"
+            active={logScale}
+            onClick={() => setLogScale((v) => !v)}
+          >
+            Log
+          </Button>
           <div style={{ width: 1, height: 20, background: "#1f2937", margin: "0 4px" }} />
           <button
             onClick={weightsOpen ? () => setWeightsOpen(false) : handleOpenWeights}
@@ -609,12 +610,9 @@ export default function MarketRegimePage() {
             >
               Apply
             </button>
-            <button
-              onClick={handleReset}
-              style={{ padding: "5px 16px", background: "transparent", border: "1px solid #1f2937", borderRadius: 5, color: "#6b7280", fontSize: 12, cursor: "pointer" }}
-            >
+            <Button variant="secondary" onClick={handleReset}>
               Reset to defaults
-            </button>
+            </Button>
             {!isDefaultWeights && (
               <span style={{ fontSize: 11, color: "#f59e0b", marginLeft: 4 }}>
                 Custom weights active — composite is computed client-side

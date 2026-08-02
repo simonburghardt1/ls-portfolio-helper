@@ -6,6 +6,9 @@ import {
   ResponsiveContainer, ReferenceLine, Cell,
 } from "recharts";
 import LineChart from "@/app/components/LineChart";
+import PageHeader from "@/app/components/PageHeader";
+import Tabs from "@/app/components/Tabs";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -17,18 +20,6 @@ const card = {
   borderRadius: 10,
   padding: "14px 18px",
 };
-
-const TAB_STYLE = (active) => ({
-  padding: "6px 18px",
-  fontSize: 13,
-  fontWeight: active ? 600 : 400,
-  color: active ? "#93c5fd" : "#6b7280",
-  background: active ? "#0f172a" : "transparent",
-  border: "none",
-  borderBottom: active ? "2px solid #3b82f6" : "2px solid transparent",
-  cursor: "pointer",
-  transition: "color 0.15s",
-});
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
 
@@ -206,14 +197,14 @@ function OverviewTab({ series }) {
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           {RANGES.map((r) => (
-            <button key={r.label} onClick={() => setRange(r.label)} style={{
-              padding: "3px 10px", borderRadius: 5, fontSize: 12, cursor: "pointer",
-              border: "1px solid #374151",
-              background: range === r.label ? "#1e3a5f" : "transparent",
-              color:      range === r.label ? "#93c5fd" : "#6b7280",
-            }}>
+            <Button
+              key={r.label}
+              variant="range-toggle"
+              active={range === r.label}
+              onClick={() => setRange(r.label)}
+            >
               {r.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -599,14 +590,10 @@ export default function CpiPpiPage() {
   return (
     <div style={{ color: "#e5e7eb", maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#e5e7eb", marginBottom: 4 }}>
-          CPI & PPI Dashboard
-        </h1>
-        <p style={{ color: "#6b7280", fontSize: 13 }}>
-          Consumer & Producer Price Indices — BLS / BEA via FRED
-        </p>
-      </div>
+      <PageHeader
+        title="CPI & PPI Dashboard"
+        subtitle="Consumer & Producer Price Indices — BLS / BEA via FRED"
+      />
 
       {loading && <div style={{ color: "#4b5563", fontSize: 14 }}>Loading data from FRED…</div>}
       {error   && <div style={{ color: "#f87171", fontSize: 14 }}>Error: {error}</div>}
@@ -614,17 +601,15 @@ export default function CpiPpiPage() {
       {!loading && !error && (
         <>
           {/* Tabs */}
-          <div style={{ display: "flex", borderBottom: "1px solid #1f2937", marginBottom: 24 }}>
-            {[
+          <Tabs
+            tabs={[
               { key: "overview",   label: "Overview" },
               { key: "components", label: "Components" },
               { key: "insights",   label: "Insights" },
-            ].map(({ key, label }) => (
-              <button key={key} onClick={() => setTab(key)} style={TAB_STYLE(tab === key)}>
-                {label}
-              </button>
-            ))}
-          </div>
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
 
           {tab === "overview"   && Object.keys(series).length > 0     && <OverviewTab    series={series} />}
           {tab === "components" && Object.keys(components).length > 0 && <ComponentsTab  components={components} />}
