@@ -8,7 +8,7 @@ import { useAuthStore } from "@/app/store/authStore";
 
 const NAV = [
   {
-    section: "Macro-Ökonomie",
+    section: "Macro Economics",
     groups: [
       {
         label: null,
