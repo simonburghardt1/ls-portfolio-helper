@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Button from "@/app/components/Button";
+import PageHeader from "@/app/components/PageHeader";
 
 const API = "http://localhost:8000";
 
@@ -149,12 +150,11 @@ export default function PortfolioManagerPage() {
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Portfolios</h1>
-          <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-            Create and manage named portfolios. Load them into the backtester or heatmap.
-          </p>
-        </div>
+        <PageHeader
+          title="Portfolios"
+          subtitle="Create and manage named portfolios. Load them into the backtester or heatmap."
+          style={{ marginBottom: 0 }}
+        />
         <button onClick={startNew} style={primaryBtn}>+ New Portfolio</button>
       </div>
 

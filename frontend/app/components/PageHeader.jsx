@@ -8,10 +8,12 @@
  * Props:
  *   title:    string — the page's h1 headline
  *   subtitle: string (optional) — one line of supporting body copy
+ *   style:    object (optional) — merged onto the wrapper div, e.g. to cancel
+ *             the default bottom margin when placed inline next to a sibling
  */
-export default function PageHeader({ title, subtitle }) {
+export default function PageHeader({ title, subtitle, style }) {
     return (
-        <div style={{ marginBottom: "var(--space-6)" }}>
+        <div style={{ marginBottom: "var(--space-6)", ...style }}>
             <h1
                 style={{
                     fontFamily: "var(--font-family-sans)",

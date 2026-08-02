@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import KpiCard from "@/app/components/KpiCard";
 import LineChart from "@/app/components/LineChart";
 import Button from "@/app/components/Button";
+import PageHeader from "@/app/components/PageHeader";
 
 const KPI_GROUPS = ["Yields", "Inflation", "Employment"];
 
@@ -78,14 +79,11 @@ export default function Page() {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           marginBottom: 32, paddingBottom: 20, borderBottom: "1px solid var(--border)",
         }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: "var(--font-xl)", fontWeight: 700, color: "var(--text-primary)" }}>
-              Macro Dashboard
-            </h1>
-            <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: "var(--font-base)" }}>
-              FRED data · Leading &amp; concurrent indicators
-            </div>
-          </div>
+          <PageHeader
+            title="Macro Dashboard"
+            subtitle="FRED data · Leading & concurrent indicators"
+            style={{ marginBottom: 0 }}
+          />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Button variant="secondary" onClick={() => loadData(selectedSeriesId)}>
               Refresh

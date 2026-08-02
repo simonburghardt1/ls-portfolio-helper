@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import PageHeader from "@/app/components/PageHeader";
 
 export default function IsmAdminPage() {
   const [text, setText] = useState("");
@@ -55,7 +56,7 @@ export default function IsmAdminPage() {
   return (
     <div style={{ color: "#e5e7eb", fontFamily: "Arial, sans-serif", maxWidth: 900, margin: "0 auto", padding: "28px 24px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <h1 style={{ fontSize: 24, margin: 0 }}>ISM Manufacturing — Data Import</h1>
+        <PageHeader title="ISM Manufacturing — Data Import" style={{ marginBottom: 0 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {fetchStatus && (
             <span style={{ fontSize: 13, color: fetchStatus.ok ? "#4ade80" : "#f87171" }}>
