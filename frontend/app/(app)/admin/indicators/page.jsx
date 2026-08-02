@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import PageHeader from "@/app/components/PageHeader";
 
 const API = "http://localhost:8000";
 
@@ -143,12 +144,10 @@ export default function IndicatorsAdminPage() {
     <div style={{ background: "#020617", minHeight: "100vh", color: "#e5e7eb" }}>
       <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 32px 60px" }}>
 
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Indicator Data Refresh</h1>
-          <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-            Manually trigger a data fetch for each economic indicator.
-          </p>
-        </div>
+        <PageHeader
+          title="Indicator Data Refresh"
+          subtitle="Manually trigger a data fetch for each economic indicator."
+        />
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {INDICATORS.map(ind => {

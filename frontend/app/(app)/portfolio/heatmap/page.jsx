@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ResponsiveContainer, Treemap } from "recharts";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 const STORAGE_KEY = "heatmap_watchlist";
@@ -97,20 +99,6 @@ const LEGEND = [
   { label: "+1% to +3%", color: "#15803d" },
   { label: "≥ +3%",      color: "#14532d" },
 ];
-
-function ToggleBtn({ active, onClick, children }) {
-  return (
-    <button onClick={onClick} style={{
-      padding: "5px 11px", fontSize: 12, borderRadius: 5, cursor: "pointer",
-      background: active ? "#1e3a5f" : "transparent",
-      border: `1px solid ${active ? "#2d5a8e" : "#1f2937"}`,
-      color: active ? "#93c5fd" : "#6b7280",
-      fontWeight: active ? 600 : 400,
-    }}>
-      {children}
-    </button>
-  );
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -221,10 +209,7 @@ export default function HeatmapPage() {
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
 
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#f9fafb", margin: 0 }}>Stock Heatmap</h1>
-        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{subtitle}</p>
-      </div>
+      <PageHeader title="Stock Heatmap" subtitle={subtitle} />
 
       {/* Controls */}
       <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "16px 20px", marginBottom: 16 }}>
@@ -252,28 +237,23 @@ export default function HeatmapPage() {
 
           <div style={{ width: 1, height: 22, background: "#1f2937", margin: "0 4px" }} />
           <span style={{ fontSize: 11, color: "#4b5563" }}>Size:</span>
-          <ToggleBtn active={sizeMode === "equal"} onClick={() => setSizeMode("equal")}>Equal</ToggleBtn>
-          <ToggleBtn active={sizeMode === "log"}   onClick={() => setSizeMode("log")}>Market Cap</ToggleBtn>
+          <Button variant="range-toggle" active={sizeMode === "equal"} onClick={() => setSizeMode("equal")}>Equal</Button>
+          <Button variant="range-toggle" active={sizeMode === "log"}   onClick={() => setSizeMode("log")}>Market Cap</Button>
 
           <div style={{ width: 1, height: 22, background: "#1f2937", margin: "0 4px" }} />
-          <ToggleBtn active={groupBySector} onClick={() => setGroupBySector(v => !v)}>
+          <Button variant="range-toggle" active={groupBySector} onClick={() => setGroupBySector(v => !v)}>
             {groupBySector ? "Sectors: On" : "Sectors: Off"}
-          </ToggleBtn>
+          </Button>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {asOf && <span style={{ fontSize: 12, color: "#4b5563" }}>as of {asOf}</span>}
-            <button
+            <Button
+              variant="secondary"
               onClick={() => fetchData(tickers, groupBySector, false)}
               disabled={loading}
-              style={{
-                background: "transparent", border: "1px solid #1f2937", borderRadius: 6,
-                padding: "6px 14px", fontSize: 13,
-                color: loading ? "#374151" : "#9ca3af",
-                cursor: loading ? "default" : "pointer",
-              }}
             >
               {loading ? "Loading…" : "↻ Refresh"}
-            </button>
+            </Button>
           </div>
         </div>
 

@@ -8,6 +8,8 @@ import {
   LineSeries,
   HistogramSeries,
 } from "lightweight-charts";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -311,12 +313,10 @@ export default function CotDataPage() {
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
 
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: "#f9fafb", margin: 0 }}>COT Data</h1>
-        <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-          Commitments of Traders — Asset Manager / Managed Money positioning. Source: CFTC (weekly, updated Fridays).
-        </p>
-      </div>
+      <PageHeader
+        title="COT Data"
+        subtitle="Commitments of Traders — Asset Manager / Managed Money positioning. Source: CFTC (weekly, updated Fridays)."
+      />
 
       {/* ── Overview grid ─────────────────────────────────────────────────────── */}
       {loadingOv ? (
@@ -389,17 +389,9 @@ export default function CotDataPage() {
 
           <div style={{ display: "flex", gap: 4 }}>
             {PERIODS.map(p => (
-              <button key={p.label} onClick={() => setPeriod(p.label)}
-                style={{
-                  padding: "5px 10px", fontSize: 12, borderRadius: 5,
-                  background: period === p.label ? "#1e3a5f" : "transparent",
-                  border: period === p.label ? "1px solid #2d5a8e" : "1px solid #1f2937",
-                  color: period === p.label ? "#93c5fd" : "#6b7280",
-                  cursor: "pointer",
-                }}
-              >
+              <Button key={p.label} variant="range-toggle" active={period === p.label} onClick={() => setPeriod(p.label)}>
                 {p.label}
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -476,12 +468,9 @@ export default function CotDataPage() {
               </table>
             </div>
             {series.dates.length > 52 && (
-              <button
-                onClick={() => setShowAll(p => !p)}
-                style={{ marginTop: 10, background: "transparent", border: "1px solid #1f2937", borderRadius: 6, color: "#6b7280", fontSize: 12, padding: "5px 12px", cursor: "pointer" }}
-              >
+              <Button variant="secondary" style={{ marginTop: 10 }} onClick={() => setShowAll(p => !p)}>
                 {showAll ? "Show less" : `Show all ${series.dates.length} rows`}
-              </button>
+              </Button>
             )}
           </div>
         )}

@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
 
 const API = "http://localhost:8000";
 
@@ -179,29 +181,17 @@ export default function VolatilityPage() {
     <div style={{ padding: "28px 32px", color: "#e5e7eb", minHeight: "100vh", background: "#060d18" }}>
 
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#f9fafb", marginBottom: 4 }}>
-          Portfolio Volatility &amp; Correlation
-        </h1>
-        <p style={{ fontSize: 12, color: "#4b5563" }}>
-          Weekly return covariance and correlation matrices for your portfolio positions.
-        </p>
-      </div>
+      <PageHeader
+        title="Portfolio Volatility & Correlation"
+        subtitle="Weekly return covariance and correlation matrices for your portfolio positions."
+      />
 
       {/* Controls */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 28, flexWrap: "wrap" }}>
         {/* Source buttons */}
-        <button
-          onClick={() => setSource("live")}
-          style={{
-            padding: "6px 14px", fontSize: 12, borderRadius: 6, cursor: "pointer",
-            background: source === "live" ? "#1e3a5f" : "transparent",
-            border:     source === "live" ? "1px solid #2d5a8e" : "1px solid #1f2937",
-            color:      source === "live" ? "#93c5fd" : "#6b7280",
-          }}
-        >
+        <Button variant="range-toggle" active={source === "live"} onClick={() => setSource("live")} style={{ padding: "6px 14px" }}>
           Live Portfolio
-        </button>
+        </Button>
 
         {savedPortfolios.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -227,12 +217,9 @@ export default function VolatilityPage() {
 
         {/* Period selector */}
         {PERIODS.map(p => (
-          <button key={p.label} onClick={() => setWeeks(p.weeks)} style={{
-            padding: "5px 10px", fontSize: 12, borderRadius: 5, cursor: "pointer",
-            background: weeks === p.weeks ? "#0f2040" : "transparent",
-            border:     weeks === p.weeks ? "1px solid #1e3a5f" : "1px solid #1f2937",
-            color:      weeks === p.weeks ? "#60a5fa" : "#6b7280",
-          }}>{p.label}</button>
+          <Button key={p.label} variant="range-toggle" active={weeks === p.weeks} onClick={() => setWeeks(p.weeks)}>
+            {p.label}
+          </Button>
         ))}
 
         {loading && <span style={{ fontSize: 12, color: "#4b5563" }}>Loading…</span>}
