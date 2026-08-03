@@ -17,8 +17,11 @@
  *   small:       bool — denser padding/font for multi-tile strips
  *   valueColor:  optional explicit color override for the main value
  *                (defaults to --text-primary)
+ *   caption:     optional plain muted line below the value (string or node),
+ *                for a secondary fact that isn't a MoM delta (e.g. "score 0.55").
+ *                Ignored when `change` is present — `change` wins.
  */
-export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, onClick, isSelected, small = false, valueColor }) {
+export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, onClick, isSelected, small = false, valueColor, caption }) {
     const display = formatted ?? (value == null ? "--" : Number(value).toFixed(2));
 
     let changeEl = null;
@@ -32,6 +35,12 @@ export default function KpiCard({ id, label, value, formatted, unit, change, goo
                 <span>{arrow}</span>
                 <span>{absChange}</span>
                 <span style={{ fontFamily: "var(--font-family-sans)", fontWeight: 400, color: "var(--text-secondary)", marginLeft: 2 }}>MoM</span>
+            </div>
+        );
+    } else if (caption != null) {
+        changeEl = (
+            <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-data-sm-size)", color: "var(--text-secondary)", marginTop: 8 }}>
+                {caption}
             </div>
         );
     }

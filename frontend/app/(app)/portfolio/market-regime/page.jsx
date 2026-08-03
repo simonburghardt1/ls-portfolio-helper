@@ -11,20 +11,25 @@ import {
 } from "lightweight-charts";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import KpiCard from "@/app/components/KpiCard";
 
 const API = "http://localhost:8000";
 
 const DEFAULT_WEIGHTS = { bmsb: 0.30, breadth: 0.28, vix: 0.17, credit: 0.25 };
 
+// Canvas (lightweight-charts) colors can't consume CSS vars, so these are literal
+// rgb bases matching --positive/--negative/--caution in globals.css.
 const REGIME_COLORS = {
-  up:      "rgba(22, 163, 74,  0.45)",
-  down:    "rgba(220, 38,  38,  0.50)",
-  ranging: "rgba(217, 119,  6,  0.38)",
+  up:      "rgba(52, 211, 153, 0.45)",
+  down:    "rgba(242, 88,  92,  0.50)",
+  ranging: "rgba(245, 158,  11, 0.38)",
 };
 
+// Hex literals (not CSS vars) because these feed `${color}NN` hex-alpha-suffix
+// concatenation below — kept in sync with --positive/--negative/--caution.
 const REGIME_CONFIG = {
-  up:      { label: "Uptrend",   color: "#22c55e" },
-  down:    { label: "Downtrend", color: "#ef4444" },
+  up:      { label: "Uptrend",   color: "#34d399" },
+  down:    { label: "Downtrend", color: "#f2585c" },
   ranging: { label: "Ranging",   color: "#f59e0b" },
 };
 
@@ -311,17 +316,17 @@ export default function MarketRegimePage() {
           time: d,
           value: composite[i],
           color: composite[i] == null ? "transparent"
-               : composite[i] > 0 ? "rgba(22,163,74,0.75)" : "rgba(220,38,38,0.75)",
+               : composite[i] > 0 ? "rgba(52,211,153,0.75)" : "rgba(242,88,92,0.75)",
         }))
         .filter((p) => p.value != null)
     );
 
     const threshUp = sc.addSeries(LineSeries, {
-      color: "rgba(34,197,94,0.45)", lineWidth: 1, lineStyle: 2,
+      color: "rgba(52,211,153,0.45)", lineWidth: 1, lineStyle: 2,
       priceLineVisible: false, lastValueVisible: false,
     });
     const threshDn = sc.addSeries(LineSeries, {
-      color: "rgba(239,68,68,0.45)", lineWidth: 1, lineStyle: 2,
+      color: "rgba(242,88,92,0.45)", lineWidth: 1, lineStyle: 2,
       priceLineVisible: false, lastValueVisible: false,
     });
     const validDates = dates.filter((_, i) => composite[i] != null);
@@ -464,7 +469,7 @@ export default function MarketRegimePage() {
   }
 
   if (loading) return <div style={{ padding: "40px 32px", color: "#4b5563", fontSize: 14 }}>Loading regime data…</div>;
-  if (error)   return <div style={{ padding: "40px 32px", color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
+  if (error)   return <div style={{ padding: "40px 32px", color: "var(--negative)", fontSize: 13 }}>Error: {error}</div>;
 
   const { dates, prices, regimes, composite, scores } = computedData;
   const currentInfo = getCurrentRegimeInfo(regimes, dates, prices);
@@ -492,35 +497,35 @@ export default function MarketRegimePage() {
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 14, marginBottom: 28, flexWrap: "wrap", alignItems: "stretch" }}>
         {cfg && (
-          <div style={{ background: "#080e1a", border: `1px solid ${cfg.color}40`, borderRadius: 10, padding: "16px 24px", minWidth: 200 }}>
-            <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Composite Regime</div>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: REGIME_COLORS[currentInfo.regime], border: `1px solid ${cfg.color}60`, borderRadius: 20, padding: "4px 14px" }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color }} />
-              <span style={{ fontSize: 15, fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
-            </div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
+          <KpiCard
+            label="Composite Regime"
+            formatted={cfg.label}
+            valueColor={cfg.color}
+            small
+            caption={<>
               {currentInfo.weeks} weeks · score {lastNonNull(composite)?.toFixed(2)}
-              {!isDefaultWeights && <span style={{ color: "#f59e0b", marginLeft: 6 }}>custom</span>}
-            </div>
-          </div>
+              {!isDefaultWeights && <span style={{ color: "var(--caution)", marginLeft: 6 }}>custom</span>}
+            </>}
+          />
         )}
 
         {componentKpis.map(({ key, label, score, color, regLabel }) => (
-          <div key={key} style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", minWidth: 130 }}>
-            <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{label}</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color }}>{regLabel}</span>
-            </div>
-            <div style={{ fontSize: 11, color: "#4b5563", marginTop: 5 }}>score {score != null ? score.toFixed(2) : "—"}</div>
-          </div>
+          <KpiCard
+            key={key}
+            label={label}
+            formatted={regLabel}
+            valueColor={color}
+            small
+            caption={score != null ? `score ${score.toFixed(2)}` : undefined}
+          />
         ))}
 
-        <KpiCard label="SPY Price" value={currentInfo ? `$${currentInfo.price.toFixed(2)}` : "—"} />
+        <KpiCard label="SPY Price" formatted={currentInfo ? `$${currentInfo.price.toFixed(2)}` : "—"} small />
         <KpiCard
           label="SPY YTD"
-          value={ytdReturn != null ? `${ytdReturn >= 0 ? "+" : ""}${ytdReturn.toFixed(2)}%` : "—"}
-          color={ytdReturn == null ? undefined : ytdReturn >= 0 ? "#86efac" : "#fca5a5"}
+          formatted={ytdReturn != null ? `${ytdReturn >= 0 ? "+" : ""}${ytdReturn.toFixed(2)}%` : "—"}
+          valueColor={ytdReturn == null ? undefined : ytdReturn >= 0 ? "var(--positive)" : "var(--negative)"}
+          small
         />
       </div>
 
@@ -578,7 +583,7 @@ export default function MarketRegimePage() {
 
       {/* Weights settings panel */}
       {weightsOpen && (
-        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "16px 20px", marginBottom: 8 }}>
+        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 8 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
             Component Weights
           </div>
@@ -599,22 +604,19 @@ export default function MarketRegimePage() {
             ))}
           </div>
           {Math.abs(pendingSum - 1) > 0.001 && (
-            <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "var(--caution)", marginBottom: 10 }}>
               Sum: {pendingSum.toFixed(2)} — weights will be normalized to 1 on apply
             </div>
           )}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              onClick={handleApply}
-              style={{ padding: "5px 16px", background: "#1e3a5f", border: "1px solid #2d5a8e", borderRadius: 5, color: "#93c5fd", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-            >
+            <Button variant="primary" onClick={handleApply}>
               Apply
-            </button>
+            </Button>
             <Button variant="secondary" onClick={handleReset}>
               Reset to defaults
             </Button>
             {!isDefaultWeights && (
-              <span style={{ fontSize: 11, color: "#f59e0b", marginLeft: 4 }}>
+              <span style={{ fontSize: 11, color: "var(--caution)", marginLeft: 4 }}>
                 Custom weights active — composite is computed client-side
               </span>
             )}
@@ -623,14 +625,14 @@ export default function MarketRegimePage() {
       )}
 
       {/* Main price chart */}
-      <div style={{ position: "relative", background: "#080e1a", border: "1px solid #1f2937", borderRadius: "10px 10px 0 0", overflow: "hidden" }}>
+      <div style={{ position: "relative", background: "#080e1a", border: "1px solid #1f2937", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
         <div ref={mainRef} />
         {tooltip && (
           <div style={{
             position: "absolute",
             left: Math.min(tooltip.x + 16, (mainRef.current?.clientWidth ?? 600) - 170),
             top: Math.max(tooltip.y - 10, 8),
-            background: "#0d1829", border: "1px solid #1f2937", borderRadius: 6,
+            background: "#0d1829", border: "1px solid #1f2937", borderRadius: "var(--radius-none)",
             padding: "8px 12px", fontSize: 12, pointerEvents: "none", zIndex: 10, minWidth: 150,
           }}>
             <div style={{ color: "#6b7280", marginBottom: 4 }}>{tooltip.date}</div>
@@ -642,7 +644,7 @@ export default function MarketRegimePage() {
       </div>
 
       {/* Composite score sub-pane */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderTop: "1px solid #0d1829", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
+      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderTop: "1px solid #0d1829", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
         <div style={{ padding: "4px 8px 0", fontSize: 10, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Composite Score
         </div>
@@ -650,7 +652,7 @@ export default function MarketRegimePage() {
       </div>
 
       {/* Component signals chart */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", marginTop: 8 }}>
+      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: "var(--radius-none)", padding: "16px 20px", marginTop: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
           Component Signals
         </div>
@@ -675,19 +677,10 @@ export default function MarketRegimePage() {
             {label} {Math.round(weights[key] * 100)}%{i < COMPONENT_META.length - 1 ? " · " : ""}
           </span>
         ))}.{" "}
-        Regime thresholds: composite &gt; +0.2 → <span style={{ color: "#22c55e" }}>Uptrend</span>,{" "}
-        &lt; −0.2 → <span style={{ color: "#ef4444" }}>Downtrend</span>, else <span style={{ color: "#f59e0b" }}>Ranging</span>.{" "}
+        Regime thresholds: composite &gt; +0.2 → <span style={{ color: "var(--positive)" }}>Uptrend</span>,{" "}
+        &lt; −0.2 → <span style={{ color: "var(--negative)" }}>Downtrend</span>, else <span style={{ color: "var(--caution)" }}>Ranging</span>.{" "}
         Components missing before their data inception (RSP 2003, HYG/LQD 2007) are excluded and weights renormalized.
       </div>
-    </div>
-  );
-}
-
-function KpiCard({ label, value, color = "#e5e7eb" }) {
-  return (
-    <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", minWidth: 120 }}>
-      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
     </div>
   );
 }
