@@ -159,12 +159,12 @@ export default function CotDataPage() {
 
     const hasPriceOverlay = showPrice && priceData?.dates?.length > 0;
     const mc = createChart(mainRef.current, {
-      layout:          { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
+      layout:          { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
       grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { color: "rgba(31,41,55,0.5)" } },
       crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937" },
-      leftPriceScale:  { visible: hasPriceOverlay, borderColor: "#1f2937" },
-      timeScale:       { borderColor: "#1f2937", timeVisible: false },
+      rightPriceScale: { borderColor: "#374151" },
+      leftPriceScale:  { visible: hasPriceOverlay, borderColor: "#374151" },
+      timeScale:       { borderColor: "#374151", timeVisible: false },
       width:           mainRef.current.clientWidth,
       height:          360,
     });
@@ -221,11 +221,11 @@ export default function CotDataPage() {
 
     // Sub chart — Open Interest histogram
     const sc = createChart(subRef.current, {
-      layout:          { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
+      layout:          { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
       grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { visible: false } },
       crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937", scaleMargins: { top: 0.05, bottom: 0.05 } },
-      timeScale:       { borderColor: "#1f2937", timeVisible: true },
+      rightPriceScale: { borderColor: "#374151", scaleMargins: { top: 0.05, bottom: 0.05 } },
+      timeScale:       { borderColor: "#374151", timeVisible: true },
       width:           subRef.current.clientWidth,
       height:          120,
     });
@@ -310,7 +310,7 @@ export default function CotDataPage() {
   if (error) return <div style={{ padding: "40px 32px", color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
+    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
 
       {/* Header */}
       <PageHeader
@@ -328,7 +328,7 @@ export default function CotDataPage() {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
             {ASSET_CLASS_ORDER.filter(ac => overview[ac]).map(ac => (
-              <div key={ac} style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 18px" }}>
+              <div key={ac} style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 18px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#9ca3af" }}>{ASSET_CLASS_LABELS[ac]}</span>
                   <span style={{ fontSize: 10, color: "#374151" }}>{overview[ac].length} contracts</span>
@@ -362,7 +362,7 @@ export default function CotDataPage() {
       )}
 
       {/* ── Detail section ────────────────────────────────────────────────────── */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "24px 28px" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "24px 28px" }}>
 
         {/* Controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
@@ -370,7 +370,7 @@ export default function CotDataPage() {
             value={selected}
             onChange={e => setSelected(e.target.value)}
             style={{
-              background: "#0a1628", border: "1px solid #1f2937", borderRadius: 6,
+              background: "#0a1628", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
               color: "#e5e7eb", fontSize: 13, padding: "6px 10px", cursor: "pointer",
             }}
           >
@@ -400,7 +400,7 @@ export default function CotDataPage() {
             style={{
               padding: "5px 12px", fontSize: 12, borderRadius: 5,
               background: showPrice ? "rgba(245,158,11,0.15)" : "transparent",
-              border: showPrice ? "1px solid rgba(245,158,11,0.5)" : "1px solid #1f2937",
+              border: showPrice ? "1px solid rgba(245,158,11,0.5)" : "1px solid var(--border)",
               color: showPrice ? "#f59e0b" : "#6b7280",
               cursor: "pointer",
             }}
@@ -443,7 +443,7 @@ export default function CotDataPage() {
                 <thead>
                   <tr>
                     {["Date", "Long", "Short", "Net", "Open Interest", "Net %"].map(h => (
-                      <th key={h} style={{ textAlign: h === "Date" ? "left" : "right", padding: "6px 10px", color: "#4b5563", fontWeight: 600, borderBottom: "1px solid #1f2937", whiteSpace: "nowrap" }}>
+                      <th key={h} style={{ textAlign: h === "Date" ? "left" : "right", padding: "6px 10px", color: "#4b5563", fontWeight: 600, borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" }}>
                         {h}
                       </th>
                     ))}

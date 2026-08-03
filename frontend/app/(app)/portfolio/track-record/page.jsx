@@ -62,7 +62,7 @@ function pnlColor(v) {
 
 function Th({ children, style = {} }) {
   return (
-    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid #0d1829", whiteSpace: "nowrap", ...style }}>
+    <th style={{ padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: "1px solid var(--border)", whiteSpace: "nowrap", ...style }}>
       {children}
     </th>
   );
@@ -242,7 +242,7 @@ function LivePortfolioTab() {
           <tbody>
             {rows.map((row, i) => (
               <tr key={row.id}
-                style={{ borderBottom: "1px solid #0d1829" }}
+                style={{ borderBottom: "1px solid var(--border)" }}
                 onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
@@ -321,7 +321,7 @@ function LivePortfolioTab() {
               </tr>
               {cashRows.map(cr => (
                 <tr key={cr.currency}
-                  style={{ borderBottom: "1px solid #0d1829" }}
+                  style={{ borderBottom: "1px solid var(--border)" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                 >
@@ -516,7 +516,7 @@ function RealizedPnlTab() {
                 : null;
               return (
                 <tr key={row.id}
-                  style={{ borderBottom: "1px solid #0d1829" }}
+                  style={{ borderBottom: "1px solid var(--border)" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                 >
@@ -685,11 +685,11 @@ function EquityCurveTab() {
     if (spy?.dates) spy.dates.forEach((d, i) => { spyMap[d] = spy.values[i]; });
 
     const chartOpts = (el) => ({
-      layout:          { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
+      layout:          { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
       grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { color: "rgba(31,41,55,0.5)" } },
       crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937" },
-      timeScale:       { borderColor: "#1f2937", timeVisible: false },
+      rightPriceScale: { borderColor: "#374151" },
+      timeScale:       { borderColor: "#374151", timeVisible: false },
       width:           el.clientWidth,
       height:          220,
     });
@@ -839,7 +839,7 @@ function EquityCurveTab() {
   return (
     <div>
       {/* Capital Account — collapsible */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, marginBottom: 20, overflow: "hidden" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", marginBottom: 20, overflow: "hidden" }}>
         <button
           onClick={() => setShowCapital(p => !p)}
           style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}
@@ -863,10 +863,10 @@ function EquityCurveTab() {
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input type="date" value={capDate} onChange={e => setCapDate(e.target.value)}
-                style={{ ...cellInput, width: 130, colorScheme: "dark", border: "1px solid #1f2937" }} />
+                style={{ ...cellInput, width: 130, colorScheme: "dark", border: "1px solid var(--border)" }} />
               <input type="number" placeholder="Amount" value={capAmount} onChange={e => setCapAmount(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") addCapital("deposit"); }}
-                style={{ ...cellInput, width: 110, border: "1px solid #1f2937", textAlign: "right" }} />
+                style={{ ...cellInput, width: 110, border: "1px solid var(--border)", textAlign: "right" }} />
               <button onClick={() => addCapital("deposit")}  style={{ ...btnBase, background: "rgba(52,211,153,0.15)",  border: "1px solid rgba(52,211,153,0.3)",  color: "var(--positive)",  padding: "7px 16px" }}>+ Deposit</button>
               <button onClick={() => addCapital("withdraw")} style={{ ...btnBase, background: "rgba(242,88,92,0.10)", border: "1px solid rgba(242,88,92,0.3)", color: "var(--negative)", padding: "7px 16px" }}>− Withdraw</button>
             </div>
@@ -895,19 +895,19 @@ function EquityCurveTab() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 28 }}>
           <div>
             <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Portfolio Value</div>
-            <div ref={chart1Ref} style={{ width: "100%" }} />
+            <div ref={chart1Ref} style={{ width: "100%", background: "var(--bg-surface)" }} />
           </div>
           <div>
             <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Portfolio Index</div>
-            <div ref={chart2Ref} style={{ width: "100%" }} />
+            <div ref={chart2Ref} style={{ width: "100%", background: "var(--bg-surface)" }} />
           </div>
           <div>
             <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Realized PnL</div>
-            <div ref={chart3Ref} style={{ width: "100%" }} />
+            <div ref={chart3Ref} style={{ width: "100%", background: "var(--bg-surface)" }} />
           </div>
         </div>
       ) : (
-        <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13, border: "1px dashed #1f2937", borderRadius: 8, marginBottom: 28 }}>
+        <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13, border: "1px dashed var(--border)", borderRadius: "var(--radius-none)", marginBottom: 28 }}>
           Add realized trades to see the equity curve
         </div>
       )}
@@ -940,7 +940,7 @@ function EquityCurveTab() {
               <tbody>
                 {tableRows.map((row, i) => (
                   <tr key={row.date}
-                    style={{ borderBottom: "1px solid #0d1829", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
+                    style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}
                     onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
                     onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)"}
                   >
@@ -1031,7 +1031,7 @@ function IbkrImportPanel({ onImported }) {
     <div style={{ marginBottom: 20 }}>
       {/* Toggle bar */}
       <button onClick={() => { setOpen(o => !o); handleClear(); }} style={{
-        background: "transparent", border: "1px solid #1f2937", borderRadius: 8,
+        background: "transparent", border: "1px solid var(--border)", borderRadius: 8,
         color: "#6b7280", fontSize: 12, fontWeight: 600, cursor: "pointer",
         padding: "7px 14px", letterSpacing: "0.05em",
       }}>
@@ -1039,7 +1039,7 @@ function IbkrImportPanel({ onImported }) {
       </button>
 
       {open && (
-        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "20px 24px", marginTop: 8 }}>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "20px 24px", marginTop: 8 }}>
 
           {/* File input row */}
           {!preview && !result && (
@@ -1093,7 +1093,7 @@ function IbkrImportPanel({ onImported }) {
                     </thead>
                     <tbody>
                       {preview.trades.map((t, i) => (
-                        <tr key={i} style={{ borderBottom: "1px solid #0d1829" }}>
+                        <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
                           <td style={{ padding: "5px 10px", fontSize: 12, fontFamily: "monospace", fontWeight: 700 }}>{t.ticker}</td>
                           <td style={{ padding: "5px 10px", fontSize: 11 }}>
                             <Badge variant={t.side === "long" ? "positive" : "negative"}>{t.side.toUpperCase()}</Badge>
@@ -1169,7 +1169,7 @@ export default function TrackRecordPage() {
   const [importKey,  setImportKey] = useState(0);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
+    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
       {/* Header */}
       <PageHeader title="Trading Track Record" subtitle="Live positions, realized trades, and equity curve analytics." />
 
@@ -1184,7 +1184,7 @@ export default function TrackRecordPage() {
       />
 
       {/* Content — importKey forces remount of active tab after CSV import */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "24px 28px" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "24px 28px" }}>
         {tab === "Live Portfolio" && <LivePortfolioTab key={`lp-${importKey}`} />}
         {tab === "Realized PnL"  && <RealizedPnlTab   key={`rp-${importKey}`} />}
         {tab === "Equity Curve"  && <EquityCurveTab   key={`ec-${importKey}`} />}

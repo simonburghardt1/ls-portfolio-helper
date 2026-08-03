@@ -64,7 +64,7 @@ const rowLabel = {
   whiteSpace: "nowrap",
   position: "sticky",
   left: 0,
-  background: "#080e1a",
+  background: "var(--bg-surface)",
   zIndex: 1,
 };
 
@@ -76,8 +76,8 @@ const thStyle = {
   textTransform: "uppercase",
   letterSpacing: "0.05em",
   textAlign: "right",
-  borderBottom: "1px solid #1f2937",
-  background: "#080e1a",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--bg-surface)",
   position: "sticky",
   top: 0,
   zIndex: 2,
@@ -178,7 +178,7 @@ export default function VolatilityPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: "28px 32px", color: "#e5e7eb", minHeight: "100vh", background: "#060d18" }}>
+    <div style={{ padding: "28px 32px", color: "var(--text-primary)", minHeight: "100vh", background: "var(--bg-base)" }}>
 
       {/* Header */}
       <PageHeader
@@ -200,7 +200,7 @@ export default function VolatilityPage() {
               value={source === "live" ? "" : source}
               onChange={e => e.target.value && setSource(Number(e.target.value))}
               style={{
-                background: "#0d1829", border: "1px solid #1f2937", borderRadius: 6,
+                background: "#0d1829", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
                 color: "#9ca3af", fontSize: 12, padding: "5px 10px", cursor: "pointer",
               }}
             >
@@ -213,7 +213,7 @@ export default function VolatilityPage() {
         )}
 
         {/* Divider */}
-        <div style={{ width: 1, height: 20, background: "#1f2937" }} />
+        <div style={{ width: 1, height: 20, background: "var(--border)" }} />
 
         {/* Period selector */}
         {PERIODS.map(p => (
@@ -253,7 +253,7 @@ export default function VolatilityPage() {
             },
           ].map(k => (
             <div key={k.label} style={{
-              background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8,
+              background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
               padding: "14px 20px", minWidth: 180, flex: "1 1 180px",
             }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
@@ -318,7 +318,7 @@ export default function VolatilityPage() {
                 ))}
                 {/* Gross row */}
                 {isLive && totalGross != null && (
-                  <tr style={{ borderTop: "1px solid #1f2937" }}>
+                  <tr style={{ borderTop: "1px solid var(--border)" }}>
                     <td style={{ ...rowLabel, color: "#4b5563" }} colSpan={data.tickers.length + 1}>
                       Gross:
                     </td>
@@ -335,7 +335,7 @@ export default function VolatilityPage() {
           {/* ── Stats + Scenario ──────────────────────────────────────────── */}
           <div style={{ display: "flex", gap: 32, marginTop: 20, marginBottom: 28, flexWrap: "wrap" }}>
             {/* Stats block */}
-            <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 20px", minWidth: 260 }}>
+            <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 20px", minWidth: 260 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Portfolio Risk</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 24px", fontSize: 12 }}>
                 <span style={{ color: "#4b5563" }}>Portfolio Variance</span>
@@ -369,7 +369,7 @@ export default function VolatilityPage() {
             </div>
 
             {/* Scenario analysis */}
-            <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 20px" }}>
+            <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 20px" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Scenario Analysis</div>
               <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
@@ -381,7 +381,7 @@ export default function VolatilityPage() {
                 </thead>
                 <tbody>
                   {scenarios.map(s => (
-                    <tr key={s.sharpe} style={{ borderBottom: "1px solid #0d1829" }}>
+                    <tr key={s.sharpe} style={{ borderBottom: "1px solid var(--border)" }}>
                       <td style={{ padding: "4px 12px 4px 0", color: "#9ca3af" }}>{s.sharpe.toFixed(1)}</td>
                       <td style={{ ...cellBase, color: "#f59e0b" }}>{s.vol}</td>
                       <td style={{ ...cellBase, color: "#86efac" }}>{s.ret}</td>
@@ -443,7 +443,7 @@ export default function VolatilityPage() {
                   );
                 })}
                 {/* Portfolio summary row */}
-                <tr style={{ borderTop: "2px solid #1f2937", background: "rgba(255,255,255,0.02)" }}>
+                <tr style={{ borderTop: "2px solid var(--border)", background: "rgba(255,255,255,0.02)" }}>
                   <td style={{ ...rowLabel, color: "#6b7280", fontStyle: "italic" }}>Portfolio</td>
                   {data.tickers.map((_, j) => (
                     <td key={j} style={{ ...cellBase, color: "#374151", minWidth: 68 }}>—</td>

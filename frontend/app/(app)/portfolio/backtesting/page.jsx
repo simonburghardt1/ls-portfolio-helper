@@ -348,7 +348,7 @@ export default function BacktestingPage() {
   const hasBetas  = Object.keys(betas).length > 0;
 
   return (
-    <div style={{ background: "#020617", minHeight: "100vh", color: "#e5e7eb" }}>
+    <div style={{ background: "var(--bg-base)", minHeight: "100vh", color: "var(--text-primary)" }}>
       <div style={{ maxWidth: 1300, margin: "0 auto", padding: "28px 32px 60px" }}>
 
         {/* Header */}
@@ -356,12 +356,12 @@ export default function BacktestingPage() {
 
         {/* Load Portfolio */}
         {savedPortfolios.length > 0 && (
-          <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, color: "#6b7280" }}>Load saved portfolio:</span>
             <select
               value={selectedPortfolio}
               onChange={e => setSelectedPortfolio(e.target.value)}
-              style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 6, padding: "6px 10px", fontSize: 13, color: "#e5e7eb", cursor: "pointer" }}
+              style={{ background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "6px 10px", fontSize: 13, color: "#e5e7eb", cursor: "pointer" }}
             >
               <option value="">— select —</option>
               {savedPortfolios.map(p => (
@@ -413,9 +413,9 @@ export default function BacktestingPage() {
         </div>
 
         {/* Positions Table */}
-        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden", marginBottom: 16 }}>
           {/* Table header bar */}
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid #1f2937", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>POSITIONS</span>
             <div style={{ display: "flex", gap: 8 }}>
               <Button variant="secondary" onClick={addRow}>+ Add Row</Button>
@@ -440,7 +440,7 @@ export default function BacktestingPage() {
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #0d1829" }}>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
                   <Th style={{ width: 36, textAlign: "center" }}>#</Th>
                   <Th>Ticker</Th>
                   <Th>Side</Th>
@@ -456,7 +456,7 @@ export default function BacktestingPage() {
                   return (
                     <tr
                       key={i}
-                      style={{ borderBottom: "1px solid #0d1829", transition: "background 0.1s" }}
+                      style={{ borderBottom: "1px solid var(--border)", transition: "background 0.1s" }}
                       onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                     >
@@ -560,19 +560,19 @@ export default function BacktestingPage() {
 
           {/* Beta-Adjust note */}
           {betaStatus === "done" && (
-            <div style={{ padding: "10px 20px", borderTop: "1px solid #0d1829", fontSize: 12, color: "#4b6a9b" }}>
+            <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", fontSize: 12, color: "#4b6a9b" }}>
               Beta-adjusted. Portfolio β = <strong style={{ color: Math.abs(portfolioBeta) < 0.05 ? "#86efac" : "#f59e0b" }}>{portfolioBeta?.toFixed(4)}</strong>. Run the backtest to see updated performance.
             </div>
           )}
           {betaStatus === "error" && (
-            <div style={{ padding: "10px 20px", borderTop: "1px solid #7f1d1d", fontSize: 12, color: "#fca5a5" }}>
+            <div style={{ padding: "10px 20px", borderTop: "1px solid rgba(242,88,92,0.3)", fontSize: 12, color: "#fca5a5" }}>
               Failed to fetch beta data. Check that the backend is running and tickers are valid.
             </div>
           )}
         </div>
 
         {/* Regime-Adjust panel */}
-        <div style={{ background: "#080e1a", border: `1px solid ${regimeAdjust ? "rgba(167,139,250,0.3)" : "#1f2937"}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+        <div style={{ background: "var(--bg-surface)", border: `1px solid ${regimeAdjust ? "rgba(167,139,250,0.3)" : "var(--border)"}`, borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button onClick={() => { setRegimeAdjust(v => !v); clearRegimeComparison(); }} style={regimeAdjust ? btnRegimeActive : btnRegime}>
               ◈ Regime-Adjust
@@ -594,7 +594,7 @@ export default function BacktestingPage() {
                       max="1"
                       value={regimeTargets[key]}
                       onChange={e => { setRegimeTargets(prev => ({ ...prev, [key]: e.target.value })); clearRegimeComparison(); }}
-                      style={{ ...cellInput, border: "1px solid #1f2937", width: 58, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                      style={{ ...cellInput, border: "1px solid var(--border)", width: 58, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
                     />
                   </label>
                 ))}
@@ -621,7 +621,7 @@ export default function BacktestingPage() {
 
         {/* Validation errors */}
         {errors.length > 0 && (
-          <div style={{ background: "#1c0a0a", border: "1px solid #7f1d1d", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#fca5a5" }}>
+          <div style={{ background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#fca5a5" }}>
             {errors.map((e, i) => <div key={i}>• {e}</div>)}
           </div>
         )}
@@ -656,13 +656,13 @@ export default function BacktestingPage() {
             )}
 
             {/* Compare portfolio panel */}
-            <div style={{ background: "#080e1a", border: `1px solid ${comparePortfolioResult ? "rgba(16,185,129,0.3)" : "#1f2937"}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+            <div style={{ background: "var(--bg-surface)", border: `1px solid ${comparePortfolioResult ? "rgba(16,185,129,0.3)" : "var(--border)"}`, borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>Compare portfolio:</span>
                 <select
                   value={comparePortfolioId}
                   onChange={e => { setComparePortfolioId(e.target.value); setComparePortfolioResult(null); setComparePortfolioStatus("idle"); }}
-                  style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 6, padding: "5px 10px", fontSize: 12, color: "#e5e7eb", cursor: "pointer" }}
+                  style={{ background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "5px 10px", fontSize: 12, color: "#e5e7eb", cursor: "pointer" }}
                 >
                   <option value="">— select portfolio —</option>
                   {savedPortfolios.map(p => (
@@ -697,7 +697,7 @@ export default function BacktestingPage() {
             )}
 
             {/* Cumulative chart */}
-            <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: 20, marginBottom: 8 }}>
+            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: 20, marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>CUMULATIVE PERFORMANCE</span>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -724,7 +724,7 @@ export default function BacktestingPage() {
 
             {/* Drawdown chart */}
             {chartData?.drawdown && (
-              <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "16px 20px", marginBottom: 16 }}>
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 16 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>DRAWDOWN</span>
                 <ResponsiveContainer width="100%" height={180} style={{ marginTop: 12 }}>
                   <AreaChart data={chartData.dates.map((date, i) => ({ date, value: chartData.drawdown[i] }))} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
@@ -738,7 +738,7 @@ export default function BacktestingPage() {
                       width={48}
                     />
                     <Tooltip
-                      contentStyle={{ background: "#0d1829", border: "1px solid #1f2937", borderRadius: 6, fontSize: 12 }}
+                      contentStyle={{ background: "#0d1829", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", fontSize: 12 }}
                       labelStyle={{ color: "#9ca3af" }}
                       formatter={v => [`${v != null ? v.toFixed(2) : "—"}%`, "Drawdown"]}
                     />
@@ -750,8 +750,8 @@ export default function BacktestingPage() {
 
             {/* Stock contribution */}
             {result.contributions && Object.keys(result.contributions).length > 0 && (
-              <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
-                <div style={{ padding: "14px 20px", borderBottom: "1px solid #1f2937" }}>
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden", marginBottom: 16 }}>
+                <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>STOCK CONTRIBUTION</span>
                 </div>
                 <div style={{ padding: "12px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -791,8 +791,8 @@ export default function BacktestingPage() {
             )}
 
             {/* Returns table */}
-            <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, overflow: "hidden" }}>
-              <div style={{ padding: "14px 20px", borderBottom: "1px solid #1f2937", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>
                   {tableFrequency === "daily" ? "DAILY" : "WEEKLY"} RETURNS
                 </span>
@@ -806,8 +806,8 @@ export default function BacktestingPage() {
               </div>
               <div style={{ maxHeight: 420, overflowY: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead style={{ position: "sticky", top: 0, background: "#080e1a", zIndex: 1 }}>
-                    <tr style={{ borderBottom: "1px solid #0d1829" }}>
+                  <thead style={{ position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 1 }}>
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
                       <Th>Date</Th>
                       <Th>{tableFrequency === "daily" ? "Daily PnL" : "Weekly PnL"}</Th>
                       <Th>Cumulative PnL</Th>
@@ -815,7 +815,7 @@ export default function BacktestingPage() {
                   </thead>
                   <tbody>
                     {tableRows.map((row, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid #0d1829" }}
+                      <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                       >
@@ -839,7 +839,7 @@ export default function BacktestingPage() {
 
 function KpiCard({ label, value, valueColor = "#f9fafb", loading = false }) {
   return (
-    <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 18px", minWidth: 130 }}>
+    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 130 }}>
       <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color: loading ? "#374151" : valueColor, fontVariantNumeric: "tabular-nums" }}>
         {loading ? "…" : value}
@@ -852,9 +852,9 @@ function KpiCardLink({ href, label, value, valueColor, loading }) {
   return (
     <Link href={href} style={{ textDecoration: "none" }}>
       <div
-        style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 18px", minWidth: 130, cursor: "pointer", transition: "border-color 0.15s" }}
+        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 130, cursor: "pointer", transition: "border-color 0.15s" }}
         onMouseEnter={e => e.currentTarget.style.borderColor = "#2d5a8e"}
-        onMouseLeave={e => e.currentTarget.style.borderColor = "#1f2937"}
+        onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
       >
         <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
           {label}
@@ -879,7 +879,7 @@ function RiskCard({ label, value, format, alwaysRed, neutral }) {
     : format === "pct" ? `${(value * 100).toFixed(2)}%`
     : value.toFixed(2);
   return (
-    <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 18px", minWidth: 140 }}>
+    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 140 }}>
       <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{display}</div>
     </div>
@@ -888,7 +888,7 @@ function RiskCard({ label, value, format, alwaysRed, neutral }) {
 
 function ReturnCard({ label, value, color = "#f9fafb" }) {
   return (
-    <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "14px 18px", minWidth: 130 }}>
+    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 130 }}>
       <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>
         {value == null ? "—" : `${(value * 100).toFixed(2)}%`}
@@ -937,6 +937,6 @@ const btnBase = {
 };
 const btnPrimary     = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
 const btnBeta        = { ...btnBase, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#f59e0b" };
-const btnDisabled    = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#374151", cursor: "default" };
+const btnDisabled    = { ...btnBase, background: "transparent", border: "1px solid var(--border)", color: "#374151", cursor: "default" };
 const btnRegime      = { ...btnBase, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", color: "#8b7ec8" };
 const btnRegimeActive = { ...btnBase, background: "rgba(167,139,250,0.18)", border: "1px solid #a78bfa", color: "#a78bfa" };

@@ -206,13 +206,13 @@ export default function HeatmapPage() {
   const hasData = flatData.length > 0;
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
+    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
 
       {/* Header */}
       <PageHeader title="Stock Heatmap" subtitle={subtitle} />
 
       {/* Controls */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "16px 20px", marginBottom: 16 }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 16 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#3b4c6b", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
           Watchlist
         </div>
@@ -224,7 +224,7 @@ export default function HeatmapPage() {
             onKeyDown={e => e.key === "Enter" && addTicker()}
             placeholder="Add ticker…"
             style={{
-              background: "#111827", border: "1px solid #1f2937", borderRadius: 6,
+              background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
               padding: "6px 12px", fontSize: 13, color: "#e5e7eb", outline: "none", width: 160,
             }}
           />
@@ -235,12 +235,12 @@ export default function HeatmapPage() {
             Add
           </button>
 
-          <div style={{ width: 1, height: 22, background: "#1f2937", margin: "0 4px" }} />
+          <div style={{ width: 1, height: 22, background: "var(--border)", margin: "0 4px" }} />
           <span style={{ fontSize: 11, color: "#4b5563" }}>Size:</span>
           <Button variant="range-toggle" active={sizeMode === "equal"} onClick={() => setSizeMode("equal")}>Equal</Button>
           <Button variant="range-toggle" active={sizeMode === "log"}   onClick={() => setSizeMode("log")}>Market Cap</Button>
 
-          <div style={{ width: 1, height: 22, background: "#1f2937", margin: "0 4px" }} />
+          <div style={{ width: 1, height: 22, background: "var(--border)", margin: "0 4px" }} />
           <Button variant="range-toggle" active={groupBySector} onClick={() => setGroupBySector(v => !v)}>
             {groupBySector ? "Sectors: On" : "Sectors: Off"}
           </Button>
@@ -262,7 +262,7 @@ export default function HeatmapPage() {
           {tickers.map(t => (
             <div key={t} style={{
               display: "flex", alignItems: "center", gap: 4,
-              background: "#111827", border: "1px solid #1f2937", borderRadius: 4,
+              background: "#111827", border: "1px solid var(--border)", borderRadius: 4,
               padding: "3px 8px", fontSize: 12,
             }}>
               <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#e5e7eb" }}>{t}</span>
@@ -278,14 +278,14 @@ export default function HeatmapPage() {
       </div>
 
       {error && (
-        <div style={{ background: "#1c0a0a", border: "1px solid #7f1d1d", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#fca5a5" }}>
+        <div style={{ background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#fca5a5" }}>
           Failed to load data: {error}
         </div>
       )}
 
       {/* ── Heatmap ─────────────────────────────────────────────────────────── */}
       {hasData && (
-        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: 16 }}>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: 16 }}>
 
           {/* Sector mode: one mini-treemap per sector */}
           {sectorGroups ? (

@@ -178,7 +178,7 @@ export default function IsmManufacturingPage() {
                   return (
                     <button key={col} onClick={() => toggleComponent(col)} style={{
                       padding: "4px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-                      border: `1px solid ${on ? COMPONENT_COLORS[col] : "#374151"}`,
+                      border: `1px solid ${on ? COMPONENT_COLORS[col] : "var(--border)"}`,
                       background: on ? `${COMPONENT_COLORS[col]}22` : "transparent",
                       color: on ? COMPONENT_COLORS[col] : "#6b7280",
                       fontWeight: on ? 600 : 400,
@@ -202,7 +202,7 @@ export default function IsmManufacturingPage() {
                 ))}
               </div>
 
-              <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12, padding: "16px 8px 8px" }}>
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 8px 8px" }}>
                 <LineChart dates={null} datasets={datasets} visibleRange={visibleRange} referenceLine={50} />
               </div>
             </>
@@ -474,7 +474,7 @@ function ComponentRankHeatmap({ data }) {
 // ── Industry Comments Tab ──────────────────────────────────────────────────────
 
 const SELECT_STYLE = {
-  background: "#0f172a", border: "1px solid #374151", borderRadius: 6,
+  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
   color: "#e5e7eb", fontSize: 13, padding: "5px 10px", cursor: "pointer",
 };
 
@@ -521,7 +521,7 @@ function IndustryCommentsView({ industryList, selectedIndustry, onIndustryChange
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: "1px solid #1f2937" }}>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
                 <th style={{ textAlign: "left", padding: "8px 12px", color: "#6b7280", fontWeight: 600, width: 80 }}>Month</th>
                 <th style={{ textAlign: "left", padding: "8px 12px", color: "#6b7280", fontWeight: 600, width: 160 }}>PMI Score</th>
                 <th style={{ textAlign: "left", padding: "8px 12px", color: "#6b7280", fontWeight: 600 }}>Respondent Comment</th>
@@ -529,7 +529,7 @@ function IndustryCommentsView({ industryList, selectedIndustry, onIndustryChange
             </thead>
             <tbody>
               {(data.rows || []).map((row, i) => (
-                <tr key={row.date} style={{ background: i % 2 === 0 ? "#0f172a" : "#111827" }}>
+                <tr key={row.date} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
                   <td style={{ padding: "10px 12px", color: "#9ca3af", whiteSpace: "nowrap", verticalAlign: "top" }}>
                     {fmtDate(row.date)}
                   </td>
@@ -568,7 +568,7 @@ function LoadingState() {
 
 function EmptyState() {
   return (
-    <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12, padding: "32px 24px", textAlign: "center" }}>
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
       <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 12 }}>No ISM data imported yet.</div>
       <div style={{ fontSize: 13, color: "#4b5563" }}>
         Go to <span style={{ color: "#3b82f6" }}>Admin → ISM Data Import</span> to load historical reports.

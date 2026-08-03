@@ -78,7 +78,7 @@ export default function IsmAdminPage() {
       </div>
       <p style={{ color: "#9ca3af", fontSize: 14, marginBottom: 24 }}>
         Paste PRNewswire URLs (one per line). Find them by searching Google for:<br />
-        <code style={{ background: "#0f172a", border: "1px solid #1f2937", padding: "4px 8px", borderRadius: 6, color: "#93c5fd", display: "inline-block", marginTop: 6 }}>
+        <code style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "4px 8px", borderRadius: 6, color: "#93c5fd", display: "inline-block", marginTop: 6 }}>
           site:prnewswire.com "ism manufacturing pmi report"
         </code>
       </p>
@@ -88,8 +88,8 @@ export default function IsmAdminPage() {
         onChange={(e) => setText(e.target.value)}
         placeholder={"https://www.prnewswire.com/news-releases/manufacturing-pmi-at-52-4-february-2026-ism-manufacturing-pmi-report-302699883.html\nhttps://www.prnewswire.com/news-releases/..."}
         style={{
-          width: "100%", height: 220, background: "#0f172a", border: "1px solid #374151",
-          borderRadius: 10, padding: 14, color: "#e5e7eb", fontSize: 12,
+          width: "100%", height: 220, background: "var(--bg-surface)", border: "1px solid var(--border)",
+          borderRadius: "var(--radius-none)", padding: 14, color: "#e5e7eb", fontSize: 12,
           fontFamily: "monospace", resize: "vertical", boxSizing: "border-box",
         }}
       />
@@ -116,7 +116,7 @@ export default function IsmAdminPage() {
       {results && !results.error && (
         <div style={{ marginTop: 24 }}>
           <div style={{
-            background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12,
+            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
             padding: "14px 18px", marginBottom: 16, display: "flex", gap: 24,
           }}>
             <Stat label="Saved" value={results.saved} color="#4ade80" />
@@ -127,8 +127,8 @@ export default function IsmAdminPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {results.results?.map((r, i) => (
               <div key={i} style={{
-                background: "#0f172a", border: `1px solid ${r.status === "ok" ? "#1a3a1a" : "#3a1a1a"}`,
-                borderRadius: 8, padding: "10px 14px",
+                background: "var(--bg-surface)", border: `1px solid ${r.status === "ok" ? "rgba(52,211,153,0.3)" : "rgba(242,88,92,0.3)"}`,
+                borderRadius: "var(--radius-none)", padding: "10px 14px",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: r.status === "ok" ? 6 : 0 }}>
                   <span style={{ color: r.status === "ok" ? "#4ade80" : "#f87171", fontSize: 12, fontWeight: 700 }}>
@@ -156,7 +156,7 @@ export default function IsmAdminPage() {
       )}
 
       {results?.error && (
-        <div style={{ marginTop: 16, color: "#f87171", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, padding: 12 }}>
+        <div style={{ marginTop: 16, color: "#f87171", background: "#1a0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: 8, padding: 12 }}>
           Error: {results.error}
         </div>
       )}

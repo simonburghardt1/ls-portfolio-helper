@@ -15,9 +15,9 @@ const API = "http://localhost:8000";
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 const card = {
-  background: "#080e1a",
-  border: "1px solid #1f2937",
-  borderRadius: 10,
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-none)",
   padding: "14px 18px",
 };
 
@@ -76,7 +76,7 @@ function buildHistogram(values, binWidth = 0.1) {
 function BarTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "8px 12px", fontSize: 12 }}>
       <div style={{ color: "#9ca3af", marginBottom: 4 }}>{label}</div>
       {payload.map((p) => (
         <div key={p.dataKey} style={{ color: p.color ?? "#e5e7eb" }}>
@@ -91,7 +91,7 @@ function HistTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 6, padding: "8px 12px", fontSize: 12 }}>
+    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "8px 12px", fontSize: 12 }}>
       <div style={{ color: "#9ca3af" }}>Bin: {d.label}</div>
       <div style={{ color: "#e5e7eb" }}>Count: <strong>{d.count}</strong></div>
     </div>
@@ -109,7 +109,7 @@ function KpiCard({ label, value, mom, yoy, color, date, isActive, onClick }) {
         flex: "1 1 150px", minWidth: 140,
         borderTop: `2px solid ${color}`,
         outline: isActive ? `1px solid ${color}` : "none",
-        background: isActive ? `${color}11` : card.background,
+        background: isActive ? `${color}11` : "var(--bg-elevated)",
         cursor: "pointer",
         transition: "background 0.15s",
       }}
@@ -338,7 +338,7 @@ function ComponentsTab({ components }) {
     return (
       <tr
         onClick={() => setSelected(isSelected ? null : sid)}
-        style={{ background: isSelected ? "#0f2744" : baseBg, cursor: "pointer", borderBottom: "1px solid #0d1829", transition: "background 0.1s" }}
+        style={{ background: isSelected ? "#0f2744" : baseBg, cursor: "pointer", borderBottom: "1px solid var(--border)", transition: "background 0.1s" }}
         onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#0a1628"; }}
         onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = isSelected ? "#0f2744" : baseBg; }}
       >
@@ -403,7 +403,7 @@ function ComponentsTab({ components }) {
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ borderBottom: "1px solid #1f2937" }}>
+            <tr style={{ borderBottom: "1px solid var(--border)" }}>
               <th style={{ ...thStyle, textAlign: "left" }}>Category</th>
               <th style={{ ...thStyle, textAlign: "right" }}>Weight</th>
               {monthLabels.map((lbl) => (

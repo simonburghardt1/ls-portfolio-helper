@@ -61,7 +61,7 @@ export default function ConsumerConfidenceAdminPage() {
       </div>
 
       {/* Instructions */}
-      <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 8, padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
         <strong style={{ color: "#9ca3af" }}>Accepted formats (auto-detected):</strong>
         <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3, fontFamily: "monospace" }}>
           <span style={{ color: "#4b5563" }}># Any of these column formats work:</span>
@@ -81,8 +81,8 @@ export default function ConsumerConfidenceAdminPage() {
         onChange={(e) => setCsvText(e.target.value)}
         placeholder={"Date,Price,Open,High,Low,Change %\nMar 2026,57.9,57.0,57.9,57.0,1.58%\nFeb 2026,64.7,71.7,71.7,64.7,-9.76%\n..."}
         style={{
-          width: "100%", height: 260, background: "#0f172a", border: "1px solid #374151",
-          borderRadius: 10, padding: 14, color: "#e5e7eb", fontSize: 12,
+          width: "100%", height: 260, background: "var(--bg-surface)", border: "1px solid var(--border)",
+          borderRadius: "var(--radius-none)", padding: 14, color: "#e5e7eb", fontSize: 12,
           fontFamily: "monospace", resize: "vertical", boxSizing: "border-box",
         }}
       />
@@ -102,7 +102,7 @@ export default function ConsumerConfidenceAdminPage() {
       </div>
 
       {result?.ok && (
-        <div style={{ marginTop: 20, background: "#0f172a", border: "1px solid #14532d", borderRadius: 10, padding: "14px 18px" }}>
+        <div style={{ marginTop: 20, background: "var(--bg-surface)", border: "1px solid rgba(52,211,153,0.3)", borderRadius: "var(--radius-none)", padding: "14px 18px" }}>
           <div style={{ color: "#4ade80", fontWeight: 700, marginBottom: 6 }}>✓ Import successful</div>
           <div style={{ fontSize: 13, color: "#9ca3af", display: "flex", gap: 24 }}>
             <span>Saved: <strong style={{ color: "#e5e7eb" }}>{result.saved}</strong> rows</span>
@@ -112,7 +112,7 @@ export default function ConsumerConfidenceAdminPage() {
       )}
 
       {result && !result.ok && (
-        <div style={{ marginTop: 16, color: "#f87171", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, padding: 12 }}>
+        <div style={{ marginTop: 16, color: "#f87171", background: "#1a0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: 8, padding: 12 }}>
           Error: {result.detail}
         </div>
       )}

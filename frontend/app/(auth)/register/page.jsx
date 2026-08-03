@@ -33,14 +33,14 @@ export default function RegisterPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: "#020617", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <main style={{ minHeight: "100vh", background: "var(--bg-base)", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ width: "100%", maxWidth: 400, padding: "0 24px" }}>
         <div style={{ marginBottom: 32, textAlign: "center" }}>
           <h1 style={{ color: "#e5e7eb", fontSize: 28, margin: "0 0 8px 0" }}>Create account</h1>
           <p style={{ color: "#6b7280", margin: 0, fontSize: 14 }}>Start tracking your portfolio</p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 16, padding: 28 }}>
+        <form onSubmit={handleSubmit} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: 28 }}>
           <div style={{ marginBottom: 18 }}>
             <label style={labelStyle}>Full name</label>
             <input
@@ -110,8 +110,8 @@ const labelStyle = {
 
 const inputStyle = {
   width: "100%",
-  background: "#020617",
-  border: "1px solid #374151",
+  background: "var(--bg-base)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
   padding: "10px 12px",
   color: "#e5e7eb",

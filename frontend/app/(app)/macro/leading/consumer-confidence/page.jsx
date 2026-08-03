@@ -94,7 +94,7 @@ export default function ConsumerConfidencePage() {
       {error   && <div style={{ color: "#f87171", fontSize: 14 }}>Error: {error}</div>}
 
       {!loading && !error && !hasData && (
-        <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12, padding: "32px 24px", textAlign: "center" }}>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
           <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 8 }}>No data available.</div>
           <div style={{ fontSize: 13, color: "#4b5563" }}>
             Current Conditions and Expectations data can be imported via{" "}
@@ -130,7 +130,7 @@ export default function ConsumerConfidencePage() {
           </div>
 
           {/* Chart */}
-          <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12, padding: "16px 8px 8px" }}>
+          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 8px 8px" }}>
             <LineChart dates={null} datasets={datasets} visibleRange={visibleRange} referenceLine={85} />
           </div>
 
@@ -142,8 +142,8 @@ export default function ConsumerConfidencePage() {
               const diff   = latest != null && prev != null ? latest - prev : null;
               return (
                 <div key={s.label} style={{
-                  background: "#0f172a", border: "1px solid #1f2937",
-                  borderRadius: 10, padding: "12px 16px", flex: "1 1 160px",
+                  background: "var(--bg-elevated)", border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-none)", padding: "12px 16px", flex: "1 1 160px",
                   borderTop: `2px solid ${s.color}`,
                 }}>
                   <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{s.label}</div>

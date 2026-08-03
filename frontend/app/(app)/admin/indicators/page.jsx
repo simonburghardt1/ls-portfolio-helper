@@ -141,7 +141,7 @@ export default function IndicatorsAdminPage() {
   }
 
   return (
-    <div style={{ background: "#020617", minHeight: "100vh", color: "#e5e7eb" }}>
+    <div style={{ background: "var(--bg-base)", minHeight: "100vh", color: "var(--text-primary)" }}>
       <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 32px 60px" }}>
 
         <PageHeader
@@ -156,7 +156,7 @@ export default function IndicatorsAdminPage() {
             const result  = results[ind.key];
 
             return (
-              <div key={ind.key} style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: 24 }}>
+              <div key={ind.key} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: 24 }}>
 
                 {/* Header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18 }}>
@@ -199,7 +199,7 @@ export default function IndicatorsAdminPage() {
                         { label: "Latest",   value: status?.latest_date   ?? "—" },
                         { label: "Interval", value: status?.interval      ?? "—" },
                       ].map(({ label, value }) => (
-                        <div key={label} style={{ padding: "6px 12px", background: "#0a1628", borderRadius: 6 }}>
+                        <div key={label} style={{ padding: "6px 12px", background: "var(--bg-elevated)", borderRadius: "var(--radius-none)" }}>
                           <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
                           <div style={{ fontSize: 13, color: "#9ca3af", fontVariantNumeric: "tabular-nums", marginTop: 2 }}>{value}</div>
                         </div>
@@ -231,7 +231,7 @@ export default function IndicatorsAdminPage() {
                 {ind.isCot && status ? (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
                     {Object.entries(status).map(([key, info]) => (
-                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "#0a1628", borderRadius: 6 }}>
+                      <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: "var(--bg-elevated)", borderRadius: "var(--radius-none)" }}>
                         <span style={{ fontSize: 12, color: "#6b7280" }}>{info.label}</span>
                         <span style={{ fontSize: 12, color: info.latest_date ? "#9ca3af" : "#374151", fontVariantNumeric: "tabular-nums" }}>
                           {info.latest_date ?? "—"}
@@ -266,7 +266,7 @@ export default function IndicatorsAdminPage() {
                     {ind.statusSeries.map(s => {
                       const row = status?.[s.key];
                       return (
-                        <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 20, padding: "8px 12px", background: "#0a1628", borderRadius: 6 }}>
+                        <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 20, padding: "8px 12px", background: "var(--bg-elevated)", borderRadius: "var(--radius-none)" }}>
                           <span style={{ fontSize: 12, color: "#6b7280", width: 180, flexShrink: 0 }}>{s.label}</span>
                           <StatusPill label="pts"    value={row?.count      ?? "—"} />
                           <StatusPill label="latest" value={row?.latest_date ?? "—"} />
@@ -402,7 +402,7 @@ function RegimeWeightCompare({ weights, setWeights, onCompare, comparing, result
   }
 
   return (
-    <div style={{ marginTop: 16, padding: 16, background: "#0a1628", borderRadius: 8, border: "1px solid #1e2d3d" }}>
+    <div style={{ marginTop: 16, padding: 16, background: "var(--bg-elevated)", borderRadius: "var(--radius-none)", border: "1px solid var(--border)" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", letterSpacing: "0.07em", textTransform: "uppercase", marginBottom: 12 }}>
         Weight Comparison
       </div>
@@ -503,4 +503,4 @@ const tdStyle = { padding: "6px 10px", color: "#9ca3af", fontVariantNumeric: "ta
 
 const btnBase     = { borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", transition: "opacity 0.15s" };
 const btnFetch    = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
-const btnDisabled = { ...btnBase, background: "transparent", border: "1px solid #1f2937", color: "#374151", cursor: "default" };
+const btnDisabled = { ...btnBase, background: "transparent", border: "1px solid var(--border)", color: "#374151", cursor: "default" };

@@ -253,11 +253,11 @@ export default function MarketRegimePage() {
 
     // ── Main chart ────────────────────────────────────────────────────────────
     const mc = createChart(mainRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
-      grid: { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { color: "rgba(31,41,55,0.5)" } },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
+      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { color: "rgba(55,65,81,0.35)" } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937" },
-      timeScale: { borderColor: "#1f2937", timeVisible: false },
+      rightPriceScale: { borderColor: "#374151" },
+      timeScale: { borderColor: "#374151", timeVisible: false },
       width: mainRef.current.clientWidth,
       height: 460,
     });
@@ -296,11 +296,11 @@ export default function MarketRegimePage() {
 
     // ── Sub chart (composite score) ───────────────────────────────────────────
     const sc = createChart(subRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
-      grid: { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { visible: false } },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
+      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { visible: false } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937", scaleMargins: { top: 0.1, bottom: 0.1 } },
-      timeScale: { borderColor: "#1f2937", timeVisible: true },
+      rightPriceScale: { borderColor: "#374151", scaleMargins: { top: 0.1, bottom: 0.1 } },
+      timeScale: { borderColor: "#374151", timeVisible: true },
       width: subRef.current.clientWidth,
       height: 130,
     });
@@ -340,11 +340,11 @@ export default function MarketRegimePage() {
 
     // ── Component signals chart ───────────────────────────────────────────────
     const cc = createChart(compRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "#080e1a" }, textColor: "#6b7280" },
-      grid: { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { visible: false } },
+      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
+      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { visible: false } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#1f2937", scaleMargins: { top: 0.05, bottom: 0.05 } },
-      timeScale: { borderColor: "#1f2937", timeVisible: true },
+      rightPriceScale: { borderColor: "#374151", scaleMargins: { top: 0.05, bottom: 0.05 } },
+      timeScale: { borderColor: "#374151", timeVisible: true },
       width: compRef.current.clientWidth,
       height: 220,
     });
@@ -468,7 +468,7 @@ export default function MarketRegimePage() {
     setWeights(DEFAULT_WEIGHTS);
   }
 
-  if (loading) return <div style={{ padding: "40px 32px", color: "#4b5563", fontSize: 14 }}>Loading regime data…</div>;
+  if (loading) return <div style={{ padding: "40px 32px", color: "var(--text-secondary)", fontSize: 14 }}>Loading regime data…</div>;
   if (error)   return <div style={{ padding: "40px 32px", color: "var(--negative)", fontSize: 13 }}>Error: {error}</div>;
 
   const { dates, prices, regimes, composite, scores } = computedData;
@@ -486,7 +486,7 @@ export default function MarketRegimePage() {
   const pendingSum = Object.values(pendingWeights).reduce((a, b) => a + b, 0);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
+    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
 
       {/* Header */}
       <PageHeader
@@ -557,7 +557,7 @@ export default function MarketRegimePage() {
               {p.label}
             </Button>
           ))}
-          <div style={{ width: 1, height: 20, background: "#1f2937", margin: "0 4px" }} />
+          <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
           <Button
             variant="range-toggle"
             active={logScale}
@@ -565,14 +565,14 @@ export default function MarketRegimePage() {
           >
             Log
           </Button>
-          <div style={{ width: 1, height: 20, background: "#1f2937", margin: "0 4px" }} />
+          <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
           <button
             onClick={weightsOpen ? () => setWeightsOpen(false) : handleOpenWeights}
             style={{
               background: !isDefaultWeights || weightsOpen ? "#1e3a5f" : "transparent",
-              border: `1px solid ${!isDefaultWeights || weightsOpen ? "#2d5a8e" : "#1f2937"}`,
+              border: `1px solid ${!isDefaultWeights || weightsOpen ? "#2d5a8e" : "var(--border)"}`,
               borderRadius: 5, padding: "4px 10px", fontSize: 12,
-              color: !isDefaultWeights || weightsOpen ? "#93c5fd" : "#4b5563",
+              color: !isDefaultWeights || weightsOpen ? "#93c5fd" : "var(--text-secondary)",
               cursor: "pointer",
             }}
           >
@@ -583,8 +583,8 @@ export default function MarketRegimePage() {
 
       {/* Weights settings panel */}
       {weightsOpen && (
-        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
             Component Weights
           </div>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 12 }}>
@@ -598,7 +598,7 @@ export default function MarketRegimePage() {
                   max="1"
                   value={pendingWeights[key]}
                   onChange={(e) => setPendingWeights((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                  style={{ width: 72, padding: "4px 8px", background: "#0f1d2e", border: "1px solid #1e2d3d", borderRadius: 4, color: "#e2e8f0", fontSize: 13, fontVariantNumeric: "tabular-nums" }}
+                  style={{ width: 72, padding: "4px 8px", background: "transparent", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-primary)", fontSize: 13, fontVariantNumeric: "tabular-nums" }}
                 />
               </div>
             ))}
@@ -625,18 +625,18 @@ export default function MarketRegimePage() {
       )}
 
       {/* Main price chart */}
-      <div style={{ position: "relative", background: "#080e1a", border: "1px solid #1f2937", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
+      <div style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
         <div ref={mainRef} />
         {tooltip && (
           <div style={{
             position: "absolute",
             left: Math.min(tooltip.x + 16, (mainRef.current?.clientWidth ?? 600) - 170),
             top: Math.max(tooltip.y - 10, 8),
-            background: "#0d1829", border: "1px solid #1f2937", borderRadius: "var(--radius-none)",
+            background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
             padding: "8px 12px", fontSize: 12, pointerEvents: "none", zIndex: 10, minWidth: 150,
           }}>
-            <div style={{ color: "#6b7280", marginBottom: 4 }}>{tooltip.date}</div>
-            {tooltip.spy != null && <div style={{ color: "#e5e7eb" }}>SPY <strong>${tooltip.spy.toFixed(2)}</strong></div>}
+            <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>{tooltip.date}</div>
+            {tooltip.spy != null && <div style={{ color: "var(--text-primary)" }}>SPY <strong>${tooltip.spy.toFixed(2)}</strong></div>}
             {tooltip.ema != null && <div style={{ color: "#a78bfa" }}>EMA-21W <strong>${tooltip.ema.toFixed(2)}</strong></div>}
             {tooltip.sma != null && <div style={{ color: "#fb923c" }}>SMA-20W <strong>${tooltip.sma.toFixed(2)}</strong></div>}
           </div>
@@ -644,16 +644,16 @@ export default function MarketRegimePage() {
       </div>
 
       {/* Composite score sub-pane */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderTop: "1px solid #0d1829", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
-        <div style={{ padding: "4px 8px 0", fontSize: 10, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
+        <div style={{ padding: "4px 8px 0", fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
           Composite Score
         </div>
         <div ref={subRef} />
       </div>
 
       {/* Component signals chart */}
-      <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: "var(--radius-none)", padding: "16px 20px", marginTop: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginTop: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
           Component Signals
         </div>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
@@ -670,8 +670,8 @@ export default function MarketRegimePage() {
       </div>
 
       {/* Algorithm note */}
-      <div style={{ marginTop: 16, fontSize: 12, color: "#374151", lineHeight: 1.7 }}>
-        <strong style={{ color: "#4b5563" }}>Weights:</strong>{" "}
+      <div style={{ marginTop: 16, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>
+        <strong style={{ color: "var(--text-secondary)" }}>Weights:</strong>{" "}
         {COMPONENT_META.map(({ key, label }, i) => (
           <span key={key}>
             {label} {Math.round(weights[key] * 100)}%{i < COMPONENT_META.length - 1 ? " · " : ""}

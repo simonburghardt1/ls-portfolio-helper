@@ -146,7 +146,7 @@ export default function PortfolioManagerPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "#020617", color: "#e5e7eb" }}>
+    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
@@ -163,13 +163,13 @@ export default function PortfolioManagerPage() {
         <div style={{ color: "#4b5563", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Loading…</div>
       )}
       {error && (
-        <div style={{ background: "#1c0a0a", border: "1px solid #7f1d1d", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#fca5a5" }}>
+        <div style={{ background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#fca5a5" }}>
           {error}
         </div>
       )}
 
       {!loading && portfolios.length === 0 && !error && (
-        <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: "40px 24px", textAlign: "center", marginBottom: 28 }}>
+        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "40px 24px", textAlign: "center", marginBottom: 28 }}>
           <div style={{ fontSize: 14, color: "#4b5563" }}>No portfolios yet.</div>
           <div style={{ fontSize: 12, color: "#374151", marginTop: 6 }}>Use the form below to create your first portfolio.</div>
         </div>
@@ -182,9 +182,9 @@ export default function PortfolioManagerPage() {
             const isEditing = editingId === p.id;
             return (
               <div key={p.id} style={{
-                background: "#080e1a",
-                border: `1px solid ${isEditing ? "#2d5a8e" : "#1f2937"}`,
-                borderRadius: 10,
+                background: "var(--bg-surface)",
+                border: `1px solid ${isEditing ? "#2d5a8e" : "var(--border)"}`,
+                borderRadius: "var(--radius-none)",
                 padding: "18px 20px",
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -223,7 +223,7 @@ export default function PortfolioManagerPage() {
       {/* ── Create / Edit Form ────────────────────────────────────────────────── */}
       <div
         id="portfolio-form"
-        style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 10, padding: "24px 28px" }}
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "24px 28px" }}
       >
         <div style={{ fontSize: 11, fontWeight: 700, color: "#3b4c6b", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 18 }}>
           {editingId ? "Edit Portfolio" : "New Portfolio"}
@@ -237,7 +237,7 @@ export default function PortfolioManagerPage() {
             onChange={e => setFormName(e.target.value)}
             placeholder="e.g. Long/Short Q1"
             style={{
-              background: "#111827", border: "1px solid #1f2937", borderRadius: 6,
+              background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
               padding: "8px 12px", fontSize: 14, color: "#e5e7eb", outline: "none", width: 280,
             }}
           />
@@ -257,7 +257,7 @@ export default function PortfolioManagerPage() {
             </thead>
             <tbody>
               {form.positions.map((pos, i) => (
-                <tr key={i} style={{ borderTop: "1px solid #0d1829" }}>
+                <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
                   <td style={tdStyle}>
                     <input
                       value={pos.ticker}
@@ -322,7 +322,7 @@ export default function PortfolioManagerPage() {
         })()}
 
         {saveError && (
-          <div style={{ fontSize: 13, color: "#fca5a5", background: "#1c0a0a", border: "1px solid #7f1d1d", borderRadius: 6, padding: "8px 12px", marginBottom: 14 }}>
+          <div style={{ fontSize: 13, color: "#fca5a5", background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "8px 12px", marginBottom: 14 }}>
             {saveError}
           </div>
         )}
@@ -364,6 +364,6 @@ function iconBtn(bg, color) {
 const thStyle  = { fontSize: 11, color: "#4b5563", padding: "6px 8px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" };
 const tdStyle  = { padding: "6px 8px" };
 const cellInput = {
-  width: "100%", background: "#111827", border: "1px solid #1f2937",
-  borderRadius: 5, padding: "6px 10px", fontSize: 13, color: "#e5e7eb", outline: "none",
+  width: "100%", background: "#111827", border: "1px solid var(--border)",
+  borderRadius: "var(--radius-none)", padding: "6px 10px", fontSize: 13, color: "#e5e7eb", outline: "none",
 };

@@ -108,8 +108,8 @@ function RangeRefreshBar({ range, onRange, onRefresh, refreshing }) {
 function ChartBox({ children, style }) {
   return (
     <div style={{
-      background: "#0f172a", border: "1px solid #1f2937",
-      borderRadius: 12, padding: "16px 8px 8px",
+      background: "var(--bg-surface)", border: "1px solid var(--border)",
+      borderRadius: "var(--radius-none)", padding: "16px 8px 8px",
       ...style,
     }}>
       {children}
@@ -123,7 +123,7 @@ function SeriesToggle({ label, color, active, onClick }) {
     <button onClick={onClick} style={{
       display: "flex", alignItems: "center", gap: 5,
       padding: "3px 10px", borderRadius: 5, fontSize: 11, cursor: "pointer", border: "1px solid",
-      borderColor: active ? color  : "#374151",
+      borderColor: active ? color  : "var(--border)",
       background:  active ? `${color}18` : "transparent",
       color:       active ? color  : "#4b5563",
     }}>
@@ -136,7 +136,7 @@ function SeriesToggle({ label, color, active, onClick }) {
 /** Empty state card shown before first fetch. */
 function EmptyState({ message, onFetch, fetching }) {
   return (
-    <div style={{ background: "#0f172a", border: "1px solid #1f2937", borderRadius: 12, padding: "32px 24px", textAlign: "center" }}>
+    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
       <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 12 }}>{message}</div>
       <button onClick={onFetch} disabled={fetching} style={{
         background: "#2563eb", color: "white", border: "none",
@@ -237,7 +237,7 @@ function ComponentsTab() {
                 style={{
                   display: "flex", alignItems: "center", gap: 5,
                   padding: "2px 9px", borderRadius: 5, fontSize: 11, cursor: "pointer", border: "1px solid",
-                  borderColor: showLeading ? "#f97316" : "#374151",
+                  borderColor: showLeading ? "#f97316" : "var(--border)",
                   background:  showLeading ? "#f9731618" : "transparent",
                   color:       showLeading ? "#f97316" : "#4b5563",
                 }}
@@ -296,8 +296,8 @@ function ComponentsTab() {
           const diff   = latest != null && prev != null ? latest - prev : null;
           return (
             <div key={id} style={{
-              background: "#0f172a", border: "1px solid #1f2937",
-              borderRadius: 8, padding: "10px 14px", flex: "1 1 150px",
+              background: "var(--bg-elevated)", border: "1px solid var(--border)",
+              borderRadius: "var(--radius-none)", padding: "10px 14px", flex: "1 1 150px",
               borderTop: `2px solid ${s.color}`,
             }}>
               <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 3 }}>{s.label}</div>
@@ -426,7 +426,7 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
           const prev   = s.values.at(-2);
           const diff   = latest != null && prev != null ? latest - prev : null;
           return (
-            <div key={id} style={{ background: "#0f172a", border: `1px solid ${s.color}33`, borderRadius: 10, padding: "12px 16px", minWidth: 140 }}>
+            <div key={id} style={{ background: "var(--bg-elevated)", border: `1px solid ${s.color}33`, borderRadius: "var(--radius-none)", padding: "12px 16px", minWidth: 140 }}>
               <div style={{ fontSize: 10, color: s.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{s.label}</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#e5e7eb" }}>{latest?.toFixed(1)}</div>
               {diff != null && (
@@ -440,11 +440,11 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
       </div>
 
       {/* ── Component breakdown for selected group ── */}
-      <div style={{ borderTop: "1px solid #1f2937", paddingTop: 24 }}>
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>Component Breakdown</span>
           <select value={selected ?? ""} onChange={(e) => setSelected(e.target.value)} style={{
-            background: "#0f172a", border: "1px solid #374151", borderRadius: 6,
+            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
             color: "#e5e7eb", fontSize: 12, padding: "4px 10px", cursor: "pointer",
           }}>
             {Object.entries(series).map(([id, s]) => (

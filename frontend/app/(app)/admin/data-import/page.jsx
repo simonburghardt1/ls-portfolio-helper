@@ -92,7 +92,7 @@ export default function DataImportPage() {
           value={seriesId}
           onChange={(e) => { setSeriesId(e.target.value); setResult(null); }}
           style={{
-            background: "#0f172a", border: "1px solid #374151", borderRadius: 8,
+            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
             color: "#e5e7eb", fontSize: 13, padding: "8px 12px", width: 320, cursor: "pointer",
           }}
         >
@@ -112,7 +112,7 @@ export default function DataImportPage() {
 
       {/* Format hint */}
       <div style={{
-        background: "#0f172a", border: "1px solid #1f2937", borderRadius: 8,
+        background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
         padding: "10px 14px", marginBottom: 14, fontSize: 11, color: "#4b5563",
       }}>
         <span style={{ color: "#6b7280", fontWeight: 600 }}>Accepted formats · </span>
@@ -130,8 +130,8 @@ export default function DataImportPage() {
         onChange={(e) => setCsvText(e.target.value)}
         placeholder={"Jan 26;57.9\nFeb 26;56.6\nMrz 26;57.8\n...\n\nor:\n\nDate,Price\n2026-01-01,57.9\n2025-12-01,74.0"}
         style={{
-          width: "100%", height: 280, background: "#0f172a", border: "1px solid #374151",
-          borderRadius: 10, padding: 14, color: "#e5e7eb", fontSize: 12,
+          width: "100%", height: 280, background: "var(--bg-surface)", border: "1px solid var(--border)",
+          borderRadius: "var(--radius-none)", padding: 14, color: "#e5e7eb", fontSize: 12,
           fontFamily: "monospace", resize: "vertical", boxSizing: "border-box",
         }}
       />
@@ -166,7 +166,7 @@ export default function DataImportPage() {
 
       {/* Result */}
       {result?.ok && !result.cleared && (
-        <div style={{ marginTop: 20, background: "#0f172a", border: "1px solid #14532d", borderRadius: 10, padding: "14px 18px" }}>
+        <div style={{ marginTop: 20, background: "var(--bg-surface)", border: "1px solid rgba(52,211,153,0.3)", borderRadius: "var(--radius-none)", padding: "14px 18px" }}>
           <div style={{ color: "#4ade80", fontWeight: 700, marginBottom: 6 }}>✓ Imported successfully</div>
           <div style={{ fontSize: 13, color: "#9ca3af", display: "flex", gap: 28, flexWrap: "wrap" }}>
             <span>Series: <strong style={{ color: "#e5e7eb" }}>{result.label}</strong></span>
@@ -177,13 +177,13 @@ export default function DataImportPage() {
       )}
 
       {result?.ok && result.cleared && (
-        <div style={{ marginTop: 16, background: "#0f172a", border: "1px solid #1f2937", borderRadius: 8, padding: "12px 16px", color: "#9ca3af", fontSize: 13 }}>
+        <div style={{ marginTop: 16, background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "12px 16px", color: "#9ca3af", fontSize: 13 }}>
           Cache cleared for <strong style={{ color: "#e5e7eb" }}>{result.series_id}</strong>. Data will be re-fetched from FRED on next page load.
         </div>
       )}
 
       {result && !result.ok && (
-        <div style={{ marginTop: 16, color: "#f87171", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, padding: 12, fontSize: 13 }}>
+        <div style={{ marginTop: 16, color: "#f87171", background: "#1a0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: 8, padding: 12, fontSize: 13 }}>
           Error: {result.detail}
         </div>
       )}
