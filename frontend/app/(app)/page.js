@@ -112,7 +112,7 @@ export default function Page() {
                 <KpiCard
                   key={k.id}
                   id={k.id}
-                  name={k.name}
+                  label={k.name}
                   value={k.value}
                   unit={k.unit}
                   change={k.change}

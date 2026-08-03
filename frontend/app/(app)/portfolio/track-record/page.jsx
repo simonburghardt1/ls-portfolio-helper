@@ -11,6 +11,8 @@ import {
 import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
+import Badge from "@/app/components/Badge";
+import KpiCard from "@/app/components/KpiCard";
 
 const API = "http://localhost:8000";
 
@@ -39,7 +41,6 @@ const cellInput = {
 };
 
 const btnBase = { borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "opacity 0.15s", border: "none" };
-const btnPrimary  = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
 
 function fmtMoney(v, decimals = 0) {
   if (v == null) return "—";
@@ -55,17 +56,8 @@ function fmtNum(v, d = 2) {
 }
 
 function pnlColor(v) {
-  if (v == null) return "#6b7280";
-  return v > 0 ? "#86efac" : v < 0 ? "#fca5a5" : "#6b7280";
-}
-
-function KpiCard({ label, value, valueColor = "#e5e7eb", small = false }) {
-  return (
-    <div style={{ background: "#080e1a", border: "1px solid #1f2937", borderRadius: 8, padding: small ? "10px 14px" : "14px 18px", minWidth: small ? 100 : 130 }}>
-      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: small ? 14 : 18, fontWeight: 700, color: valueColor, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-    </div>
-  );
+  if (v == null) return "var(--text-secondary)";
+  return v > 0 ? "var(--positive)" : v < 0 ? "var(--negative)" : "var(--text-secondary)";
 }
 
 function Th({ children, style = {} }) {
@@ -79,7 +71,7 @@ function Th({ children, style = {} }) {
 function DeleteBtn({ onClick }) {
   return (
     <button onClick={onClick} style={{ background: "none", border: "none", color: "#374151", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}
-      onMouseEnter={e => e.currentTarget.style.color = "#fca5a5"}
+      onMouseEnter={e => e.currentTarget.style.color = "var(--negative)"}
       onMouseLeave={e => e.currentTarget.style.color = "#374151"}>×</button>
   );
 }
@@ -87,9 +79,9 @@ function DeleteBtn({ onClick }) {
 function SidePill({ side, onClick }) {
   const isLong = side === "long";
   return (
-    <button onClick={onClick} style={{ padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", cursor: "pointer", border: "none", background: isLong ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)", color: isLong ? "#86efac" : "#fca5a5", whiteSpace: "nowrap" }}>
+    <Badge variant={isLong ? "positive" : "negative"} interactive onClick={onClick} style={{ whiteSpace: "nowrap" }}>
       {isLong ? "LONG" : "SHORT"}
-    </button>
+    </Badge>
   );
 }
 
@@ -209,17 +201,17 @@ function LivePortfolioTab() {
     <div>
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-        <KpiCard label="Account Value"    value={`€${(account_val / 1000).toFixed(1)}K`} valueColor="#e5e7eb" />
-        <KpiCard label="Gross Exposure"   value={`$${(gross_exp / 1000).toFixed(1)}K`} />
-        <KpiCard label="Net Exposure"     value={`${net_exp >= 0 ? "+" : "-"}$${Math.abs(net_exp / 1000).toFixed(1)}K`}  valueColor={pnlColor(net_exp)} />
-        <KpiCard label="Invested Capital" value={`$${(invested / 1000).toFixed(1)}K`} />
-        <KpiCard label="$ PnL"  value={`${total_pnl >= 0 ? "+" : "-"}$${Math.abs(total_pnl).toFixed(0)}`} valueColor={pnlColor(total_pnl)} />
-        <KpiCard label="% PnL"  value={total_pnlp != null ? `${total_pnlp >= 0 ? "+" : ""}${total_pnlp.toFixed(2)}%` : "—"} valueColor={pnlColor(total_pnlp)} />
+        <KpiCard label="Account Value"    formatted={`€${(account_val / 1000).toFixed(1)}K`} valueColor="#e5e7eb" />
+        <KpiCard label="Gross Exposure"   formatted={`$${(gross_exp / 1000).toFixed(1)}K`} />
+        <KpiCard label="Net Exposure"     formatted={`${net_exp >= 0 ? "+" : "-"}$${Math.abs(net_exp / 1000).toFixed(1)}K`}  valueColor={pnlColor(net_exp)} />
+        <KpiCard label="Invested Capital" formatted={`$${(invested / 1000).toFixed(1)}K`} />
+        <KpiCard label="$ PnL"  formatted={`${total_pnl >= 0 ? "+" : "-"}$${Math.abs(total_pnl).toFixed(0)}`} valueColor={pnlColor(total_pnl)} />
+        <KpiCard label="% PnL"  formatted={total_pnlp != null ? `${total_pnlp >= 0 ? "+" : ""}${total_pnlp.toFixed(2)}%` : "—"} valueColor={pnlColor(total_pnlp)} />
       </div>
 
       {/* Buttons */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        <button onClick={addPosition} style={btnPrimary}>+ Add Position</button>
+        <Button variant="primary" onClick={addPosition}>+ Add Position</Button>
         <Button variant="secondary" onClick={loadPositions}>↻ Refresh Prices</Button>
       </div>
 
@@ -292,12 +284,12 @@ function LivePortfolioTab() {
                 <td style={{ padding: "4px 6px" }}>
                   <input type="number" value={row.stop ?? ""} onChange={e => updateRow(row.id, "stop", e.target.value)}
                     onBlur={() => savePosition(row)}
-                    style={{ ...cellInput, textAlign: "right", width: 70, color: "#fca5a5" }} />
+                    style={{ ...cellInput, textAlign: "right", width: 70, color: "var(--negative)" }} />
                 </td>
                 <td style={{ padding: "4px 6px" }}>
                   <input type="number" value={row.target ?? ""} onChange={e => updateRow(row.id, "target", e.target.value)}
                     onBlur={() => savePosition(row)}
-                    style={{ ...cellInput, textAlign: "right", width: 70, color: "#86efac" }} />
+                    style={{ ...cellInput, textAlign: "right", width: 70, color: "var(--positive)" }} />
                 </td>
                 <td style={{ padding: "6px 10px", textAlign: "right", fontSize: 12, color: "#9ca3af", fontVariantNumeric: "tabular-nums" }}>
                   {row.r_r != null ? row.r_r.toFixed(2) : "—"}
@@ -466,14 +458,14 @@ function RealizedPnlTab() {
   }
 
   const statItems = stats ? [
-    { label: "Wins",         value: stats.wins,                      color: "#86efac" },
-    { label: "Losses",       value: stats.losses,                    color: "#fca5a5" },
+    { label: "Wins",         value: stats.wins,                      color: "var(--positive)" },
+    { label: "Losses",       value: stats.losses,                    color: "var(--negative)" },
     { label: "Total",        value: stats.total,                     color: "#e5e7eb" },
-    { label: "Win $",        value: `$${Math.abs(stats.win_dollars  || 0).toFixed(0)}`, color: "#86efac" },
-    { label: "Loss $",       value: `$${Math.abs(stats.loss_dollars || 0).toFixed(0)}`, color: "#fca5a5" },
+    { label: "Win $",        value: `$${Math.abs(stats.win_dollars  || 0).toFixed(0)}`, color: "var(--positive)" },
+    { label: "Loss $",       value: `$${Math.abs(stats.loss_dollars || 0).toFixed(0)}`, color: "var(--negative)" },
     { label: "Total $",      value: `${(stats.total_dollars || 0) >= 0 ? "+" : ""}$${Math.abs(stats.total_dollars || 0).toFixed(0)}`, color: pnlColor(stats.total_dollars) },
-    { label: "Win %",        value: `${fmtNum(stats.win_rate, 1)}%`, color: "#86efac" },
-    { label: "Loss %",       value: `${fmtNum(stats.loss_rate, 1)}%`,color: "#fca5a5" },
+    { label: "Win %",        value: `${fmtNum(stats.win_rate, 1)}%`, color: "var(--positive)" },
+    { label: "Loss %",       value: `${fmtNum(stats.loss_rate, 1)}%`,color: "var(--negative)" },
     { label: "R Score",      value: fmtNum(stats.r_score, 2),        color: pnlColor(stats.r_score) },
     { label: "Full Kelly %", value: `${fmtNum(stats.full_kelly, 2)}%`, color: pnlColor(stats.full_kelly) },
     { label: "Bet Kelly %",  value: `${fmtNum(stats.bet_kelly, 2)}%`,  color: pnlColor(stats.bet_kelly) },
@@ -487,13 +479,13 @@ function RealizedPnlTab() {
       {stats && (
         <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
           {statItems.map(s => (
-            <KpiCard key={s.label} label={s.label} value={s.value} valueColor={s.color} small />
+            <KpiCard key={s.label} label={s.label} formatted={s.value} valueColor={s.color} small />
           ))}
         </div>
       )}
 
       <div style={{ marginBottom: 14 }}>
-        <button onClick={addTrade} style={btnPrimary}>+ Add Trade</button>
+        <Button variant="primary" onClick={addTrade}>+ Add Trade</Button>
       </div>
 
       <div style={{ overflowX: "auto" }}>
@@ -572,9 +564,9 @@ function RealizedPnlTab() {
                     {row.pnl_dollar != null ? `${row.pnl_dollar >= 0 ? "+" : "-"}$${Math.abs(row.pnl_dollar).toFixed(0)}` : "—"}
                   </td>
                   <td style={{ padding: "4px 6px", textAlign: "center" }}>
-                    <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", display: "inline-block", background: row.pnl_dollar >= 0 ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)", color: row.pnl_dollar >= 0 ? "#86efac" : "#fca5a5" }}>
+                    <Badge variant={row.pnl_dollar >= 0 ? "positive" : "negative"}>
                       {row.pnl_dollar >= 0 ? "WIN" : "LOSS"}
-                    </span>
+                    </Badge>
                   </td>
                   <td style={{ padding: "4px 6px" }}>
                     <input value={row.comment || ""} onChange={e => updateRow(row.id, "comment", e.target.value)}
@@ -862,12 +854,12 @@ function EquityCurveTab() {
         {showCapital && (
           <div style={{ padding: "0 20px 16px" }}>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-              <KpiCard label="Net Capital"     value={`$${netCapital.toFixed(0)}`}                                     valueColor="#e5e7eb" small />
-              <KpiCard label="Total Deposited" value={`$${totalDep.toFixed(0)}`}                                       valueColor="#86efac" small />
-              <KpiCard label="Total Withdrawn" value={`$${totalWit.toFixed(0)}`}                                       valueColor="#fca5a5" small />
-              <KpiCard label="Total PnL"       value={`${totalPnl >= 0 ? "+" : ""}$${Math.abs(totalPnl).toFixed(0)}`} valueColor={pnlColor(totalPnl)} small />
-              <KpiCard label="Account Value"   value={`$${(netCapital + totalPnl).toFixed(0)}`}                        valueColor="#e5e7eb" small />
-              {retPct != null && <KpiCard label="Return %" value={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`}   valueColor={pnlColor(retPct)} small />}
+              <KpiCard label="Net Capital"     formatted={`$${netCapital.toFixed(0)}`}                                     valueColor="#e5e7eb" small />
+              <KpiCard label="Total Deposited" formatted={`$${totalDep.toFixed(0)}`}                                       valueColor="var(--positive)" small />
+              <KpiCard label="Total Withdrawn" formatted={`$${totalWit.toFixed(0)}`}                                       valueColor="var(--negative)" small />
+              <KpiCard label="Total PnL"       formatted={`${totalPnl >= 0 ? "+" : ""}$${Math.abs(totalPnl).toFixed(0)}`} valueColor={pnlColor(totalPnl)} small />
+              <KpiCard label="Account Value"   formatted={`$${(netCapital + totalPnl).toFixed(0)}`}                        valueColor="#e5e7eb" small />
+              {retPct != null && <KpiCard label="Return %" formatted={`${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%`}   valueColor={pnlColor(retPct)} small />}
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input type="date" value={capDate} onChange={e => setCapDate(e.target.value)}
@@ -875,8 +867,8 @@ function EquityCurveTab() {
               <input type="number" placeholder="Amount" value={capAmount} onChange={e => setCapAmount(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") addCapital("deposit"); }}
                 style={{ ...cellInput, width: 110, border: "1px solid #1f2937", textAlign: "right" }} />
-              <button onClick={() => addCapital("deposit")}  style={{ ...btnBase, background: "rgba(22,163,74,0.15)",  border: "1px solid rgba(22,163,74,0.3)",  color: "#86efac",  padding: "7px 16px" }}>+ Deposit</button>
-              <button onClick={() => addCapital("withdraw")} style={{ ...btnBase, background: "rgba(220,38,38,0.10)", border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5", padding: "7px 16px" }}>− Withdraw</button>
+              <button onClick={() => addCapital("deposit")}  style={{ ...btnBase, background: "rgba(52,211,153,0.15)",  border: "1px solid rgba(52,211,153,0.3)",  color: "var(--positive)",  padding: "7px 16px" }}>+ Deposit</button>
+              <button onClick={() => addCapital("withdraw")} style={{ ...btnBase, background: "rgba(242,88,92,0.10)", border: "1px solid rgba(242,88,92,0.3)", color: "var(--negative)", padding: "7px 16px" }}>− Withdraw</button>
             </div>
           </div>
         )}
@@ -886,7 +878,7 @@ function EquityCurveTab() {
       {stats && (
         <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
           {statItems.map(s => (
-            <KpiCard key={s.label} label={s.label} value={s.value} valueColor={s.color} small />
+            <KpiCard key={s.label} label={s.label} formatted={s.value} valueColor={s.color} small />
           ))}
         </div>
       )}
@@ -955,16 +947,16 @@ function EquityCurveTab() {
                     <td style={{ padding: "4px 8px", color: "#6b7280", whiteSpace: "nowrap" }}>{row.date}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: pnlColor(row.weekly_unrealized) }}>{fmtUsd(row.weekly_unrealized, true)}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: pnlColor(row.cum_realized) }}>{fmtUsd(row.cum_realized, true)}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#86efac" }}>{fmtUsd(row.deposit)}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: "#fca5a5" }}>{fmtUsd(row.withdrawal)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "var(--positive)" }}>{fmtUsd(row.deposit)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: "var(--negative)" }}>{fmtUsd(row.withdrawal)}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: "#9ca3af" }}>{fmtUsd(row.capital)}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: "#e5e7eb", fontWeight: 600 }}>{fmtUsd(row.account_value)}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: pnlColor(row.port_return) }}>{fmtPct(row.port_return)}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.port_index != null ? (row.port_index >= 100 ? "#86efac" : "#fca5a5") : "#6b7280" }}>{fmtIdx(row.port_index)}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.drawdown < -0.0001 ? "#fca5a5" : "#4b5563" }}>{row.drawdown < -0.0001 ? fmtPct(row.drawdown) : "—"}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.port_index != null ? (row.port_index >= 100 ? "var(--positive)" : "var(--negative)") : "#6b7280" }}>{fmtIdx(row.port_index)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.drawdown < -0.0001 ? "var(--negative)" : "#4b5563" }}>{row.drawdown < -0.0001 ? fmtPct(row.drawdown) : "—"}</td>
                     <td style={{ padding: "4px 8px", textAlign: "right", color: "#6b7280" }}>{row.spx_price != null ? row.spx_price.toFixed(2) : "—"}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.spx_index != null ? (row.spx_index >= 100 ? "#86efac" : "#fca5a5") : "#6b7280" }}>{fmtIdx(row.spx_index)}</td>
-                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.spx_drawdown != null && row.spx_drawdown < -0.0001 ? "#fca5a5" : "#4b5563" }}>{row.spx_drawdown != null && row.spx_drawdown < -0.0001 ? fmtPct(row.spx_drawdown) : "—"}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.spx_index != null ? (row.spx_index >= 100 ? "var(--positive)" : "var(--negative)") : "#6b7280" }}>{fmtIdx(row.spx_index)}</td>
+                    <td style={{ padding: "4px 8px", textAlign: "right", color: row.spx_drawdown != null && row.spx_drawdown < -0.0001 ? "var(--negative)" : "#4b5563" }}>{row.spx_drawdown != null && row.spx_drawdown < -0.0001 ? fmtPct(row.spx_drawdown) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1061,14 +1053,14 @@ function IbkrImportPanel({ onImported }) {
                 if (!window.confirm("Delete ALL trades, positions, and equity entries? This cannot be undone.")) return;
                 await fetch(`${API}/api/track-record/clear-all`, { method: "DELETE" });
                 onImported();
-              }} style={{ ...btnBase, background: "rgba(220,38,38,0.1)", border: "1px solid rgba(220,38,38,0.3)", color: "#fca5a5", marginLeft: "auto" }}>
+              }} style={{ ...btnBase, background: "rgba(242,88,92,0.1)", border: "1px solid rgba(242,88,92,0.3)", color: "var(--negative)", marginLeft: "auto" }}>
                 🗑 Clear All Data
               </button>
             </div>
           )}
 
           {error && (
-            <div style={{ color: "#fca5a5", fontSize: 12, marginTop: 10 }}>Error: {error}</div>
+            <div style={{ color: "var(--negative)", fontSize: 12, marginTop: 10 }}>Error: {error}</div>
           )}
 
           {/* Preview */}
@@ -1076,14 +1068,14 @@ function IbkrImportPanel({ onImported }) {
             <div>
               {/* Summary strip */}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                <KpiCard label="Period"       value={`${preview.period_start} → ${preview.period_end}`} valueColor="#e5e7eb" small />
-                <KpiCard label="Trades found" value={preview.trades.length}                             valueColor="#86efac" small />
-                <KpiCard label="Open pos."    value={preview.open_positions.length}                     valueColor="#93c5fd" small />
+                <KpiCard label="Period"       formatted={`${preview.period_start} → ${preview.period_end}`} valueColor="#e5e7eb" small />
+                <KpiCard label="Trades found" formatted={preview.trades.length}                             valueColor="var(--positive)" small />
+                <KpiCard label="Open pos."    formatted={preview.open_positions.length}                     valueColor="#93c5fd" small />
                 {preview.equity_entry && (
-                  <KpiCard label="Account NAV" value={`€${(preview.equity_entry.portfolio_value / 1000).toFixed(1)}K`} valueColor="#e5e7eb" small />
+                  <KpiCard label="Account NAV" formatted={`€${(preview.equity_entry.portfolio_value / 1000).toFixed(1)}K`} valueColor="#e5e7eb" small />
                 )}
                 {preview.equity_entry && (
-                  <KpiCard label="Fees" value={`€${preview.equity_entry.fees.toFixed(2)}`} valueColor="#fca5a5" small />
+                  <KpiCard label="Fees" formatted={`€${preview.equity_entry.fees.toFixed(2)}`} valueColor="var(--negative)" small />
                 )}
               </div>
 
@@ -1104,7 +1096,7 @@ function IbkrImportPanel({ onImported }) {
                         <tr key={i} style={{ borderBottom: "1px solid #0d1829" }}>
                           <td style={{ padding: "5px 10px", fontSize: 12, fontFamily: "monospace", fontWeight: 700 }}>{t.ticker}</td>
                           <td style={{ padding: "5px 10px", fontSize: 11 }}>
-                            <span style={{ padding: "2px 8px", borderRadius: 20, background: t.side === "long" ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)", color: t.side === "long" ? "#86efac" : "#fca5a5", fontWeight: 700, fontSize: 10 }}>{t.side.toUpperCase()}</span>
+                            <Badge variant={t.side === "long" ? "positive" : "negative"}>{t.side.toUpperCase()}</Badge>
                           </td>
                           <td style={{ padding: "5px 10px", fontSize: 12, textAlign: "right" }}>{t.shares}</td>
                           <td style={{ padding: "5px 10px", fontSize: 12, textAlign: "right" }}>{t.avg_entry_price.toFixed(4)}</td>
@@ -1142,9 +1134,9 @@ function IbkrImportPanel({ onImported }) {
 
               {/* Action buttons */}
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={handleConfirm} disabled={loading} style={{ ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" }}>
+                <Button variant="primary" onClick={handleConfirm} disabled={loading}>
                   {loading ? "Importing…" : "Confirm Import"}
-                </button>
+                </Button>
                 <Button variant="secondary" onClick={handleClear}>Clear</Button>
               </div>
             </div>
@@ -1153,10 +1145,10 @@ function IbkrImportPanel({ onImported }) {
           {/* Result */}
           {result && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "#86efac", fontWeight: 600 }}>✓ Import complete</span>
-              <KpiCard label="Trades imported" value={result.trades_imported}    valueColor="#86efac" small />
-              <KpiCard label="Skipped (dup)"   value={result.trades_skipped}     valueColor="#6b7280" small />
-              <KpiCard label="Positions"        value={result.positions_imported} valueColor="#93c5fd" small />
+              <span style={{ fontSize: 12, color: "var(--positive)", fontWeight: 600 }}>✓ Import complete</span>
+              <KpiCard label="Trades imported" formatted={result.trades_imported}    valueColor="var(--positive)" small />
+              <KpiCard label="Skipped (dup)"   formatted={result.trades_skipped}     valueColor="#6b7280" small />
+              <KpiCard label="Positions"        formatted={result.positions_imported} valueColor="#93c5fd" small />
               <Button variant="secondary" onClick={handleClear} style={{ marginLeft: 8 }}>Clear</Button>
             </div>
           )}

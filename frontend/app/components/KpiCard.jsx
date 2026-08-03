@@ -1,5 +1,25 @@
-export default function KpiCard({ id, name, value, unit, change, good_direction, onClick, isSelected }) {
-    const display = value == null ? "--" : Number(value).toFixed(2);
+/**
+ * Shared KPI tile. Two modes:
+ *
+ *   interactive (pass onClick) — renders as a <button>, click-to-select
+ *                                 semantics (Dashboard: picks the chart series).
+ *   static      (omit onClick) — renders as a <div>, purely informational
+ *                                 (Track Record's KPI strips).
+ *
+ * Two value-formatting paths:
+ *   value      — a raw number, coerced via Number(value).toFixed(2) (Dashboard).
+ *   formatted  — a pre-formatted display string, used as-is, takes priority
+ *                over `value` when present (Track Record's "€1,131.4K" etc.).
+ *
+ * Props:
+ *   id, label, value, formatted, unit, change, good_direction: as above
+ *   onClick, isSelected: interactive-only, ignored when onClick is omitted
+ *   small:       bool — denser padding/font for multi-tile strips
+ *   valueColor:  optional explicit color override for the main value
+ *                (defaults to --text-primary)
+ */
+export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, onClick, isSelected, small = false, valueColor }) {
+    const display = formatted ?? (value == null ? "--" : Number(value).toFixed(2));
 
     let changeEl = null;
     if (change != null) {
@@ -16,32 +36,44 @@ export default function KpiCard({ id, name, value, unit, change, good_direction,
         );
     }
 
+    const interactive = typeof onClick === "function";
+    const Tag = interactive ? "button" : "div";
+
     return (
-        <button
-            onClick={() => onClick(id)}
+        <Tag
+            type={interactive ? "button" : undefined}
+            onClick={interactive ? () => onClick(id) : undefined}
             style={{
-                border: isSelected ? "1px solid var(--text-secondary)" : "1px solid var(--border)",
+                border: interactive && isSelected ? "1px solid var(--text-secondary)" : "1px solid var(--border)",
                 borderRadius: "var(--radius-none)",
-                padding: "20px",
-                minWidth: 160,
+                padding: small ? "10px 14px" : "20px",
+                minWidth: small ? 100 : 160,
                 background: "var(--bg-elevated)",
                 color: "var(--text-primary)",
-                cursor: "pointer",
+                cursor: interactive ? "pointer" : "default",
                 textAlign: "left",
                 transition: "border-color 0.15s ease, box-shadow 0.15s ease",
-                boxShadow: isSelected ? "inset 0 0 0 1px rgba(139,144,150,0.35)" : "none",
+                boxShadow: interactive && isSelected ? "inset 0 0 0 1px rgba(139,144,150,0.35)" : "none",
             }}
         >
-            <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-label-size)", color: "var(--text-secondary)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "var(--text-label-tracking)", fontWeight: "var(--text-label-weight)" }}>
-                {name}
+            <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-label-size)", color: "var(--text-secondary)", marginBottom: small ? 4 : 12, textTransform: "uppercase", letterSpacing: "var(--text-label-tracking)", fontWeight: "var(--text-label-weight)" }}>
+                {label}
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                <div style={{ fontFamily: "var(--font-family-mono)", fontSize: "var(--text-data-lg-size)", fontWeight: "var(--text-data-lg-weight)", lineHeight: "var(--text-data-lg-line-height)", letterSpacing: "var(--text-data-lg-tracking)", fontVariantNumeric: "tabular-nums" }}>
+                <div style={{
+                    fontFamily: "var(--font-family-mono)",
+                    fontSize: small ? "var(--text-data-sm-size)" : "var(--text-data-lg-size)",
+                    fontWeight: small ? "var(--text-data-sm-weight)" : "var(--text-data-lg-weight)",
+                    lineHeight: small ? "var(--text-data-sm-line-height)" : "var(--text-data-lg-line-height)",
+                    letterSpacing: small ? "normal" : "var(--text-data-lg-tracking)",
+                    fontVariantNumeric: "tabular-nums",
+                    color: valueColor ?? "var(--text-primary)",
+                }}>
                     {display}
                 </div>
-                <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-data-sm-size)", color: "var(--text-secondary)" }}>{unit}</div>
+                {unit && <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-data-sm-size)", color: "var(--text-secondary)" }}>{unit}</div>}
             </div>
             {changeEl}
-        </button>
+        </Tag>
     );
 }
