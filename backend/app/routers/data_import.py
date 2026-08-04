@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.macro_cache import MacroCache
 from app.models.ism import IsmMfgReport
+from app.models.ism_services import IsmSvcReport
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 log = logging.getLogger(__name__)
@@ -40,6 +41,19 @@ SERIES_REGISTRY = {
     "backlog_of_orders":     {"label": "Backlog of Orders",      "group": "ISM Manufacturing", "storage": "ism"},
     "new_export_orders":     {"label": "New Export Orders",      "group": "ISM Manufacturing", "storage": "ism"},
     "imports":               {"label": "Imports",                "group": "ISM Manufacturing", "storage": "ism"},
+    # ISM Services components → stored in ism_svc_report
+    # (prefixed "svc_" — component names overlap with ISM Manufacturing above)
+    "svc_pmi":                  {"label": "PMI",                          "group": "ISM Services", "storage": "ism_services", "column": "pmi"},
+    "svc_business_activity":    {"label": "Business Activity/Production", "group": "ISM Services", "storage": "ism_services", "column": "business_activity"},
+    "svc_new_orders":           {"label": "New Orders",                   "group": "ISM Services", "storage": "ism_services", "column": "new_orders"},
+    "svc_employment":           {"label": "Employment",                   "group": "ISM Services", "storage": "ism_services", "column": "employment"},
+    "svc_supplier_deliveries":  {"label": "Supplier Deliveries",          "group": "ISM Services", "storage": "ism_services", "column": "supplier_deliveries"},
+    "svc_inventories":          {"label": "Inventories",                  "group": "ISM Services", "storage": "ism_services", "column": "inventories"},
+    "svc_prices":               {"label": "Prices",                       "group": "ISM Services", "storage": "ism_services", "column": "prices"},
+    "svc_backlog_of_orders":    {"label": "Backlog of Orders",            "group": "ISM Services", "storage": "ism_services", "column": "backlog_of_orders"},
+    "svc_new_export_orders":    {"label": "New Export Orders",            "group": "ISM Services", "storage": "ism_services", "column": "new_export_orders"},
+    "svc_imports":              {"label": "Imports",                      "group": "ISM Services", "storage": "ism_services", "column": "imports"},
+    "svc_inventory_sentiment":  {"label": "Inventory Sentiment",          "group": "ISM Services", "storage": "ism_services", "column": "inventory_sentiment"},
 }
 
 MONTH_ABBR = {
@@ -85,6 +99,8 @@ def import_data(payload: ImportPayload, db: Session = Depends(get_db)):
 
     if meta["storage"] == "cache":
         _upsert_cache(db, payload.series_id, dates, values)
+    elif meta["storage"] == "ism_services":
+        _upsert_ism_services(db, meta["column"], dates, values)
     else:
         _upsert_ism(db, payload.series_id, dates, values)
 
@@ -137,6 +153,16 @@ def _upsert_ism(db: Session, component: str, dates: list, values: list):
             row = IsmMfgReport(date=report_date)
             db.add(row)
         setattr(row, component, value)
+
+
+def _upsert_ism_services(db: Session, column: str, dates: list, values: list):
+    for date_str, value in zip(dates, values):
+        report_date = date_type.fromisoformat(date_str)
+        row = db.get(IsmSvcReport, report_date)
+        if row is None:
+            row = IsmSvcReport(date=report_date)
+            db.add(row)
+        setattr(row, column, value)
 
 
 # ── CSV parser ────────────────────────────────────────────────────────────────

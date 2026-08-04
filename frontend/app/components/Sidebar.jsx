@@ -21,7 +21,7 @@ const NAV = [
         items: [
           { label: "Bond Yields",               href: "/macro/leading/bond-yields",           soon: true },
           { label: "ISM Manufacturing",          href: "/macro/leading/ism-manufacturing" },
-          { label: "ISM Non-Manufacturing",      href: "/macro/leading/ism-non-manufacturing",  soon: true },
+          { label: "ISM Services",               href: "/macro/leading/ism-services" },
           { label: "Consumer Confidence",        href: "/macro/leading/consumer-confidence" },
           { label: "US Building Permits",        href: "/macro/leading/building-permits" },
           { label: "NFIB Optimism",              href: "/macro/leading/nfib-optimism" },
@@ -70,9 +70,10 @@ const NAV = [
       {
         label: null,
         items: [
-          { label: "Data Import",        href: "/admin/data-import" },
-          { label: "ISM URL Import",     href: "/admin/ism" },
-          { label: "Indicator Refresh",  href: "/admin/indicators" },
+          { label: "Data Import",             href: "/admin/data-import" },
+          { label: "ISM URL Import",          href: "/admin/ism" },
+          { label: "ISM Services URL Import", href: "/admin/ism-services" },
+          { label: "Indicator Refresh",       href: "/admin/indicators" },
         ],
       },
     ],

@@ -9,6 +9,7 @@ from app.routers.macro import router as macro_router
 from app.routers.portfolio import router as portfolio_router
 from app.routers.auth import router as auth_router
 from app.routers.ism import router as ism_router
+from app.routers.ism_services import router as ism_services_router
 from app.routers.consumer_confidence import router as consumer_confidence_router
 from app.routers.data_import import router as data_import_router
 from app.routers.building_permits import router as building_permits_router
@@ -46,6 +47,7 @@ app.include_router(macro_router)
 app.include_router(portfolio_router)
 app.include_router(auth_router)
 app.include_router(ism_router)
+app.include_router(ism_services_router)
 app.include_router(consumer_confidence_router)
 app.include_router(data_import_router)
 app.include_router(building_permits_router)

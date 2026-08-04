@@ -31,6 +31,22 @@ const SERIES_GROUPS = [
       { id: "imports",               label: "Imports" },
     ],
   },
+  {
+    group: "ISM Services",
+    items: [
+      { id: "svc_pmi",                  label: "PMI" },
+      { id: "svc_business_activity",    label: "Business Activity/Production" },
+      { id: "svc_new_orders",           label: "New Orders" },
+      { id: "svc_employment",           label: "Employment" },
+      { id: "svc_supplier_deliveries",  label: "Supplier Deliveries" },
+      { id: "svc_inventories",          label: "Inventories" },
+      { id: "svc_prices",               label: "Prices" },
+      { id: "svc_backlog_of_orders",    label: "Backlog of Orders" },
+      { id: "svc_new_export_orders",    label: "New Export Orders" },
+      { id: "svc_imports",              label: "Imports" },
+      { id: "svc_inventory_sentiment",  label: "Inventory Sentiment" },
+    ],
+  },
 ];
 
 const ALL_ITEMS = SERIES_GROUPS.flatMap((g) => g.items.map((i) => ({ ...i, group: g.group })));
