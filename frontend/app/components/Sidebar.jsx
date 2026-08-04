@@ -26,7 +26,7 @@ const NAV = [
           { label: "US Building Permits",        href: "/macro/leading/building-permits" },
           { label: "NFIB Optimism",              href: "/macro/leading/nfib-optimism" },
           { label: "CoT Data",                   href: "/macro/leading/cot-data" },
-          { label: "Commodity Prices",           href: "/macro/leading/commodities",            soon: true },
+          { label: "Commodity Prices",           href: "/macro/leading/commodities" },
           { label: "European Sentiment",         href: "/macro/leading/european-sentiment",     soon: true },
           { label: "China Manufacturing PMI",    href: "/macro/leading/china-pmi",             soon: true },
         ],
