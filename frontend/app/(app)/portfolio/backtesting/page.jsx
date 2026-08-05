@@ -6,6 +6,7 @@ import LineChart from "@/app/components/LineChart";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 
 const API = "http://localhost:8000";
 
@@ -42,8 +43,9 @@ export default function BacktestingPage() {
   const [compareStatus,     setCompareStatus]     = useState("idle");  // idle | loading | done | error
 
   // Load portfolio state
+  const { selectedPortfolioId, setSelectedPortfolio: setSharedPortfolio } = usePortfolioSelectionStore();
   const [savedPortfolios,   setSavedPortfolios]   = useState([]);
-  const [selectedPortfolio, setSelectedPortfolio] = useState("");
+  const [selectedPortfolio, setSelectedPortfolio] = useState(selectedPortfolioId ? String(selectedPortfolioId) : "");
   const [loadedName,        setLoadedName]        = useState(null);
 
   // Compare portfolio state
@@ -57,6 +59,20 @@ export default function BacktestingPage() {
       .then(setSavedPortfolios)
       .catch(() => {});
   }, []);
+
+  // Auto-load the portfolio selected on another page (e.g. Portfolio Overview),
+  // once the saved-portfolios list has arrived.
+  useEffect(() => {
+    if (!selectedPortfolioId || !savedPortfolios.length || loadedName) return;
+    const p = savedPortfolios.find(p => p.id === selectedPortfolioId);
+    if (!p) return;
+    setSelectedPortfolio(String(p.id));
+    const loaded = p.positions.map(pos => ({ ...pos }));
+    setPositions(loaded);
+    setLoadedName(p.name);
+    fetchAnalytics(loaded);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedPortfolios, selectedPortfolioId]);
 
   // ── Portfolio loader ───────────────────────────────────────────────────────
 
@@ -89,6 +105,7 @@ export default function BacktestingPage() {
     setStatus("idle");
     setErrors([]);
     setBetaStatus("idle");
+    setSharedPortfolio(p.id, p.name);
     // Auto-calculate analytics for the loaded portfolio
     fetchAnalytics(loaded);
   }

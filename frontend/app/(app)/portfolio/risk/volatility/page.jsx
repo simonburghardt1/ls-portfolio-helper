@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 
 const API = "http://localhost:8000";
 
@@ -99,8 +100,9 @@ function pnlColor(v) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function VolatilityPage() {
+  const { selectedPortfolioId, setSelectedPortfolio: setSharedPortfolio } = usePortfolioSelectionStore();
   const [savedPortfolios, setSavedPortfolios] = useState([]);
-  const [source, setSource]   = useState("live");   // "live" | portfolio id
+  const [source, setSource]   = useState(selectedPortfolioId ?? "live");   // "live" | portfolio id
   const [weeks, setWeeks]     = useState(52);
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
@@ -113,6 +115,15 @@ export default function VolatilityPage() {
       .then(setSavedPortfolios)
       .catch(() => {});
   }, []);
+
+  // Keep the cross-page portfolio selection in sync when a saved portfolio is picked here
+  function selectSource(value) {
+    setSource(value);
+    if (value !== "live") {
+      const p = savedPortfolios.find(p => p.id === value);
+      setSharedPortfolio(value, p?.name ?? null);
+    }
+  }
 
   // Reload when source or period changes
   useEffect(() => {
@@ -189,7 +200,7 @@ export default function VolatilityPage() {
       {/* Controls */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 28, flexWrap: "wrap" }}>
         {/* Source buttons */}
-        <Button variant="range-toggle" active={source === "live"} onClick={() => setSource("live")} style={{ padding: "6px 14px" }}>
+        <Button variant="range-toggle" active={source === "live"} onClick={() => selectSource("live")} style={{ padding: "6px 14px" }}>
           Live Portfolio
         </Button>
 
@@ -198,7 +209,7 @@ export default function VolatilityPage() {
             <span style={{ fontSize: 12, color: "#4b5563" }}>Saved:</span>
             <select
               value={source === "live" ? "" : source}
-              onChange={e => e.target.value && setSource(Number(e.target.value))}
+              onChange={e => e.target.value && selectSource(Number(e.target.value))}
               style={{
                 background: "#0d1829", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
                 color: "#9ca3af", fontSize: 12, padding: "5px 10px", cursor: "pointer",

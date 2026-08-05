@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, LogOut } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "@/app/store/authStore";
 
 const NAV = [
@@ -48,12 +48,20 @@ const NAV = [
     section: "Portfolio Management",
     groups: [
       {
-        label: "Portfolio",
-        href: "/portfolio",
+        label: "Markets",
         items: [
+          { label: "Market Regime", href: "/portfolio/market-regime" },
+          { label: "Heatmap",       href: "/portfolio/heatmap" },
+          { label: "Seasonality",   href: "/portfolio/markets/seasonality", soon: true },
+        ],
+      },
+      {
+        label: "Portfolio",
+        items: [
+          { label: "Portfolio Overview",       href: "/portfolio/overview" },
+          { label: "Portfolio Construction",   href: "/portfolio" },
+          { label: "Distribution of Returns",  href: "/portfolio/distribution-of-returns", soon: true },
           { label: "Backtesting",              href: "/portfolio/backtesting" },
-          { label: "Heatmap",                  href: "/portfolio/heatmap" },
-          { label: "Market Regime",            href: "/portfolio/market-regime" },
           { label: "Volatility & Correlation", href: "/portfolio/risk/volatility" },
           { label: "Beta",                     href: "/portfolio/risk/beta",       soon: true },
         ],
@@ -61,7 +69,7 @@ const NAV = [
     ],
   },
   {
-    section: "Trading Track Record",
+    section: "Trading Statistics",
     groups: [{ label: null, items: [{ label: "Track Record", href: "/portfolio/track-record" }] }],
   },
   {
@@ -88,8 +96,19 @@ export default function Sidebar() {
 
   const [collapsed, setCollapsed] = useState({});
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("sidebar-collapsed-groups");
+      if (stored) setCollapsed(JSON.parse(stored));
+    } catch {}
+  }, []);
+
   function toggleGroup(key) {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+    setCollapsed((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem("sidebar-collapsed-groups", JSON.stringify(next)); } catch {}
+      return next;
+    });
   }
 
   function handleLogout() {
