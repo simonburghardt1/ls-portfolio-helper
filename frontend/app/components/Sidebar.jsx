@@ -50,9 +50,10 @@ const NAV = [
       {
         label: "Markets",
         items: [
-          { label: "Market Regime", href: "/portfolio/market-regime" },
-          { label: "Heatmap",       href: "/portfolio/heatmap" },
-          { label: "Seasonality",   href: "/portfolio/markets/seasonality", soon: true },
+          { label: "Market Regime",       href: "/portfolio/market-regime" },
+          { label: "Heatmap",             href: "/portfolio/heatmap" },
+          { label: "High Beta Momentum",  href: "/portfolio/markets/high-beta-momentum" },
+          { label: "Seasonality",         href: "/portfolio/markets/seasonality", soon: true },
         ],
       },
       {
@@ -81,6 +82,7 @@ const NAV = [
           { label: "Data Import",             href: "/admin/data-import" },
           { label: "ISM URL Import",          href: "/admin/ism" },
           { label: "ISM Services URL Import", href: "/admin/ism-services" },
+          { label: "High Beta Momentum",      href: "/admin/high-beta-momentum" },
           { label: "Indicator Refresh",       href: "/admin/indicators" },
         ],
       },

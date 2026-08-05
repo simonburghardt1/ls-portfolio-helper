@@ -1,6 +1,11 @@
+import logging
+import time
+
 import pandas as pd
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor
+
+log = logging.getLogger(__name__)
 
 
 def _fetch_ticker_meta(args: tuple) -> dict:
@@ -252,6 +257,41 @@ def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:
         )
 
     return prices
+
+
+def download_prices_chunked(tickers: list[str], start: str, end: str | None = None, chunk_size: int = 150) -> pd.DataFrame:
+    """
+    Like download_prices, but tolerant: drops failed/all-NaN tickers per chunk
+    instead of raising, and downloads in batches. Meant for large (500+ ticker)
+    universes (e.g. a screener-derived candidate list) where some names are
+    expected to fail (delisted, mistyped, temporarily unavailable) and a single
+    bad ticker must not abort the whole download.
+    """
+    chunks = [tickers[i:i + chunk_size] for i in range(0, len(tickers), chunk_size)]
+    frames = []
+
+    for i, chunk in enumerate(chunks):
+        try:
+            raw = yf.download(
+                chunk, start=start, end=end, interval="1d",
+                auto_adjust=True, progress=False, threads=True,
+            )
+            if raw.empty:
+                continue
+            if isinstance(raw.columns, pd.MultiIndex):
+                closes = raw["Close"].copy()
+            else:
+                closes = raw[["Close"]].copy()
+                closes.columns = chunk
+            closes = closes.dropna(axis=1, how="all")
+            frames.append(closes)
+        except Exception as exc:
+            log.warning("download_prices_chunked: chunk %d/%d failed: %s", i + 1, len(chunks), exc)
+        time.sleep(0.4)  # polite spacing between batches
+
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, axis=1).sort_index()
 
 
 def build_portfolio_return_series(

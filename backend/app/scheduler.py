@@ -10,6 +10,10 @@ Jobs:
   22:00  Market Regime daily update (after US market close 16:00 ET = 20:00 UTC + buffer)
   22:10  Commodity Prices daily update (WTI, Brent, Copper COMEX, Lumber, Iron Ore CME)
 
+  Monthly (days 1-3 of each month, 23:00 UTC):
+    High Beta Momentum basket — single-month incremental rebalance (no-ops if
+    no historical baseline exists yet; run POST /api/high-beta-momentum/build first).
+
   Monthly (days 1-3 of each month, 16:00 UTC):
     ISM Manufacturing PMI — releases on the 1st business day of each month at 10:00 ET.
 
@@ -31,6 +35,7 @@ from app.services.macro_cache import get_series
 from app.services.nfib import refresh_all_components, refresh_all_industries, refresh_all_regions
 from app.services.market_regime import update_market_data
 from app.services.commodities import update_all_commodities
+from app.services.high_beta_momentum import update_high_beta_momentum
 from app.core.config import settings
 from app.services.ism_scraper import scrape_latest_from_prnewswire
 from app.routers.ism import _upsert_report as _ism_upsert
@@ -169,6 +174,17 @@ async def _job_commodities():
         db.close()
 
 
+async def _job_high_beta_momentum():
+    db = SessionLocal()
+    try:
+        update_high_beta_momentum(db)
+        log.info("High Beta Momentum monthly update OK.")
+    except Exception as exc:
+        log.warning("High Beta Momentum monthly update failed: %s", exc)
+    finally:
+        db.close()
+
+
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
     scheduler.add_job(_job_uom,  CronTrigger(hour=7, minute=0),  id="uom_daily")
@@ -178,6 +194,7 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
     scheduler.add_job(_job_market_regime,   CronTrigger(hour=22, minute=0), id="market_regime_daily")
     scheduler.add_job(_job_commodities,     CronTrigger(hour=22, minute=10), id="commodities_daily")
+    scheduler.add_job(_job_high_beta_momentum, CronTrigger(day="1,2,3", hour=23, minute=0), id="hbm_monthly")
     scheduler.add_job(_job_ism,      CronTrigger(day="1,2,3",        hour=16, minute=0),  id="ism_monthly")
     scheduler.add_job(_job_fred_cpi, CronTrigger(day="10,11,12,13,14,15", hour=15, minute=0), id="cpi_monthly")
     return scheduler

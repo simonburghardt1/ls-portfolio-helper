@@ -21,6 +21,7 @@ from app.routers.cot import router as cot_router
 from app.routers.track_record import router as track_record_router
 from app.routers.cpi_ppi import router as cpi_ppi_router
 from app.routers.commodities import router as commodities_router
+from app.routers.high_beta_momentum import router as high_beta_momentum_router
 from app.scheduler import create_scheduler
 
 
@@ -60,6 +61,7 @@ app.include_router(cot_router)
 app.include_router(track_record_router)
 app.include_router(cpi_ppi_router)
 app.include_router(commodities_router)
+app.include_router(high_beta_momentum_router)
 
 
 # Keep your hello endpoint if you want
