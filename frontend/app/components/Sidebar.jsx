@@ -35,6 +35,7 @@ const NAV = [
         label: "Concurrent Indicators",
         items: [
           { label: "GDP",                        href: "/macro/concurrent/gdp" },
+          { label: "Debt",                       href: "/macro/concurrent/debt" },
           { label: "M2 Money Supply",            href: "/macro/concurrent/m2",                 soon: true },
           { label: "CPI & PPI",                  href: "/macro/concurrent/cpi-ppi" },
           { label: "USD Trade Weighted",         href: "/macro/concurrent/usd-trade",          soon: true },
