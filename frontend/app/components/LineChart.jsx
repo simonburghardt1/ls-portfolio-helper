@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, CrosshairMode, LineSeries } from "lightweight-charts";
+import { createChart, ColorType, CrosshairMode, LineSeries, PriceScaleMode } from "lightweight-charts";
 
-export default function LineChart({ dates, datasets, visibleRange, referenceLine }) {
+export default function LineChart({ dates, datasets, visibleRange, referenceLine, logScale }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
 
@@ -11,6 +11,8 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
   useEffect(() => {
     if (!containerRef.current || !datasets?.length) return;
     if (!dates?.length && !datasets.some((d) => d.dates?.length)) return;
+
+    const hasLeftAxis = datasets.some((d) => d.priceScaleId === "left");
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -22,7 +24,11 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
         horzLines: { color: "rgba(55,65,81,0.35)" },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151" },
+      rightPriceScale: {
+        borderColor: "#374151",
+        mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+      },
+      leftPriceScale: { visible: hasLeftAxis, borderColor: "#374151" },
       timeScale: { borderColor: "#374151", timeVisible: true },
       width: containerRef.current.clientWidth,
       height: 380,
@@ -38,6 +44,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
         priceLineVisible: false,
         lastValueVisible: ds.lastValueVisible ?? true,
         title:            ds.label            ?? "",
+        priceScaleId:     ds.priceScaleId     ?? "right",
       });
 
       const dsDates = ds.dates ?? dates;
@@ -89,7 +96,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
       chart.remove();
       chartRef.current = null;
     };
-  }, [dates, datasets]);
+  }, [dates, datasets, logScale]);
 
   // Update visible range without recreating the chart
   useEffect(() => {

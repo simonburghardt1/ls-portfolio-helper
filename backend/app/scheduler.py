@@ -50,6 +50,8 @@ FRED_SERIES = [
     "CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE", "PPIACO",
     # CPI components — kept in sync with ALL_CPI_SERIES_IDS from cpi_ppi router
     *ALL_CPI_SERIES_IDS,
+    # GDP — quarterly, but the daily job is a harmless no-op via get_series' own TTL
+    "GDP", "GDPC1",
 ]
 
 
