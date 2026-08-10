@@ -38,6 +38,14 @@
 
 **Fixed app-wide as of 2026-08-04.** Every page previously had some mix of a pre-redesign dark-navy palette (`#020617`/`#0f172a`/`#080e1a` backgrounds, `#1f2937`/`#374151`/`#0d1829` borders) and non-canonical pastel green/red (`#86efac`/`#fca5a5`) instead of the actual `--positive`/`--negative` tokens. Both were swept and replaced with `--bg-base`/`--bg-surface`/`--bg-elevated`/`--border` and `--positive`/`--negative`/`--caution` across all 18 page files, including `lightweight-charts` canvas configs (now transparent, sitting on their wrapping panel's `--bg-surface` instead of a hardcoded solid fill).
 
+## Chart series colors
+
+**`--chart-1`…`--chart-11` tokens formalized 2026-08-11** (see DESIGN.md → Chart series colors). Adoption:
+
+- ✅ **Already matches by convention** (no change needed): backend indicator-color dicts in `building_permits.py`, `consumer_confidence.py`, `cpi_ppi.py`, `debt.py`, `gdp.py`, `nfib.py`; `ism-manufacturing/page.jsx`'s 11-component palette.
+- ✅ **Fixed 2026-08-11:** Dashboard (`(app)/page.js`)'s single-series chart line — was `var(--green-500)` (a legacy token, and semantically wrong per the positive/negative rule), now `var(--chart-1)`.
+- ⏳ **Not yet retrofitted — known follow-up, not urgent:** `cot-data/page.jsx` and `track-record/page.jsx`'s single-line charts currently use `#60a5fa` (a different, lighter blue) instead of `--chart-1` (`#3b82f6`). `market-regime/page.jsx`'s 4 component-signal colors (`{bmsb: "#10b981", breadth: "#60a5fa", vix: "#f59e0b", credit: "#a78bfa"}`) are also out of sequence — green/blue/amber/light-purple instead of the standard blue/green/amber/purple ordering. None of these are visually broken, just not yet unified onto the named tokens.
+
 ## Open design decisions
 
 - **Primary CTA button color is interim, not settled.** Currently a monochrome fill (`--text-primary` on `--bg-base`) — flagged during design review as possibly needing more visual pop for a genuine call-to-action. Revisit if it reads too quiet in practice.

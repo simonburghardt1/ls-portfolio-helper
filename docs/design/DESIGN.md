@@ -34,7 +34,24 @@ Defined in `frontend/app/globals.css` under `:root`.
 
 **Never reuse `--positive`/`--negative` for anything except gain/loss meaning.** No other UI state (success toasts, generic warnings, unrelated badges) should borrow green or red, or they stop reading as "money." Translucent fills derived from these (e.g. `rgba(52,211,153,0.18)` for an interactive Badge, `rgba(52,211,153,0.3)` for a success-state border) should keep the same RGB base (`52,211,153` / `242,88,92`) so they stay visually locked to the token even though CSS can't `rgba()` a custom property directly.
 
-Legacy tokens still present in `globals.css` for one remaining unmigrated consumer (`(app)/page.js`'s old 5-level scale) — do not use these in new code: `--green-400/500/600/900/muted`, `--blue-400`, `--blue-muted`, `--bg-subtle`, `--border-light`, `--text-muted`, `--text-ghost`, `--font-2xl/xl/lg/base/sm`.
+### Chart series colors (categorical)
+
+For chart *lines/series* (not KPI values, not badges), use `--chart-1` through `--chart-11`, in order, one per series:
+
+| Token | Value | | Token | Value | | Token | Value |
+|---|---|---|---|---|---|---|---|
+| `--chart-1` | `#3b82f6` blue | | `--chart-5` | `#ef4444` red | | `--chart-9` | `#84cc16` lime |
+| `--chart-2` | `#10b981` green | | `--chart-6` | `#06b6d4` cyan | | `--chart-10` | `#a78bfa` light purple |
+| `--chart-3` | `#f59e0b` amber | | `--chart-7` | `#f97316` orange | | `--chart-11` | `#fb923c` light orange |
+| `--chart-4` | `#8b5cf6` purple | | `--chart-8` | `#ec4899` pink | | | |
+
+A single-series chart uses `--chart-1` only. This formalizes a sequence that was already the de facto standard in several places before it had a name: backend indicator-color dicts (`building_permits.py`, `consumer_confidence.py`, `cpi_ppi.py`, `debt.py`, `gdp.py`, `nfib.py` all define their series in exactly this blue → green → amber → purple → red order) and `ism-manufacturing/page.jsx`'s 11-component palette (the origin of the 6–11 extension). See [status.md](status.md) for which pages still need retrofitting onto these tokens vs. which already match by convention.
+
+**These are categorical/qualitative colors, not semantic ones.** Unlike `--positive`/`--negative`, a series being `--chart-2` (green) does not mean "this went up" — it just means "second series in this chart." Context (a KPI value vs. a named line in a legend) disambiguates; don't read chart-line green/red as gain/loss signals.
+
+**Use the literal hex value in code, not `var(--chart-N)`.** Every chart-color consumer in this app — direct `createChart()` calls, and the shared `LineChart.jsx` component (which is *also* a `lightweight-charts` wrapper, not a separate SVG/DOM chart) — draws on `<canvas>`, and canvas 2D context colors (`strokeStyle` etc.) don't resolve CSS custom properties; a `var(...)` string is silently invalid there and the line falls back to black with no console error. This isn't a narrow "canvas is the exception" case — it's the norm for every chart in this app today. Copy the literal hex from the table above and keep it in sync if the token ever changes. (Confirmed the hard way: the initial `--chart-1` rollout used `var(--chart-1)` in `(app)/page.js` and silently rendered a black line until caught in browser verification.)
+
+Legacy tokens still present in `globals.css`, now fully unused — safe to delete, kept only as historical residue: `--green-400/500/600/900/muted`, `--blue-400`, `--blue-muted`, `--bg-subtle`, `--border-light`, `--text-muted`, `--text-ghost`, `--font-2xl/xl/lg/base/sm`.
 
 ## Typography
 

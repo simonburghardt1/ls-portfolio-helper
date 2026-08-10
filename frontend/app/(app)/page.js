@@ -169,7 +169,7 @@ export default function Page() {
               datasets={[{
                 label: chartSeries.name,
                 data: chartSeries.values,
-                borderColor: "var(--green-500)", // legacy accent, intentionally untouched — out of scope for this migration
+                borderColor: "#3b82f6", // --chart-1 (canvas can't resolve CSS vars — see globals.css chart-series tokens)
                 borderWidth: 2,
               }]}
             />

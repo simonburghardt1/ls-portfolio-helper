@@ -108,6 +108,29 @@
   --positive:  #34d399;
   --negative:  #f2585c;
   --caution:   #f59e0b;
+
+  /* ── Chart series (categorical) — for multi-line/multi-series charts.
+     Order matters: series 1 gets --chart-1, series 2 gets --chart-2, etc.
+     This is not new — it formalizes the color sequence already used by
+     several backend indicator-color dicts (building_permits.py,
+     consumer_confidence.py, cpi_ppi.py, debt.py, gdp.py, nfib.py) and by
+     ism-manufacturing/page.jsx's 11-component palette. A single-line chart
+     uses --chart-1 only. These are categorical/qualitative colors, not
+     semantic ones — unlike --positive/--negative, reusing green or red
+     here does not mean "gain" or "loss", only "series N". Canvas-based
+     charts (lightweight-charts) can't consume CSS vars — copy the literal
+     hex there and keep it in sync with this list. ── */
+  --chart-1:  #3b82f6; /* blue */
+  --chart-2:  #10b981; /* green */
+  --chart-3:  #f59e0b; /* amber */
+  --chart-4:  #8b5cf6; /* purple */
+  --chart-5:  #ef4444; /* red */
+  --chart-6:  #06b6d4; /* cyan */
+  --chart-7:  #f97316; /* orange */
+  --chart-8:  #ec4899; /* pink */
+  --chart-9:  #84cc16; /* lime */
+  --chart-10: #a78bfa; /* light purple */
+  --chart-11: #fb923c; /* light orange */
 }
 
 html,
