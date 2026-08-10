@@ -94,3 +94,10 @@ Thumbs.db
 
 _bmad/
 _bmad-output/
+
+# =========================
+# Database dumps/backups
+# =========================
+
+backend/db_backups/
+*.sql
