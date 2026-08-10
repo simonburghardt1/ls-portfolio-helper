@@ -697,7 +697,7 @@ function EquityCurveTab() {
     // ── Chart 1: Portfolio Value + Cumulative Deposit ──
     const c1 = createChart(chart1Ref.current, chartOpts(chart1Ref.current));
     chart1.current = c1;
-    c1.addSeries(LineSeries, { color: "#60a5fa", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Portfolio Value" })
+    c1.addSeries(LineSeries, { color: "#3b82f6" /* --chart-1 */, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Portfolio Value" })
       .setData(perf.map(r => ({ time: r.date, value: r.account_value })));
     c1.addSeries(LineSeries, { color: "#374151", lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, title: "Cum. Deposit" })
       .setData(perf.map(r => ({ time: r.date, value: r.capital })));
@@ -708,7 +708,7 @@ function EquityCurveTab() {
     chart2.current = c2;
     const firstAV   = perf.find(r => (r.account_value ?? 0) > 0)?.account_value ?? 1;
     const firstDate = perf.find(r => (r.account_value ?? 0) > 0)?.date;
-    c2.addSeries(LineSeries, { color: "#60a5fa", lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Portfolio" })
+    c2.addSeries(LineSeries, { color: "#3b82f6" /* --chart-1 */, lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: "Portfolio" })
       .setData(perf.filter(r => r.account_value != null).map(r => ({ time: r.date, value: Math.round(r.account_value / firstAV * 10000) / 100 })));
     const spxAtFirst = firstDate ? spyForDate(spyMap, firstDate) : null;
     if (spxAtFirst) {

@@ -172,7 +172,7 @@ export default function CotDataPage() {
 
     // Net % line (right scale)
     const netSeries = mc.addSeries(LineSeries, {
-      color:            "#60a5fa",
+      color:            "#3b82f6", // --chart-1
       lineWidth:        2,
       priceScaleId:     "right",
       priceLineVisible: false,
@@ -341,7 +341,7 @@ export default function CotDataPage() {
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
                         <span style={{
-                          fontSize: 12, color: selected === item.contract ? "#60a5fa" : "#d1d5db",
+                          fontSize: 12, color: selected === item.contract ? "#3b82f6" : "#d1d5db",
                           fontWeight: selected === item.contract ? 600 : 400,
                         }}>
                           {item.label}

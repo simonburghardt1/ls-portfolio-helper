@@ -33,11 +33,12 @@ const REGIME_CONFIG = {
   ranging: { label: "Ranging",   color: "#f59e0b" },
 };
 
+// Colors follow the app's standard chart-series order (--chart-1..4 in globals.css)
 const COMPONENT_META = [
-  { key: "bmsb",    label: "BMSB",           color: "#10b981" },
-  { key: "breadth", label: "Market Breadth",  color: "#60a5fa" },
+  { key: "bmsb",    label: "BMSB",           color: "#3b82f6" },
+  { key: "breadth", label: "Market Breadth",  color: "#10b981" },
   { key: "vix",     label: "VIX",             color: "#f59e0b" },
-  { key: "credit",  label: "Credit",          color: "#a78bfa" },
+  { key: "credit",  label: "Credit",          color: "#8b5cf6" },
 ];
 
 const SCORE_LABELS = [
