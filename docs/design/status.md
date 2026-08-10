@@ -43,8 +43,8 @@
 **`--chart-1`…`--chart-11` tokens formalized 2026-08-11** (see DESIGN.md → Chart series colors). Adoption:
 
 - ✅ **Already matches by convention** (no change needed): backend indicator-color dicts in `building_permits.py`, `consumer_confidence.py`, `cpi_ppi.py`, `debt.py`, `gdp.py`, `nfib.py`; `ism-manufacturing/page.jsx`'s 11-component palette.
-- ✅ **Fixed 2026-08-11:** Dashboard (`(app)/page.js`)'s single-series chart line — was `var(--green-500)` (a legacy token, and semantically wrong per the positive/negative rule), now `var(--chart-1)`.
-- ⏳ **Not yet retrofitted — known follow-up, not urgent:** `cot-data/page.jsx` and `track-record/page.jsx`'s single-line charts currently use `#60a5fa` (a different, lighter blue) instead of `--chart-1` (`#3b82f6`). `market-regime/page.jsx`'s 4 component-signal colors (`{bmsb: "#10b981", breadth: "#60a5fa", vix: "#f59e0b", credit: "#a78bfa"}`) are also out of sequence — green/blue/amber/light-purple instead of the standard blue/green/amber/purple ordering. None of these are visually broken, just not yet unified onto the named tokens.
+- ✅ **Fixed 2026-08-11:** Dashboard (`(app)/page.js`)'s single-series chart line — was `var(--green-500)` (a legacy token, and semantically wrong per the positive/negative rule), now the literal `--chart-1` hex (`#3b82f6`; see DESIGN.md's note on why `var()` doesn't work here).
+- ✅ **Fixed 2026-08-11:** `cot-data/page.jsx` and `track-record/page.jsx`'s primary single-line series — were `#60a5fa` (a different, lighter blue), now `--chart-1`'s literal hex. Their secondary/comparison lines (cot-data's price overlay, Track Record's SPX benchmark, both amber) and Track Record's separate Realized PnL pane (orange) were left untouched — already correct. `market-regime/page.jsx`'s 4 component-signal colors were reordered onto `--chart-1..4` (BMSB blue, Market Breadth green, VIX amber unchanged, Credit purple) instead of the previous ad hoc green/blue/amber/light-purple mix.
 
 ## Open design decisions
 
