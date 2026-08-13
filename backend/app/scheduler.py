@@ -180,9 +180,9 @@ async def _job_high_beta_momentum():
     db = SessionLocal()
     try:
         update_high_beta_momentum(db)
-        log.info("High Beta Momentum monthly update OK.")
+        log.info("High Beta Momentum daily update OK.")
     except Exception as exc:
-        log.warning("High Beta Momentum monthly update failed: %s", exc)
+        log.warning("High Beta Momentum daily update failed: %s", exc)
     finally:
         db.close()
 
@@ -196,7 +196,7 @@ def create_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
     scheduler.add_job(_job_market_regime,   CronTrigger(hour=22, minute=0), id="market_regime_daily")
     scheduler.add_job(_job_commodities,     CronTrigger(hour=22, minute=10), id="commodities_daily")
-    scheduler.add_job(_job_high_beta_momentum, CronTrigger(day="1,2,3", hour=23, minute=0), id="hbm_monthly")
+    scheduler.add_job(_job_high_beta_momentum, CronTrigger(hour=23, minute=0), id="hbm_daily")
     scheduler.add_job(_job_ism,      CronTrigger(day="1,2,3",        hour=16, minute=0),  id="ism_monthly")
     scheduler.add_job(_job_fred_cpi, CronTrigger(day="10,11,12,13,14,15", hour=15, minute=0), id="cpi_monthly")
     return scheduler

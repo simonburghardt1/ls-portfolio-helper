@@ -381,9 +381,6 @@ def update_high_beta_momentum(db: Session):
 
     rb_dates = _month_end_dates(prices.index, years=1)
     new_rb_dates = [d for d in rb_dates if d.date() > last_rb]
-    if not new_rb_dates:
-        log.info("HBM update: no new month-end since %s.", last_rb)
-        return
 
     prior_rows = db.execute(select(HbmHolding).where(HbmHolding.rebalance_date == last_rb)).scalars().all()
     current_holdings = {r.ticker: r.weight for r in prior_rows}
@@ -401,9 +398,15 @@ def update_high_beta_momentum(db: Session):
         current_holdings = dict(zip(holdings_df["ticker"], holdings_df["weight"]))
         last_date = rb_date.date()
 
+    # Always extend the daily NAV chain through the latest downloaded trading day,
+    # independent of whether a new month-end rebalance happened this run.
     last_day = all_days[-1]
     if last_day > pd.Timestamp(last_date):
         index_level = _walk_forward(returns, all_days, last_date, last_day, current_holdings, index_level, nav_rows)
+
+    if not nav_rows and not holding_sets:
+        log.info("HBM update: no new trading days or rebalances since %s.", last_rb)
+        return
 
     _upsert_index(db, pd.DataFrame(nav_rows))
     for rb_date, holdings_df in holding_sets:
