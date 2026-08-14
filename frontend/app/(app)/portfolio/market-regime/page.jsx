@@ -492,7 +492,7 @@ export default function MarketRegimePage() {
       {/* Header */}
       <PageHeader
         title="Market Regime"
-        subtitle={<>Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth · VIX · Credit Spreads</strong> — daily closes.</>}
+        subtitle={<>Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth (RSP/SPY) · VIX (raw level, 52W range) · Credit Spread (HYG/LQD)</strong> — daily closes.</>}
       />
 
       {/* KPI strip */}
