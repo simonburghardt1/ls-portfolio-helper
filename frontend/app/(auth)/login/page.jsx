@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/app/lib/api";
@@ -13,6 +13,17 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Plain window.location (not next/navigation's useSearchParams) so this page
+  // doesn't need a Suspense boundary just to read one query flag. Read it in an
+  // effect, not a lazy useState initializer — computing it during the initial
+  // render diverges from the server-rendered (window-less) markup and trips a
+  // hydration mismatch.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("expired")) {
+      setError("Your session has expired. Please sign in again.");
+    }
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();

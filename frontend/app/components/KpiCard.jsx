@@ -13,15 +13,17 @@
  *
  * Props:
  *   id, label, value, formatted, unit, change, good_direction: as above
+ *   changeLabel: unit label next to the change value (default "MoM"); pass e.g.
+ *                "1D" for a day-over-day delta instead of month-over-month.
  *   onClick, isSelected: interactive-only, ignored when onClick is omitted
  *   small:       bool — denser padding/font for multi-tile strips
  *   valueColor:  optional explicit color override for the main value
  *                (defaults to --text-primary)
  *   caption:     optional plain muted line below the value (string or node),
- *                for a secondary fact that isn't a MoM delta (e.g. "score 0.55").
+ *                for a secondary fact that isn't a delta (e.g. "score 0.55").
  *                Ignored when `change` is present — `change` wins.
  */
-export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, onClick, isSelected, small = false, valueColor, caption }) {
+export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, changeLabel = "MoM", onClick, isSelected, small = false, valueColor, caption }) {
     const display = formatted ?? (value == null ? "--" : Number(value).toFixed(2));
 
     let changeEl = null;
@@ -34,7 +36,7 @@ export default function KpiCard({ id, label, value, formatted, unit, change, goo
             <div style={{ fontFamily: "var(--font-family-mono)", fontSize: "var(--text-data-sm-size)", fontWeight: "var(--text-data-sm-weight)", color, marginTop: 8, display: "flex", alignItems: "center", gap: 3 }}>
                 <span>{arrow}</span>
                 <span>{absChange}</span>
-                <span style={{ fontFamily: "var(--font-family-sans)", fontWeight: 400, color: "var(--text-secondary)", marginLeft: 2 }}>MoM</span>
+                <span style={{ fontFamily: "var(--font-family-sans)", fontWeight: 400, color: "var(--text-secondary)", marginLeft: 2 }}>{changeLabel}</span>
             </div>
         );
     } else if (caption != null) {

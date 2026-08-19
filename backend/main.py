@@ -24,6 +24,7 @@ from app.routers.commodities import router as commodities_router
 from app.routers.high_beta_momentum import router as high_beta_momentum_router
 from app.routers.gdp import router as gdp_router
 from app.routers.debt import router as debt_router
+from app.routers.basket import router as basket_router
 from app.scheduler import create_scheduler
 
 
@@ -66,6 +67,7 @@ app.include_router(commodities_router)
 app.include_router(high_beta_momentum_router)
 app.include_router(gdp_router)
 app.include_router(debt_router)
+app.include_router(basket_router)
 
 
 # Keep your hello endpoint if you want
