@@ -1,37 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
-import {
-  createChart,
-  ColorType,
-  CrosshairMode,
-  LineSeries,
-  HistogramSeries,
-  PriceScaleMode,
-} from "lightweight-charts";
+import { useState, useEffect, useMemo } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import KpiCard from "@/app/components/KpiCard";
+import RegimeChart, { REGIME_CONFIG, REGIME_COLORS } from "@/app/components/RegimeChart";
+import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
 
 const API = "http://localhost:8000";
 
 const DEFAULT_WEIGHTS = { bmsb: 0.30, breadth: 0.28, vix: 0.17, credit: 0.25 };
-
-// Canvas (lightweight-charts) colors can't consume CSS vars, so these are literal
-// rgb bases matching --positive/--negative/--caution in globals.css.
-const REGIME_COLORS = {
-  up:      "rgba(52, 211, 153, 0.45)",
-  down:    "rgba(242, 88,  92,  0.50)",
-  ranging: "rgba(245, 158,  11, 0.38)",
-};
-
-// Hex literals (not CSS vars) because these feed `${color}NN` hex-alpha-suffix
-// concatenation below — kept in sync with --positive/--negative/--caution.
-const REGIME_CONFIG = {
-  up:      { label: "Uptrend",   color: "#34d399" },
-  down:    { label: "Downtrend", color: "#f2585c" },
-  ranging: { label: "Ranging",   color: "#f59e0b" },
-};
 
 // Colors follow the app's standard chart-series order (--chart-1..4 in globals.css)
 const COMPONENT_META = [
@@ -59,87 +37,9 @@ const PERIODS = [
 
 const THRESHOLD = 0.2;
 const EWM_SPAN  = 10;
-
-// ─── Custom Primitive — regime background fills ───────────────────────────────
-
-class RegimeRenderer {
-  constructor(source) { this._source = source; }
-  draw(target) {
-    target.useBitmapCoordinateSpace(({ context, bitmapSize, horizontalPixelRatio }) => {
-      const chart = this._source._chart;
-      if (!chart) return;
-      const ts = chart.timeScale();
-      for (const block of this._source._blocks) {
-        let x1 = ts.timeToCoordinate(block.x1);
-        let x2 = ts.timeToCoordinate(block.x2);
-        if (x1 === null && x2 === null) continue;
-        if (x1 === null) x1 = 0;
-        if (x2 === null) x2 = bitmapSize.width / horizontalPixelRatio;
-        const left  = Math.round(Math.min(x1, x2) * horizontalPixelRatio);
-        const right = Math.round(Math.max(x1, x2) * horizontalPixelRatio);
-        context.fillStyle = REGIME_COLORS[block.regime] ?? "transparent";
-        context.fillRect(left, 0, right - left, bitmapSize.height);
-      }
-    });
-  }
-}
-class RegimePaneView {
-  constructor(source) { this._renderer = new RegimeRenderer(source); }
-  renderer() { return this._renderer; }
-  zOrder()   { return "bottom"; }
-}
-class RegimePrimitive {
-  constructor(blocks) { this._blocks = blocks; this._chart = null; this._views = []; }
-  attached({ chart }) { this._chart = chart; this._views = [new RegimePaneView(this)]; }
-  detached()          { this._chart = null; this._views = []; }
-  updateAllViews()    {}
-  paneViews()         { return this._views; }
-}
+const MARKET_THRESHOLDS = { up: THRESHOLD, down: -THRESHOLD };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function buildRegimeBlocks(dates, regimes) {
-  const blocks = [];
-  let start = null, current = null;
-  for (let i = 0; i < regimes.length; i++) {
-    if (regimes[i] !== current) {
-      if (current !== null) blocks.push({ regime: current, x1: start, x2: dates[i] });
-      current = regimes[i]; start = dates[i];
-    }
-  }
-  if (current !== null) {
-    const d = new Date(dates[dates.length - 1]);
-    d.setDate(d.getDate() + 7);
-    blocks.push({ regime: current, x1: start, x2: d.toISOString().slice(0, 10) });
-  }
-  return blocks.filter((b) => b.regime !== null);
-}
-
-function lastNonNull(arr) {
-  if (!arr) return null;
-  for (let i = arr.length - 1; i >= 0; i--) {
-    if (arr[i] != null) return arr[i];
-  }
-  return null;
-}
-
-function scoreToRegime(score) {
-  if (score == null) return null;
-  if (score >  THRESHOLD) return "up";
-  if (score < -THRESHOLD) return "down";
-  return "ranging";
-}
-
-function getCurrentRegimeInfo(regimes, dates, prices) {
-  if (!regimes?.length) return null;
-  let i = regimes.length - 1;
-  while (i >= 0 && regimes[i] === null) i--;
-  if (i < 0) return null;
-  const regime = regimes[i];
-  let start = i;
-  while (start > 0 && regimes[start - 1] === regime) start--;
-  return { regime, weeks: i - start + 1, date: dates[i], price: prices[i] };
-}
 
 function getYtdReturn(dates, prices) {
   if (!dates?.length) return null;
@@ -197,19 +97,10 @@ export default function MarketRegimePage() {
   const [error,    setError]    = useState(null);
   const [period,   setPeriod]   = useState("1Y");
   const [logScale, setLogScale] = useState(false);
-  const [tooltip,  setTooltip]  = useState(null);
 
   const [weights,        setWeights]        = useState(DEFAULT_WEIGHTS);
   const [pendingWeights, setPendingWeights] = useState(DEFAULT_WEIGHTS);
   const [weightsOpen,    setWeightsOpen]    = useState(false);
-
-  const mainRef   = useRef(null);
-  const subRef    = useRef(null);
-  const compRef   = useRef(null);
-  const mainChart = useRef(null);
-  const subChart  = useRef(null);
-  const compChart = useRef(null);
-  const syncing   = useRef(false);
 
   const isDefaultWeights = Object.entries(weights).every(
     ([k, v]) => Math.abs(v - DEFAULT_WEIGHTS[k]) < 0.001
@@ -228,232 +119,34 @@ export default function MarketRegimePage() {
     return recomputeComposite(data, weights);
   }, [data, weights]);
 
-  // Build all three charts when computedData changes; save+restore visible range
-  useEffect(() => {
-    if (!computedData || !mainRef.current || !subRef.current || !compRef.current) return;
-
-    const savedRange = mainChart.current?.timeScale().getVisibleRange() ?? null;
-
-    mainChart.current?.remove();
-    subChart.current?.remove();
-    compChart.current?.remove();
-
+  // RegimeChart props — recomputed only when the underlying data/weights change,
+  // so RegimeChart's internal rebuild effect fires exactly when it did before.
+  const chartProps = useMemo(() => {
+    if (!computedData) return null;
     const { dates, prices, ema21, sma20, regimes, composite, scores } = computedData;
-    const blocks = buildRegimeBlocks(dates, regimes);
-
-    // Component labels with current weight %
-    const compLabels = Object.fromEntries(
-      COMPONENT_META.map(({ key, label, color }) => [
-        key,
-        {
-          color,
-          label: `${label} (${Math.round(weights[key] * 100)}%)`,
-        },
-      ])
-    );
-
-    // ── Main chart ────────────────────────────────────────────────────────────
-    const mc = createChart(mainRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
-      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { color: "rgba(55,65,81,0.35)" } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151" },
-      timeScale: { borderColor: "#374151", timeVisible: false },
-      width: mainRef.current.clientWidth,
-      height: 460,
-    });
-    mainChart.current = mc;
-
-    const emaSeries = mc.addSeries(LineSeries, {
-      color: "#a78bfa", lineWidth: 1.5, lineStyle: 1,
-      priceLineVisible: false, lastValueVisible: false, title: "EMA-21W",
-    });
-    emaSeries.setData(dates.map((d, i) => ({ time: d, value: ema21[i] })).filter((p) => p.value != null));
-
-    const smaSeries = mc.addSeries(LineSeries, {
-      color: "#fb923c", lineWidth: 1.5, lineStyle: 1,
-      priceLineVisible: false, lastValueVisible: false, title: "SMA-20W",
-    });
-    smaSeries.setData(dates.map((d, i) => ({ time: d, value: sma20[i] })).filter((p) => p.value != null));
-
-    const priceSeries = mc.addSeries(LineSeries, {
-      color: "#e5e7eb", lineWidth: 2,
-      priceLineVisible: false, lastValueVisible: true, title: "SPY",
-    });
-    priceSeries.setData(dates.map((d, i) => ({ time: d, value: prices[i] })).filter((p) => p.value != null));
-    priceSeries.attachPrimitive(new RegimePrimitive(blocks));
-
-    mc.timeScale().fitContent();
-
-    mc.subscribeCrosshairMove((param) => {
-      if (!param.time || !param.point) { setTooltip(null); return; }
-      setTooltip({
-        x: param.point.x, y: param.point.y, date: param.time,
-        spy: param.seriesData.get(priceSeries)?.value,
-        ema: param.seriesData.get(emaSeries)?.value,
-        sma: param.seriesData.get(smaSeries)?.value,
-      });
-    });
-
-    // ── Sub chart (composite score) ───────────────────────────────────────────
-    const sc = createChart(subRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
-      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { visible: false } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151", scaleMargins: { top: 0.1, bottom: 0.1 } },
-      timeScale: { borderColor: "#374151", timeVisible: true },
-      width: subRef.current.clientWidth,
-      height: 130,
-    });
-    subChart.current = sc;
-
-    const histSeries = sc.addSeries(HistogramSeries, {
-      priceLineVisible: false, lastValueVisible: false,
-      base: 0,
-    });
-    histSeries.setData(
-      dates
-        .map((d, i) => ({
-          time: d,
-          value: composite[i],
-          color: composite[i] == null ? "transparent"
-               : composite[i] > 0 ? "rgba(52,211,153,0.75)" : "rgba(242,88,92,0.75)",
-        }))
-        .filter((p) => p.value != null)
-    );
-
-    const threshUp = sc.addSeries(LineSeries, {
-      color: "rgba(52,211,153,0.45)", lineWidth: 1, lineStyle: 2,
-      priceLineVisible: false, lastValueVisible: false,
-    });
-    const threshDn = sc.addSeries(LineSeries, {
-      color: "rgba(242,88,92,0.45)", lineWidth: 1, lineStyle: 2,
-      priceLineVisible: false, lastValueVisible: false,
-    });
-    const validDates = dates.filter((_, i) => composite[i] != null);
-    if (validDates.length >= 2) {
-      const first = validDates[0], last = validDates[validDates.length - 1];
-      threshUp.setData([{ time: first, value:  0.2 }, { time: last, value:  0.2 }]);
-      threshDn.setData([{ time: first, value: -0.2 }, { time: last, value: -0.2 }]);
-    }
-
-    sc.timeScale().fitContent();
-
-    // ── Component signals chart ───────────────────────────────────────────────
-    const cc = createChart(compRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
-      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { visible: false } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151", scaleMargins: { top: 0.05, bottom: 0.05 } },
-      timeScale: { borderColor: "#374151", timeVisible: true },
-      width: compRef.current.clientWidth,
-      height: 220,
-    });
-    compChart.current = cc;
-
-    for (const [key, { color, label }] of Object.entries(compLabels)) {
-      const s = cc.addSeries(LineSeries, {
-        color, lineWidth: 1.5,
-        priceLineVisible: false, lastValueVisible: true, title: label,
-      });
-      s.setData(
-        dates.map((d, i) => ({ time: d, value: scores?.[key]?.[i] }))
-             .filter((p) => p.value != null)
-      );
-    }
-
-    const zeroLine = cc.addSeries(LineSeries, {
-      color: "rgba(100,116,139,0.35)", lineWidth: 1, lineStyle: 2,
-      priceLineVisible: false, lastValueVisible: false,
-    });
-    const validDatesComp = dates.filter((_, i) => composite[i] != null);
-    if (validDatesComp.length >= 2) {
-      zeroLine.setData([
-        { time: validDatesComp[0], value: 0 },
-        { time: validDatesComp[validDatesComp.length - 1], value: 0 },
-      ]);
-    }
-    cc.timeScale().fitContent();
-
-    // Restore saved range or apply initial period
-    if (savedRange) {
-      mc.timeScale().setVisibleRange(savedRange);
-      sc.timeScale().setVisibleRange(savedRange);
-      cc.timeScale().setVisibleRange(savedRange);
-    } else {
-      const initialPeriod = PERIODS.find((p) => p.label === period);
-      if (initialPeriod?.years) {
-        const to = new Date(), from = new Date();
-        from.setFullYear(from.getFullYear() - initialPeriod.years);
-        const range = { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-        mc.timeScale().setVisibleRange(range);
-        sc.timeScale().setVisibleRange(range);
-        cc.timeScale().setVisibleRange(range);
-      }
-    }
-
-    // ── Sync time scales ──────────────────────────────────────────────────────
-    mc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      sc.timeScale().setVisibleRange(range);
-      cc.timeScale().setVisibleRange(range);
-      syncing.current = false;
-    });
-    sc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      mc.timeScale().setVisibleRange(range);
-      cc.timeScale().setVisibleRange(range);
-      syncing.current = false;
-    });
-    cc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      mc.timeScale().setVisibleRange(range);
-      sc.timeScale().setVisibleRange(range);
-      syncing.current = false;
-    });
-
-    // ── Resize ────────────────────────────────────────────────────────────────
-    const ro = new ResizeObserver(() => {
-      mc.applyOptions({ width: mainRef.current?.clientWidth ?? 600 });
-      sc.applyOptions({ width: subRef.current?.clientWidth ?? 600 });
-      cc.applyOptions({ width: compRef.current?.clientWidth ?? 600 });
-    });
-    ro.observe(mainRef.current);
-
-    return () => {
-      ro.disconnect();
-      mc.remove(); mainChart.current = null;
-      sc.remove(); subChart.current  = null;
-      cc.remove(); compChart.current = null;
+    return {
+      dates,
+      price: { data: prices, label: "SPY", color: "#e5e7eb", formatValue: (v) => `$${v.toFixed(2)}` },
+      overlays: [
+        { key: "ema21", label: "EMA-21W", color: "#a78bfa", data: ema21 },
+        { key: "sma20", label: "SMA-20W", color: "#fb923c", data: sma20 },
+      ],
+      regimes,
+      composite: { data: composite, domain: [-1, 1], thresholds: MARKET_THRESHOLDS },
+      components: COMPONENT_META.map(({ key, label, color }) => ({
+        key, label, color, weight: weights[key], data: scores?.[key],
+      })),
     };
-  }, [computedData]);
+  }, [computedData, weights]);
 
-  // Period → visible range
-  useEffect(() => {
-    if (!mainChart.current) return;
+  // Period → visible range (drives RegimeChart's light-touch zoom effect)
+  const visibleRange = useMemo(() => {
     const sel = PERIODS.find((p) => p.label === period);
-    if (!sel?.years) {
-      mainChart.current.timeScale().fitContent();
-    } else {
-      const to = new Date(), from = new Date();
-      from.setFullYear(from.getFullYear() - sel.years);
-      mainChart.current.timeScale().setVisibleRange({
-        from: from.toISOString().slice(0, 10),
-        to:   to.toISOString().slice(0, 10),
-      });
-    }
+    if (!sel?.years) return null;
+    const to = new Date(), from = new Date();
+    from.setFullYear(from.getFullYear() - sel.years);
+    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
   }, [period]);
-
-  // Log scale
-  useEffect(() => {
-    if (!mainChart.current) return;
-    mainChart.current.priceScale("right").applyOptions({
-      mode: logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
-    });
-  }, [logScale]);
 
   function handleOpenWeights() {
     setPendingWeights(weights);
@@ -473,13 +166,14 @@ export default function MarketRegimePage() {
   if (error)   return <div style={{ padding: "40px 32px", color: "var(--negative)", fontSize: 13 }}>Error: {error}</div>;
 
   const { dates, prices, regimes, composite, scores } = computedData;
-  const currentInfo = getCurrentRegimeInfo(regimes, dates, prices);
-  const ytdReturn   = getYtdReturn(dates, prices);
-  const cfg         = currentInfo ? REGIME_CONFIG[currentInfo.regime] : null;
+  const currentInfo  = getCurrentRegimeInfo(regimes, dates);
+  const currentPrice = currentInfo ? prices[currentInfo.index] : null;
+  const ytdReturn     = getYtdReturn(dates, prices);
+  const cfg           = currentInfo ? REGIME_CONFIG[currentInfo.regime] : null;
 
   const componentKpis = SCORE_LABELS.map(({ key, label }) => {
     const score   = lastNonNull(scores?.[key]);
-    const regime  = scoreToRegime(score);
+    const regime  = scoreToRegime(score, MARKET_THRESHOLDS);
     const regCfg  = regime ? REGIME_CONFIG[regime] : null;
     return { key, label, score, regime, color: regCfg?.color ?? "#6b7280", regLabel: regCfg?.label ?? "—" };
   });
@@ -504,7 +198,7 @@ export default function MarketRegimePage() {
             valueColor={cfg.color}
             small
             caption={<>
-              {currentInfo.weeks} weeks · score {lastNonNull(composite)?.toFixed(2)}
+              {currentInfo.periods} weeks · score {lastNonNull(composite)?.toFixed(2)}
               {!isDefaultWeights && <span style={{ color: "var(--caution)", marginLeft: 6 }}>custom</span>}
             </>}
           />
@@ -521,7 +215,7 @@ export default function MarketRegimePage() {
           />
         ))}
 
-        <KpiCard label="SPY Price" formatted={currentInfo ? `$${currentInfo.price.toFixed(2)}` : "—"} small />
+        <KpiCard label="SPY Price" formatted={currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"} small />
         <KpiCard
           label="SPY YTD"
           formatted={ytdReturn != null ? `${ytdReturn >= 0 ? "+" : ""}${ytdReturn.toFixed(2)}%` : "—"}
@@ -625,50 +319,16 @@ export default function MarketRegimePage() {
         </div>
       )}
 
-      {/* Main price chart */}
-      <div style={{ position: "relative", background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
-        <div ref={mainRef} />
-        {tooltip && (
-          <div style={{
-            position: "absolute",
-            left: Math.min(tooltip.x + 16, (mainRef.current?.clientWidth ?? 600) - 170),
-            top: Math.max(tooltip.y - 10, 8),
-            background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-            padding: "8px 12px", fontSize: 12, pointerEvents: "none", zIndex: 10, minWidth: 150,
-          }}>
-            <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>{tooltip.date}</div>
-            {tooltip.spy != null && <div style={{ color: "var(--text-primary)" }}>SPY <strong>${tooltip.spy.toFixed(2)}</strong></div>}
-            {tooltip.ema != null && <div style={{ color: "#a78bfa" }}>EMA-21W <strong>${tooltip.ema.toFixed(2)}</strong></div>}
-            {tooltip.sma != null && <div style={{ color: "#fb923c" }}>SMA-20W <strong>${tooltip.sma.toFixed(2)}</strong></div>}
-          </div>
-        )}
-      </div>
-
-      {/* Composite score sub-pane */}
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderTop: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
-        <div style={{ padding: "4px 8px 0", fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          Composite Score
-        </div>
-        <div ref={subRef} />
-      </div>
-
-      {/* Component signals chart */}
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginTop: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
-          Component Signals
-        </div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
-          {COMPONENT_META.map(({ key, color, label }) => (
-            <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#9ca3af" }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ color }}>
-                {label} ({Math.round(weights[key] * 100)}%)
-              </span>
-            </div>
-          ))}
-        </div>
-        <div ref={compRef} />
-      </div>
+      <RegimeChart
+        dates={chartProps.dates}
+        price={chartProps.price}
+        overlays={chartProps.overlays}
+        regimes={chartProps.regimes}
+        composite={chartProps.composite}
+        components={chartProps.components}
+        visibleRange={visibleRange}
+        logScale={logScale}
+      />
 
       {/* Algorithm note */}
       <div style={{ marginTop: 16, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>

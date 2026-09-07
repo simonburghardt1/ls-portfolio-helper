@@ -14,6 +14,7 @@ from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.basket import BasketValidationError
 from app.services import basket as basket_service
+from app.services import basket_regime as basket_regime_service
 
 router = APIRouter(prefix="/api/baskets", tags=["baskets"])
 
@@ -53,6 +54,30 @@ class BasketSeriesOut(BaseModel):
     holdings: list[HoldingOut]
 
 
+class BasketCompareOut(BaseModel):
+    ticker: str
+    dates: list[str]
+    prices: list[float]
+
+
+class RegimeComponentsOut(BaseModel):
+    bmsb: list[float | None]
+    vol: list[float | None]
+    breadth: list[float | None]
+    relative_strength: list[float | None]
+
+
+class BasketRegimeOut(BaseModel):
+    dates: list[str]
+    score01: list[float | None]
+    components: RegimeComponentsOut
+    breadth_pct: list[float | None]
+    basket_vix: float | None
+    prices: list[float | None]
+    ema21: list[float | None]
+    sma20: list[float | None]
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[BasketOut])
@@ -85,6 +110,34 @@ def get_basket_series(
     if series is None:
         raise HTTPException(status_code=404, detail="Basket not found.")
     return series
+
+
+@router.get("/{basket_id}/compare", response_model=BasketCompareOut)
+def get_basket_compare(
+    basket_id: int,
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        compare = basket_service.get_basket_compare(db, basket_id, user_id=current_user.id, ticker=ticker)
+    except BasketValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if compare is None:
+        raise HTTPException(status_code=404, detail="Basket not found.")
+    return compare
+
+
+@router.get("/{basket_id}/regime", response_model=BasketRegimeOut)
+def get_basket_regime(
+    basket_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    regime = basket_regime_service.compute_basket_regime(db, basket_id, user_id=current_user.id)
+    if regime is None:
+        raise HTTPException(status_code=404, detail="Basket not found.")
+    return regime
 
 
 @router.post("", response_model=BasketOut, status_code=201)

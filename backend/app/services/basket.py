@@ -18,7 +18,21 @@ log = logging.getLogger(__name__)
 MIN_HOLDINGS = 5
 MAX_HOLDINGS = 20
 WEIGHTING_METHODS = ("equal", "market_cap")
-SERIES_LOOKBACK_DAYS = 420  # comfortably covers 1Y, YTD (any time of year), 3M, 1M, 1W
+SERIES_LOOKBACK_DAYS = 500  # covers 1Y/YTD/3M/1M/1W with margin, plus >=290 trading days
+                            # so basket_regime's 260-day rolling vol-normalization window
+                            # (+ its own 30-day warmup) has enough history to not always be null
+
+# Plain ETF tickers, not raw index tickers — matches this codebase's convention everywhere
+# else a benchmark is needed (market_regime.py/high_beta_momentum.py/portfolio.py all use
+# "SPY", never "^GSPC"). Frontend keeps a matching copy of these labels (BasketDetailPage) —
+# keep both in sync if this list changes.
+COMPARISON_BENCHMARKS: dict[str, str] = {
+    "SPY": "S&P 500",
+    "QQQ": "Nasdaq 100",
+    "DIA": "Dow Jones",
+    "IWM": "Russell 2000",
+    "BTC-USD": "Bitcoin",
+}
 
 
 class BasketValidationError(Exception):
@@ -212,8 +226,38 @@ def _latest_and_change(index_level: list[float]) -> tuple[float | None, float | 
     return latest, change
 
 
+def _nav_since_inception(dates: list[str], index_level: list[float], created_at: datetime) -> float | None:
+    """
+    Latest NAV rebased to the Basket's real creation date — NOT to _reconstruct_series's
+    ~500-day analysis window, which starts at "today minus SERIES_LOOKBACK_DAYS" and has
+    nothing to do with when the Basket actually came into existence. Without this, a Basket
+    created yesterday could show a "Latest NAV" like 152 purely because its current holdings
+    happened to be up ~50% over the unrelated ~500-day backtest window — misleading, since the
+    Basket itself has only existed for one day.
+
+    Rebases from whichever reconstructed date is CLOSEST to creation, not the first date
+    on-or-after it — a Basket created "today" commonly has no on-or-after match at all yet
+    (yfinance's daily bar can lag the actual calendar day, e.g. before that day's close, or
+    over a weekend), which would otherwise make a brand-new Basket's NAV silently go null
+    right after creation instead of reading ~100.
+    """
+    if not dates or not index_level:
+        return None
+    inception = created_at.date()
+    idx = min(
+        range(len(dates)),
+        key=lambda i: abs((date.fromisoformat(dates[i]) - inception).days),
+    )
+    base = index_level[idx]
+    if not base:
+        return None
+    return round(100 * index_level[-1] / base, 4)
+
+
 def _basket_dict(b: Basket, series: dict, tickers: list[str]) -> dict:
-    latest_nav, nav_change_pct = _latest_and_change(series.get("index_level", []))
+    index_level = series.get("index_level", [])
+    _, nav_change_pct = _latest_and_change(index_level)  # 1D change is anchor-independent, unaffected
+    latest_nav = _nav_since_inception(series.get("dates", []), index_level, b.created_at)
     return {
         "id": b.id,
         "name": b.name,
@@ -280,3 +324,33 @@ def get_basket_series(db: Session, basket_id: int, user_id: int) -> dict | None:
         for t in tickers
     ]
     return {"dates": series["dates"], "index_level": series["index_level"], "holdings": holdings}
+
+
+def get_basket_compare(db: Session, basket_id: int, user_id: int, ticker: str) -> dict | None:
+    """
+    One comparison ticker's own price series, for the frontend to overlay on the Basket
+    chart. Deliberately NOT aligned to the Basket's own dates — the frontend independently
+    rebases both series to 100 at the same target calendar date (the existing rebase()
+    helper), and the chart component already supports two datasets with independent date
+    arrays, so no backend-side date-alignment is needed.
+    """
+    basket = basket_repo.get_basket(db, basket_id)
+    if not basket or not _visible_to(basket, user_id):
+        return None
+
+    ticker = ticker.strip().upper()
+    constituent_tickers = {c.ticker for c in basket_repo.get_current_constituents(db, basket_id)}
+    if ticker not in COMPARISON_BENCHMARKS and ticker not in constituent_tickers:
+        raise BasketValidationError(
+            f"'{ticker}' is not a recognized comparison ticker — choose one of "
+            f"{', '.join(COMPARISON_BENCHMARKS)} or one of this Basket's own holdings."
+        )
+
+    start = (datetime.now(timezone.utc).date() - timedelta(days=SERIES_LOOKBACK_DAYS)).isoformat()
+    closes = _download_close(ticker, start).dropna()
+
+    return {
+        "ticker": ticker,
+        "dates": [d.strftime("%Y-%m-%d") for d in closes.index],
+        "prices": [round(float(v), 4) for v in closes],
+    }
