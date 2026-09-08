@@ -166,10 +166,18 @@ def update_basket(
     )
 
 
-def _download_close(ticker: str, start: str) -> pd.Series:
-    """Same shape as market_regime.py's _dl helper — one ticker's daily Close series."""
+def _download_close(ticker: str, start: str, end: str | None = None) -> pd.Series:
+    """Same shape as market_regime.py's _dl helper — one ticker's daily Close series.
+    `end` is optional (omit for "through today", matching yf.download's own default) —
+    added for asset_price_provider.py's arbitrary-window callers; existing callers that
+    never pass it keep today's exact behavior."""
     try:
-        raw = yf.download(ticker, start=start, interval="1d", auto_adjust=True, progress=False)
+        # yfinance treats an explicit end=None differently from omitting the kwarg entirely —
+        # passing None resolves to "now" internally and raises when start is in the future
+        # (e.g. a same-day re-run computing tomorrow as its next start), instead of the clean
+        # empty-DataFrame result omitting `end` gives. Only pass it through when it's real.
+        kwargs = {"end": end} if end is not None else {}
+        raw = yf.download(ticker, start=start, interval="1d", auto_adjust=True, progress=False, **kwargs)
         if raw.empty:
             return pd.Series(dtype=float, name=ticker)
         if isinstance(raw.columns, pd.MultiIndex):
@@ -183,7 +191,9 @@ def _download_close(ticker: str, start: str) -> pd.Series:
         return pd.Series(dtype=float, name=ticker)
 
 
-def _reconstruct_series(tickers: list[str], weights: dict[str, float]) -> dict:
+def _reconstruct_series(
+    tickers: list[str], weights: dict[str, float], start: str | None = None, end: str | None = None
+) -> dict:
     """
     Fixed-weight buy-and-hold index for the given tickers/weights — a basket held like an ETF:
     dollar-weighted at the start of the lookback window, never rebalanced. This is the single
@@ -194,13 +204,18 @@ def _reconstruct_series(tickers: list[str], weights: dict[str, float]) -> dict:
     stays write-only (one day-zero row from creation, never read) unless a concrete future need
     (e.g. Epic 4 backtesting) actually requires persisted history.
 
+    `start`/`end` are optional overrides of the default SERIES_LOOKBACK_DAYS window — added for
+    asset_price_provider.py's arbitrary-window callers; existing callers that never pass them
+    keep today's exact ~500-day-lookback behavior.
+
     Returns {} dates/index_level/ticker_prices, all empty, if fewer than 2 common trading days
     are available across every ticker.
     """
-    start = (datetime.now(timezone.utc).date() - timedelta(days=SERIES_LOOKBACK_DAYS)).isoformat()
+    if start is None:
+        start = (datetime.now(timezone.utc).date() - timedelta(days=SERIES_LOOKBACK_DAYS)).isoformat()
 
     with ThreadPoolExecutor(max_workers=min(len(tickers), 8)) as pool:
-        closes = list(pool.map(lambda t: _download_close(t, start), tickers))
+        closes = list(pool.map(lambda t: _download_close(t, start, end), tickers))
 
     df = pd.concat(closes, axis=1).dropna(how="any")
     if len(df) < 2:

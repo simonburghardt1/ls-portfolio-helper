@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.market_data import MarketPrice, MarketRegimeRow
+from app.services.asset_price_provider import get_price_series
 
 log = logging.getLogger(__name__)
 
@@ -92,35 +93,18 @@ def _fmt(val):
     return round(float(val), 4) if val is not None and not pd.isna(val) else None
 
 # ─── yfinance download ─────────────────────────────────────────────────────────
+# Routed through the Universal Asset Price Provider (AD-9) — SPY-calendar alignment
+# (reindex(..., method="nearest", tolerance=4d)) now lives there, ported verbatim from
+# this file's own original _dl/align pattern; kept as this module's exact contract.
 
-def _dl(ticker: str, start: str) -> pd.Series:
-    try:
-        raw = yf.download(ticker, start=start, interval="1d",
-                          auto_adjust=True, progress=False)
-        if raw.empty:
-            return pd.Series(dtype=float, name=ticker)
-        if isinstance(raw.columns, pd.MultiIndex):
-            for key in [("Close", ticker), (ticker, "Close")]:
-                if key in raw.columns:
-                    return raw[key].rename(ticker)
-            return pd.Series(dtype=float, name=ticker)
-        return raw["Close"].squeeze().rename(ticker)
-    except Exception as e:
-        log.warning("_dl(%s) failed: %s", ticker, e)
-        return pd.Series(dtype=float, name=ticker)
-
-
-def _download_all(spy_start: str) -> dict[str, pd.Series]:
-    spy = _dl("SPY", spy_start).dropna()
-    tol = pd.Timedelta("4d")
-    def align(s):
-        return s.reindex(spy.index, method="nearest", tolerance=tol)
+def _download_all(db: Session, spy_start: str) -> dict[str, pd.Series]:
+    spy = get_price_series(db, "stock", "SPY", spy_start)
     return {
         "spy": spy,
-        "rsp": align(_dl("RSP",  TICKER_STARTS["RSP"])),
-        "vix": align(_dl("^VIX", spy_start)),
-        "hyg": align(_dl("HYG",  TICKER_STARTS["HYG"])),
-        "lqd": align(_dl("LQD",  TICKER_STARTS["LQD"])),
+        "rsp": get_price_series(db, "stock", "RSP",  TICKER_STARTS["RSP"], spy_series=spy),
+        "vix": get_price_series(db, "stock", "^VIX", spy_start,            spy_series=spy),
+        "hyg": get_price_series(db, "stock", "HYG",  TICKER_STARTS["HYG"], spy_series=spy),
+        "lqd": get_price_series(db, "stock", "LQD",  TICKER_STARTS["LQD"], spy_series=spy),
     }
 
 # ─── Core computation ──────────────────────────────────────────────────────────
@@ -233,7 +217,7 @@ def seed_market_data(db: Session):
     db.execute(sa_delete(MarketRegimeRow))
     db.execute(sa_delete(MarketPrice))
     db.commit()
-    series = _download_all("1998-01-01")
+    series = _download_all(db, "1998-01-01")
     _upsert_prices(db, series)
     df = _compute(series)
     _upsert_regime(db, df)
@@ -282,7 +266,7 @@ def update_market_data(db: Session):
 
     # Download only new data (from last stored date onwards)
     new_start = (last + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    new_series = _download_all(new_start)
+    new_series = _download_all(db, new_start)
 
     if new_series["spy"].empty:
         log.info("Market regime: no new data since %s.", last)
@@ -407,25 +391,4 @@ def compare_regime_weights(db: Session, config_a: dict, config_b: dict) -> dict:
         "config_b":   stats_for(config_b),
         "row_count":  len(rows),
         "date_range": [dates[0].isoformat(), dates[-1].isoformat()],
-    }
-
-
-def compute_market_regime(start: str = "1998-01-01") -> dict:
-    """Legacy live-compute path (no DB). Still used as fallback."""
-    series = _download_all(start)
-    df = _compute(series)
-    spy = series["spy"]
-    return {
-        "dates":     [d.strftime("%Y-%m-%d") for d in df.index],
-        "prices":    [_fmt(v) for v in spy],
-        "ema21":     [_fmt(v) for v in df["ema21"]],
-        "sma20":     [_fmt(v) for v in df["sma20"]],
-        "regimes":   list(df["regime"]),
-        "composite": [_fmt(v) for v in df["composite"]],
-        "scores": {
-            "bmsb":    [_fmt(v) for v in df["score_bmsb"]],
-            "breadth": [_fmt(v) for v in df["score_breadth"]],
-            "vix":     [_fmt(v) for v in df["score_vix"]],
-            "credit":  [_fmt(v) for v in df["score_credit"]],
-        },
     }
