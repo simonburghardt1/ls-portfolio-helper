@@ -62,7 +62,7 @@ const NAV = [
         label: "Single Stock Analysis",
         items: [
           { label: "Volatility (DoR, ATR)", href: "/portfolio/single-stock/volatility",  soon: true },
-          { label: "Correlation",           href: "/portfolio/single-stock/correlation", soon: true },
+          { label: "Correlation",           href: "/portfolio/single-stock/correlation" },
           { label: "Beta",                  href: "/portfolio/single-stock/beta",        soon: true },
         ],
       },
