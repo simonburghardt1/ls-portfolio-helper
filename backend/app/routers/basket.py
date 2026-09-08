@@ -73,6 +73,8 @@ class BasketRegimeOut(BaseModel):
     components: RegimeComponentsOut
     breadth_pct: list[float | None]
     basket_vix: float | None
+    realized_vol_last: float | None
+    iv_rv_ratio: float | None
     prices: list[float | None]
     ema21: list[float | None]
     sma20: list[float | None]

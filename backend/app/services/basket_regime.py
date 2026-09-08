@@ -138,14 +138,14 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
 
     constituents = basket_repo.get_current_constituents(db, basket_id)
     if not constituents:
-        return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "prices": [], "ema21": [], "sma20": []}
+        return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "realized_vol_last": None, "iv_rv_ratio": None, "prices": [], "ema21": [], "sma20": []}
 
     tickers = [c.ticker for c in constituents]
     weights = {c.ticker: c.weight for c in constituents}
 
     series = _reconstruct_series(tickers, weights)
     if not series["dates"]:
-        return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "prices": [], "ema21": [], "sma20": []}
+        return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "realized_vol_last": None, "iv_rv_ratio": None, "prices": [], "ema21": [], "sma20": []}
 
     dates = pd.to_datetime(series["dates"])
     nav = pd.Series(series["index_level"], index=dates)
@@ -191,6 +191,20 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
     composite_smoothed = composite_series.ewm(span=SMOOTH_SPAN, adjust=False).mean()
     score01 = ((composite_smoothed + 1) / 2 * 100).clip(0, 100)
 
+    # IV/RV ratio: today's live Basket VIX (implied vol) against today's realized vol —
+    # a snapshot-only comparison, not a scored/history-backed component. We can't score
+    # or chart this over time the way the other four components are (see module
+    # docstring: yfinance has no historical options data, so there's nothing to
+    # normalize against a rolling range), but a same-day ratio needs no history at all.
+    basket_vix_value = _basket_vix(tickers, weights)
+    realized_vol_last = realized_vol.iloc[-1]
+    realized_vol_last = None if pd.isna(realized_vol_last) else round(float(realized_vol_last), 4)
+    iv_rv_ratio = (
+        round(basket_vix_value / realized_vol_last, 4)
+        if basket_vix_value is not None and realized_vol_last
+        else None
+    )
+
     return {
         "dates": series["dates"],
         "score01": _round_list(score01.tolist()),
@@ -201,7 +215,9 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
             "relative_strength": _round_list(rs_scores),
         },
         "breadth_pct": _round_list(breadth_pct.tolist()),
-        "basket_vix": (lambda v: round(v, 4) if v is not None else None)(_basket_vix(tickers, weights)),
+        "basket_vix": round(basket_vix_value, 4) if basket_vix_value is not None else None,
+        "realized_vol_last": realized_vol_last,
+        "iv_rv_ratio": iv_rv_ratio,
         "prices": _round_list(nav.tolist()),
         "ema21": _round_list(ema.tolist()),
         "sma20": _round_list(sma.tolist()),

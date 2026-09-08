@@ -10,7 +10,6 @@ import KpiCard from "@/app/components/KpiCard";
 import Badge from "@/app/components/Badge";
 import Button from "@/app/components/Button";
 import LineChart from "@/app/components/LineChart";
-import RegimeGauge from "@/app/components/RegimeGauge";
 import RegimeChart, { REGIME_CONFIG } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
 
@@ -397,15 +396,12 @@ export default function BasketDetailPage() {
               Regime
             </div>
             <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
-              Composite of BMSB, realized-volatility, breadth, and relative-strength-vs-SPY, equal-weighted and 2-week smoothed. Realized Vol is scored against its own trailing 1-year range, so it needs about a year of history before it produces a value — its line on the chart below will only cover the most recent portion of a shorter-lived Basket&apos;s history, not the whole timeframe; that&apos;s expected, not missing data. &quot;Basket VIX&quot; is a live options-market snapshot — separate from the composite, and only available while option quotes are actively trading.
+              Composite of BMSB, realized-volatility, breadth, and relative-strength-vs-SPY, equal-weighted and 2-week smoothed. Realized Vol is scored against its own trailing 1-year range, so it needs about a year of history before it produces a value — its line on the chart below will only cover the most recent portion of a shorter-lived Basket&apos;s history, not the whole timeframe; that&apos;s expected, not missing data. &quot;Basket VIX&quot; and &quot;IV/RV Ratio&quot; are live options-market snapshots — separate from the composite, and only available while option quotes are actively trading. They&apos;re same-day-only (no historical implied-vol data source exists to score or chart them over time), unlike the four components above.
             </div>
             {regimeLoading ? (
               <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "24px 0", textAlign: "center" }}>Loading…</div>
             ) : (
               <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "20px 24px" }}>
-                <div style={{ maxWidth: 420, marginBottom: 20 }}>
-                  <RegimeGauge score={regime?.score01?.length ? regime.score01[regime.score01.length - 1] : null} label="Regime Score" />
-                </div>
                 <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                   {(() => {
                     const last = (arr) => (arr?.length ? arr[arr.length - 1] : null);
@@ -416,6 +412,15 @@ export default function BasketDetailPage() {
                     const breadthPct = last(regime?.breadth_pct);
                     const relStrength = last(regime?.components?.relative_strength);
                     const relCfg = scoreToRegime(relStrength, COMPONENT_THRESHOLDS) ? REGIME_CONFIG[scoreToRegime(relStrength, COMPONENT_THRESHOLDS)] : null;
+                    const ivRvRatio = regime?.iv_rv_ratio;
+                    const ivRvCaption =
+                      ivRvRatio == null
+                        ? "needs a live options quote"
+                        : ivRvRatio > 1
+                        ? `options pricing ${((ivRvRatio - 1) * 100).toFixed(0)}% more vol than realized`
+                        : ivRvRatio < 1
+                        ? `options pricing ${((1 - ivRvRatio) * 100).toFixed(0)}% less vol than realized`
+                        : "in line with realized vol";
                     return (
                       <>
                         {regimeCfg && (
@@ -437,11 +442,23 @@ export default function BasketDetailPage() {
                         <KpiCard label="Vol (realized)" formatted={volCfg?.label ?? "—"} valueColor={volCfg?.color ?? "var(--text-secondary)"} small caption={vol != null ? `score ${vol.toFixed(2)}` : undefined} />
                         <KpiCard label="Breadth" formatted={breadthPct != null ? `${(breadthPct * 100).toFixed(0)}%` : "—"} small caption="% > own 50D SMA" />
                         <KpiCard label="Relative Strength" formatted={relCfg?.label ?? "—"} valueColor={relCfg?.color ?? "var(--text-secondary)"} small caption={relStrength != null ? `score ${relStrength.toFixed(2)}` : undefined} />
+
+                        {/* Divider — everything past here is a live-only informational snapshot,
+                            not part of the 4-component composite above (no historical implied-vol
+                            data source exists to score/chart it against, see basket_regime.py). */}
+                        <div style={{ alignSelf: "stretch", width: 1, background: "var(--border)", margin: "2px 0" }} />
+
                         <KpiCard
                           label="Basket VIX"
                           formatted={regime?.basket_vix != null ? `${(regime.basket_vix * 100).toFixed(1)}%` : "—"}
                           small
                           caption={regime?.basket_vix != null ? "30D implied vol" : "no live quotes right now"}
+                        />
+                        <KpiCard
+                          label="IV/RV Ratio"
+                          formatted={ivRvRatio != null ? `${ivRvRatio.toFixed(2)}x` : "—"}
+                          small
+                          caption={ivRvCaption}
                         />
                       </>
                     );
