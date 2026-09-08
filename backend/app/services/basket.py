@@ -4,7 +4,7 @@ Delegates all persistence to app.repositories.basket (AD-1).
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timezone, datetime, timedelta
+from datetime import date, timezone, datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.models.basket import Basket
 from app.repositories import basket as basket_repo
+from app.services import high_beta_momentum as hbm_service
+from app.services.portfolio import _compute_beta
 
 log = logging.getLogger(__name__)
 
@@ -239,6 +241,50 @@ def _ytd_change(dates: list[str], index_level: list[float]) -> float | None:
     return round(index_level[-1] / base - 1, 4)
 
 
+def _cagr(dates: list[str], index_level: list[float]) -> float | None:
+    """Annualized return over the full retroactively-reconstructed window — same "held these
+    weights the whole window" philosophy as the YTD/1Y Change KPIs (_reconstruct_series always
+    applies the Basket's current weights across its whole lookback window regardless of when
+    the Basket itself was actually created), not anchored to the Basket's real creation date.
+    None under 30 days of window: an annualized rate from a handful of days is more misleading
+    than informative, not a real CAGR — this can only happen right after SERIES_LOOKBACK_DAYS
+    itself is ever shortened, since the window is normally ~500 days regardless of Basket age."""
+    if not dates or len(dates) < 2 or not index_level:
+        return None
+    days_elapsed = (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days
+    if days_elapsed < 30:
+        return None
+    base = index_level[0]
+    if not base:
+        return None
+    years = days_elapsed / 365.25
+    return round((index_level[-1] / base) ** (1 / years) - 1, 4)
+
+
+def _beta_vs_spy(dates: list[str], index_level: list[float]) -> float | None:
+    """Single Basket-level beta vs. SPY — covariance/variance of daily returns over the
+    reconstructed window (not HBM's per-holding-averaged beta; one portfolio-level number).
+    Reuses services.portfolio._compute_beta for the actual cov/var math; the length guards
+    here are stricter than that function's own (which falls back to a 1.0 default beta on
+    thin data) since a Basket KPI should show "—" rather than a silently-assumed market beta."""
+    if len(dates) < 30:
+        return None
+    spy = _download_close("SPY", dates[0])
+    if spy.empty:
+        return None
+    aligned = pd.DataFrame({
+        "basket": pd.Series(index_level, index=pd.to_datetime(dates)),
+        "spy": spy,
+    }).dropna()
+    if len(aligned) < 30:
+        return None
+    basket_ret = aligned["basket"].pct_change().dropna()
+    spy_ret = aligned["spy"].pct_change().dropna()
+    if len(basket_ret) < 10 or len(spy_ret) < 10:
+        return None
+    return round(_compute_beta(basket_ret, spy_ret), 4)
+
+
 def _basket_dict(b: Basket, series: dict, tickers: list[str]) -> dict:
     index_level = series.get("index_level", [])
     _, nav_change_pct = _latest_and_change(index_level)
@@ -255,11 +301,47 @@ def _basket_dict(b: Basket, series: dict, tickers: list[str]) -> dict:
     }
 
 
+HBM_SYNTHETIC_ID = -1  # sentinel — real basket ids are positive SERIAL, never collides
+
+
+def _hbm_as_basket_entry(db: Session) -> dict | None:
+    """Projects the legacy High Beta Momentum basket's own, separate tables (hbm_index_level/
+    hbm_holding — AD-7, never touched or migrated) into a Basket-shaped dict for the list.
+    Read-only: only calls high_beta_momentum's existing read helpers. None if HBM hasn't been
+    seeded yet (no /admin/high-beta-momentum "Build" run), so no dead/empty card shows.
+    Clicking this card routes straight to HBM's own detail page, not /baskets/{id} — it has
+    its own, richer factor-screening presentation that a generic Basket page can't reproduce."""
+    series = hbm_service.get_index_series(db)
+    if not series["dates"]:
+        return None
+    holdings = hbm_service.get_holdings(db, None)  # None = latest rebalance
+    tickers = [r["ticker"] for r in holdings["rows"]]
+    _, nav_change_pct = _latest_and_change(series["index_level"])
+    ytd_change_pct = _ytd_change(series["dates"], series["index_level"])
+    return {
+        "id": HBM_SYNTHETIC_ID,
+        "name": "High Beta Momentum",
+        "user_id": None,  # renders the existing SYSTEM badge, same convention as a global Basket
+        "weighting_method": "beta_momentum",
+        "created_at": datetime.fromisoformat(series["dates"][0]).replace(tzinfo=timezone.utc),
+        "ytd_change_pct": ytd_change_pct,
+        "nav_change_pct": nav_change_pct,
+        "tickers": tickers,
+        "cagr": None,
+        "beta_vs_spy": None,
+        "num_holdings": len(tickers),
+    }
+
+
 def list_baskets(db: Session, user_id: int) -> list[dict]:
-    """Baskets enriched with a live-reconstructed YTD change and 1D change (see _reconstruct_series)."""
+    """Baskets enriched with a live-reconstructed YTD change and 1D change (see _reconstruct_series),
+    with the legacy High Beta Momentum basket prepended as a synthetic entry (Story 1.4)."""
+    hbm_entry = _hbm_as_basket_entry(db)
+    prefix = [hbm_entry] if hbm_entry else []
+
     baskets = basket_repo.list_baskets(db, user_id=user_id)
     if not baskets:
-        return []
+        return prefix
 
     today = datetime.now(timezone.utc).date()
     # DB reads happen up front, single-threaded — Session isn't safe for concurrent use.
@@ -275,7 +357,7 @@ def list_baskets(db: Session, user_id: int) -> list[dict]:
         return _basket_dict(b, _reconstruct_series(tickers, weights), tickers)
 
     with ThreadPoolExecutor(max_workers=min(len(baskets), 4)) as pool:
-        return list(pool.map(_compute, baskets))
+        return prefix + list(pool.map(_compute, baskets))
 
 
 def get_basket_detail(db: Session, basket_id: int, user_id: int) -> dict | None:
@@ -284,10 +366,15 @@ def get_basket_detail(db: Session, basket_id: int, user_id: int) -> dict | None:
         return None
     constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
     if not constituents:
-        return _basket_dict(basket, {}, [])
+        return {**_basket_dict(basket, {}, []), "cagr": None, "beta_vs_spy": None, "num_holdings": 0}
     tickers = [c.ticker for c in constituents]
     weights = {c.ticker: c.weight for c in constituents}
-    return _basket_dict(basket, _reconstruct_series(tickers, weights), tickers)
+    series = _reconstruct_series(tickers, weights)
+    result = _basket_dict(basket, series, tickers)
+    result["cagr"] = _cagr(series.get("dates", []), series.get("index_level", []))
+    result["beta_vs_spy"] = _beta_vs_spy(series.get("dates", []), series.get("index_level", []))
+    result["num_holdings"] = len(tickers)
+    return result
 
 
 def get_basket_series(db: Session, basket_id: int, user_id: int) -> dict | None:

@@ -19,6 +19,11 @@ function formatYtd(v) {
   return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
 }
 
+// Kept in sync with backend/app/services/basket.py's HBM_SYNTHETIC_ID — the legacy High Beta
+// Momentum basket is projected into this list from its own separate tables (Story 1.4, AD-7)
+// but routes to its own richer detail page, not the generic /baskets/[id] route.
+const HBM_SYNTHETIC_ID = -1;
+
 export default function BasketsPage() {
   const router = useRouter();
   const { data: baskets, isLoading, isError, error } = useQuery({
@@ -68,7 +73,11 @@ export default function BasketsPage() {
               <KpiCard
                 key={b.id}
                 id={b.id}
-                onClick={(id) => router.push(`/portfolio/markets/baskets/${id}`)}
+                onClick={(id) => router.push(
+                  id === HBM_SYNTHETIC_ID
+                    ? "/portfolio/markets/high-beta-momentum"
+                    : `/portfolio/markets/baskets/${id}`
+                )}
                 label={
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <span>{b.name}</span>

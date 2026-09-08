@@ -40,6 +40,9 @@ class BasketOut(BaseModel):
     ytd_change_pct: float | None
     nav_change_pct: float | None
     tickers: list[str]
+    cagr: float | None = None
+    beta_vs_spy: float | None = None
+    num_holdings: int | None = None
 
 
 class HoldingOut(BaseModel):

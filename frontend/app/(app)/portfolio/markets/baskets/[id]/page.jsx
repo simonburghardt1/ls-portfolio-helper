@@ -326,6 +326,9 @@ export default function BasketDetailPage() {
 
           <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
             <KpiCard label="Weighting" formatted={basket.weighting_method === "market_cap" ? "Market Cap" : "Equal-weight"} small />
+            <KpiCard label="# Holdings" formatted={basket.num_holdings ?? "—"} small />
+            <KpiCard label="CAGR" formatted={pct(basket.cagr)} valueColor={changeColor(basket.cagr)} small />
+            <KpiCard label="Beta (vs SPY)" formatted={basket.beta_vs_spy != null ? basket.beta_vs_spy.toFixed(2) : "—"} small />
             {["1D", "1W", "1M", "3M", "YTD", "1Y"].map((label) => (
               <KpiCard
                 key={label}
