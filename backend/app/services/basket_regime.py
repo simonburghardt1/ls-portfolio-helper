@@ -136,7 +136,7 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
     if not basket or not _visible_to(basket, user_id):
         return None
 
-    constituents = basket_repo.get_current_constituents(db, basket_id)
+    constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
     if not constituents:
         return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "realized_vol_last": None, "iv_rv_ratio": None, "prices": [], "ema21": [], "sma20": []}
 

@@ -37,7 +37,7 @@ class BasketOut(BaseModel):
     user_id: int | None
     weighting_method: str
     created_at: datetime
-    latest_nav: float | None
+    ytd_change_pct: float | None
     nav_change_pct: float | None
     tickers: list[str]
 
@@ -160,16 +160,7 @@ def create_basket(
     except BasketValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return BasketOut(
-        id=basket.id,
-        name=basket.name,
-        user_id=basket.user_id,
-        weighting_method=basket.weighting_method,
-        created_at=basket.created_at,
-        latest_nav=100.0,
-        nav_change_pct=None,
-        tickers=tickers,
-    )
+    return basket_service.get_basket_detail(db, basket.id, user_id=current_user.id)
 
 
 @router.put("/{basket_id}", response_model=BasketOut)
@@ -180,8 +171,8 @@ def update_basket(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Edits a Basket's name/tickers/weighting. Per AD-8, the new weight-set takes effect the
-    next trading day — it never touches BasketNav or rewrites an already-effective weight-set.
+    Edits a Basket's name/tickers/weighting, effective immediately — it never touches
+    BasketNav or rewrites an already-effective weight-set (see services.basket.update_basket).
     """
     tickers = [t.strip().upper() for t in payload.tickers]
     try:

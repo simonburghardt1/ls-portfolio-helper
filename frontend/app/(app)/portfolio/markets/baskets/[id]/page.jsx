@@ -325,7 +325,6 @@ export default function BasketDetailPage() {
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
-            <KpiCard label="Latest NAV" formatted={basket.latest_nav != null ? basket.latest_nav.toFixed(2) : "—"} small caption="since inception" />
             <KpiCard label="Weighting" formatted={basket.weighting_method === "market_cap" ? "Market Cap" : "Equal-weight"} small />
             {["1D", "1W", "1M", "3M", "YTD", "1Y"].map((label) => (
               <KpiCard

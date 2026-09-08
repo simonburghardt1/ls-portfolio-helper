@@ -4,7 +4,7 @@ Delegates all persistence to app.repositories.basket (AD-1).
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timezone, datetime, timedelta
+from datetime import timezone, datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
@@ -112,15 +112,6 @@ def _visible_to(basket: Basket, user_id: int) -> bool:
     return basket.user_id is None or basket.user_id == user_id
 
 
-def _next_trading_day(from_date: date) -> date:
-    """Next weekday after from_date. Doesn't account for market holidays — no shared trading-
-    calendar utility exists in this codebase yet; acceptable simplification for MVP."""
-    d = from_date + timedelta(days=1)
-    while d.weekday() >= 5:  # 5=Saturday, 6=Sunday
-        d += timedelta(days=1)
-    return d
-
-
 def update_basket(
     db: Session,
     basket_id: int,
@@ -130,11 +121,18 @@ def update_basket(
     weighting_method: str,
 ) -> Basket | None:
     """
-    Edits a Basket's name/tickers/weighting. Per AD-8, this never touches BasketNav or an
-    already-effective weight-set — it only schedules a new weight-set effective the next
-    trading day. No admin-role concept exists yet (AD-5), so — consistent with this being a
-    single-user MVP tool with auth enforcement explicitly deferred — editing is allowed for
-    any Basket visible to the caller (system or own), not restricted to owned-only.
+    Edits a Basket's name/tickers/weighting, effective immediately (effective_date = today).
+    Previously this scheduled the new weight-set for the next trading day (AD-8's original
+    rationale: never rewrite a *persisted* NAV history) — but Story 1.2 (the persisted,
+    point-in-time NAV table) was dropped, and _reconstruct_series always recomputes the whole
+    lookback window live from whichever weight-set is currently effective, so there is no
+    persisted history left to protect. Delaying the edit by a day no longer serves that
+    purpose and only hides the user's own change from themselves until the next day. Prior
+    (already-effective) weight-sets are still never modified or deleted — only a same-day
+    repeat edit collapses into the latest one (basket_repo.update_basket's existing behavior).
+    No admin-role concept exists yet (AD-5), so — consistent with this being a single-user MVP
+    tool with auth enforcement explicitly deferred — editing is allowed for any Basket visible
+    to the caller (system or own), not restricted to owned-only.
     """
     basket = basket_repo.get_basket(db, basket_id)
     if not basket or not _visible_to(basket, user_id):
@@ -154,7 +152,7 @@ def update_basket(
 
     weights = _equal_weights(tickers) if weighting_method == "equal" else _market_cap_weights(tickers)
     constituents = [{"ticker": t, "weight": weights[t]} for t in tickers]
-    effective_date = _next_trading_day(datetime.now(timezone.utc).date())
+    effective_date = datetime.now(timezone.utc).date()
 
     return basket_repo.update_basket(
         db,
@@ -188,11 +186,11 @@ def _reconstruct_series(tickers: list[str], weights: dict[str, float]) -> dict:
     Fixed-weight buy-and-hold index for the given tickers/weights — a basket held like an ETF:
     dollar-weighted at the start of the lookback window, never rebalanced. This is the single
     source of truth for every Basket price figure shown anywhere (list cards, detail KPI strip,
-    the chart, and per-holding performance/contribution) — computed on request, not persisted
-    (mirrors AD-8's compute-on-request precedent for non-authoritative previews). The only
-    stored, authoritative BasketNav row today is the single day-zero one written at creation;
-    Story 1.2's daily job will extend that forward, at which point list/detail should likely
-    prefer the stored series over recomputing it (see Dev Notes — not done here).
+    the chart, and per-holding performance/contribution) — computed live on every request, not
+    persisted. Story 1.2 (a daily job extending BasketNav forward) was deliberately dropped —
+    its premise (NAV "frozen" without it) no longer held once this function existed; BasketNav
+    stays write-only (one day-zero row from creation, never read) unless a concrete future need
+    (e.g. Epic 4 backtesting) actually requires persisted history.
 
     Returns {} dates/index_level/ticker_prices, all empty, if fewer than 2 common trading days
     are available across every ticker.
@@ -226,59 +224,47 @@ def _latest_and_change(index_level: list[float]) -> tuple[float | None, float | 
     return latest, change
 
 
-def _nav_since_inception(dates: list[str], index_level: list[float], created_at: datetime) -> float | None:
-    """
-    Latest NAV rebased to the Basket's real creation date — NOT to _reconstruct_series's
-    ~500-day analysis window, which starts at "today minus SERIES_LOOKBACK_DAYS" and has
-    nothing to do with when the Basket actually came into existence. Without this, a Basket
-    created yesterday could show a "Latest NAV" like 152 purely because its current holdings
-    happened to be up ~50% over the unrelated ~500-day backtest window — misleading, since the
-    Basket itself has only existed for one day.
-
-    Rebases from whichever reconstructed date is CLOSEST to creation, not the first date
-    on-or-after it — a Basket created "today" commonly has no on-or-after match at all yet
-    (yfinance's daily bar can lag the actual calendar day, e.g. before that day's close, or
-    over a weekend), which would otherwise make a brand-new Basket's NAV silently go null
-    right after creation instead of reading ~100.
-    """
+def _ytd_change(dates: list[str], index_level: list[float]) -> float | None:
+    """Year-to-date change of the live-reconstructed series — mirrors the frontend's own
+    computeRangeChanges/rangeStartDate YTD logic (baskets/[id]/page.jsx) so both agree."""
     if not dates or not index_level:
         return None
-    inception = created_at.date()
-    idx = min(
-        range(len(dates)),
-        key=lambda i: abs((date.fromisoformat(dates[i]) - inception).days),
-    )
+    ytd_start = f"{datetime.now(timezone.utc).year}-01-01"
+    idx = next((i for i, d in enumerate(dates) if d >= ytd_start), None)
+    if idx is None:
+        return None
     base = index_level[idx]
     if not base:
         return None
-    return round(100 * index_level[-1] / base, 4)
+    return round(index_level[-1] / base - 1, 4)
 
 
 def _basket_dict(b: Basket, series: dict, tickers: list[str]) -> dict:
     index_level = series.get("index_level", [])
-    _, nav_change_pct = _latest_and_change(index_level)  # 1D change is anchor-independent, unaffected
-    latest_nav = _nav_since_inception(series.get("dates", []), index_level, b.created_at)
+    _, nav_change_pct = _latest_and_change(index_level)
+    ytd_change_pct = _ytd_change(series.get("dates", []), index_level)
     return {
         "id": b.id,
         "name": b.name,
         "user_id": b.user_id,
         "weighting_method": b.weighting_method,
         "created_at": b.created_at,
-        "latest_nav": latest_nav,
+        "ytd_change_pct": ytd_change_pct,
         "nav_change_pct": nav_change_pct,
         "tickers": tickers,
     }
 
 
 def list_baskets(db: Session, user_id: int) -> list[dict]:
-    """Baskets enriched with a live-reconstructed latest NAV and 1D change (see _reconstruct_series)."""
+    """Baskets enriched with a live-reconstructed YTD change and 1D change (see _reconstruct_series)."""
     baskets = basket_repo.list_baskets(db, user_id=user_id)
     if not baskets:
         return []
 
+    today = datetime.now(timezone.utc).date()
     # DB reads happen up front, single-threaded — Session isn't safe for concurrent use.
     # Only the pure yfinance/pandas computation below is parallelized across Baskets.
-    constituents_by_basket = {b.id: basket_repo.get_current_constituents(db, b.id) for b in baskets}
+    constituents_by_basket = {b.id: basket_repo.get_effective_constituents(db, b.id, as_of=today) for b in baskets}
 
     def _compute(b: Basket) -> dict:
         constituents = constituents_by_basket[b.id]
@@ -296,7 +282,7 @@ def get_basket_detail(db: Session, basket_id: int, user_id: int) -> dict | None:
     basket = basket_repo.get_basket(db, basket_id)
     if not basket or not _visible_to(basket, user_id):
         return None
-    constituents = basket_repo.get_current_constituents(db, basket_id)
+    constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
     if not constituents:
         return _basket_dict(basket, {}, [])
     tickers = [c.ticker for c in constituents]
@@ -311,7 +297,7 @@ def get_basket_series(db: Session, basket_id: int, user_id: int) -> dict | None:
     if not basket or not _visible_to(basket, user_id):
         return None
 
-    constituents = basket_repo.get_current_constituents(db, basket_id)
+    constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
     if not constituents:
         return {"dates": [], "index_level": [], "holdings": []}
 
@@ -339,7 +325,9 @@ def get_basket_compare(db: Session, basket_id: int, user_id: int, ticker: str) -
         return None
 
     ticker = ticker.strip().upper()
-    constituent_tickers = {c.ticker for c in basket_repo.get_current_constituents(db, basket_id)}
+    constituent_tickers = {
+        c.ticker for c in basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
+    }
     if ticker not in COMPARISON_BENCHMARKS and ticker not in constituent_tickers:
         raise BasketValidationError(
             f"'{ticker}' is not a recognized comparison ticker — choose one of "

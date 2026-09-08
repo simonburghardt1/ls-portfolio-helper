@@ -49,7 +49,7 @@ export default function EditBasketPage() {
   return (
     <BasketForm
       title={`Edit ${basket.name}`}
-      subtitle="Changes take effect from the next trading day — today's chart and holdings are unaffected until then."
+      subtitle="Changes take effect immediately across the chart, holdings, and regime."
       initialName={basket.name}
       initialWeightingMethod={basket.weighting_method}
       initialTickers={basket.tickers}

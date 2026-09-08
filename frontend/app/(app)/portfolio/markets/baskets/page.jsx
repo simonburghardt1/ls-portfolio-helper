@@ -9,9 +9,14 @@ import KpiCard from "@/app/components/KpiCard";
 import Badge from "@/app/components/Badge";
 import Button from "@/app/components/Button";
 
-function pct(v) {
+function pctDelta(v) {
   if (v == null || isNaN(v)) return null;
   return v * 100;
+}
+
+function formatYtd(v) {
+  if (v == null || isNaN(v)) return "—";
+  return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
 }
 
 export default function BasketsPage() {
@@ -58,7 +63,7 @@ export default function BasketsPage() {
       {!isLoading && !isError && baskets?.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
           {baskets.map((b) => {
-            const changePct = pct(b.nav_change_pct);
+            const changePct = pctDelta(b.nav_change_pct);
             return (
               <KpiCard
                 key={b.id}
@@ -74,7 +79,9 @@ export default function BasketsPage() {
                     )}
                   </div>
                 }
-                formatted={b.latest_nav != null ? b.latest_nav.toFixed(2) : "—"}
+                formatted={formatYtd(b.ytd_change_pct)}
+                unit={b.ytd_change_pct != null ? "YTD" : undefined}
+                valueColor={b.ytd_change_pct == null ? undefined : b.ytd_change_pct >= 0 ? "var(--positive)" : "var(--negative)"}
                 change={changePct}
                 changeLabel="1D"
                 good_direction="up"

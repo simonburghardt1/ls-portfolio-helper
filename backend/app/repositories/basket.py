@@ -94,13 +94,16 @@ def get_basket(db: Session, basket_id: int) -> Basket | None:
     return db.get(Basket, basket_id)
 
 
-def get_current_constituents(db: Session, basket_id: int) -> list[BasketConstituent]:
-    """The weight-set with the latest effective_date (only one exists until a Story 1.3 edit)."""
+def get_effective_constituents(db: Session, basket_id: int, as_of: date) -> list[BasketConstituent]:
+    """The weight-set actually in effect on `as_of` — the most recent weight-set whose
+    effective_date has already arrived, NOT simply the most recently created one (which,
+    right after a Story 1.3 edit, is a future-dated set that shouldn't apply yet, AD-8)."""
     rows = db.query(BasketConstituent).filter_by(basket_id=basket_id).all()
-    if not rows:
+    eligible = [r for r in rows if r.effective_date <= as_of]
+    if not eligible:
         return []
-    latest = max(r.effective_date for r in rows)
-    return [r for r in rows if r.effective_date == latest]
+    latest = max(r.effective_date for r in eligible)
+    return [r for r in eligible if r.effective_date == latest]
 
 
 def last_two_navs_by_basket(db: Session, basket_ids: list[int]) -> dict[int, list[BasketNav]]:
