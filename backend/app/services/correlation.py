@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.services.asset_price_provider import get_price_series
 
-WINDOWS_DAYS = {"3m": 63, "6m": 126, "1y": 252, "2y": 504, "5y": 1260}
+WINDOWS_DAYS = {"1m": 21, "3m": 63, "6m": 126, "1y": 252, "5y": 1260}
 FETCH_YEARS = 11  # 5y rolling window + ~5y of visible resulting correlation history
 
 

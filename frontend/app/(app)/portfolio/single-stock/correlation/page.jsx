@@ -9,19 +9,19 @@ import LineChart from "@/app/components/LineChart";
 import Button from "@/app/components/Button";
 
 const WINDOWS = [
+  { key: "1m", label: "1M" },
   { key: "3m", label: "3M" },
   { key: "6m", label: "6M" },
   { key: "1y", label: "1Y" },
-  { key: "2y", label: "2Y" },
   { key: "5y", label: "5Y" },
 ];
 
 // Colors follow the app's standard chart-series order (--chart-1..5 in globals.css)
 const WINDOW_COLORS = {
+  "1m": "#a78bfa",
   "3m": "#3b82f6",
   "6m": "#10b981",
   "1y": "#f59e0b",
-  "2y": "#a78bfa",
   "5y": "#ef4444",
 };
 
