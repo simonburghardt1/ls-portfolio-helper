@@ -26,6 +26,7 @@ from app.routers.gdp import router as gdp_router
 from app.routers.debt import router as debt_router
 from app.routers.basket import router as basket_router
 from app.routers.correlation import router as correlation_router
+from app.routers.beta import router as beta_router
 from app.scheduler import create_scheduler
 
 
@@ -70,6 +71,7 @@ app.include_router(gdp_router)
 app.include_router(debt_router)
 app.include_router(basket_router)
 app.include_router(correlation_router)
+app.include_router(beta_router)
 
 
 # Keep your hello endpoint if you want
