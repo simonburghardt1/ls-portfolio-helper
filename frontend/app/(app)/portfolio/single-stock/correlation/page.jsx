@@ -29,7 +29,7 @@ const WINDOW_COLORS = {
 const PRICE_RANGES = [
   { key: "1m", label: "1M", days: 30 },
   { key: "3m", label: "3M", days: 90 },
-  { key: "6m", label: "6M", days: 180 },
+  { key: "ytd", label: "YTD", ytd: true },
   { key: "1y", label: "1Y", days: 365 },
   { key: "3y", label: "3Y", days: 1095 },
   { key: "5y", label: "5Y", days: 1825 },
@@ -100,7 +100,12 @@ export default function CorrelationPage() {
 
   const priceStart = useMemo(() => {
     const sel = PRICE_RANGES.find((r) => r.key === priceRange);
-    if (!sel?.days || !corr?.dates?.length) return null; // "Max" (days: null) → no rebase
+    if (!corr?.dates?.length) return null;
+    if (sel?.ytd) {
+      const to = new Date(corr.dates[corr.dates.length - 1]);
+      return `${to.getFullYear()}-01-01`;
+    }
+    if (!sel?.days) return null; // "Max" (days: null) → no rebase
     const to = new Date(corr.dates[corr.dates.length - 1]);
     to.setDate(to.getDate() - sel.days);
     return to.toISOString().slice(0, 10);
