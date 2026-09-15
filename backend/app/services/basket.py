@@ -191,6 +191,31 @@ def _download_close(ticker: str, start: str, end: str | None = None) -> pd.Serie
         return pd.Series(dtype=float, name=ticker)
 
 
+def _download_ohlc(ticker: str, start: str, end: str | None = None) -> pd.DataFrame:
+    """Same yfinance call as _download_close, but keeps High/Low/Close instead of discarding
+    two of them — for callers (services/volatility.py's ATR) that need the full daily range,
+    not just the Close. Same end=None-vs-omitted guard as _download_close (see its docstring)."""
+    try:
+        kwargs = {"end": end} if end is not None else {}
+        raw = yf.download(ticker, start=start, interval="1d", auto_adjust=True, progress=False, **kwargs)
+        if raw.empty:
+            return pd.DataFrame(columns=["High", "Low", "Close"])
+        if isinstance(raw.columns, pd.MultiIndex):
+            cols = {}
+            for field in ("High", "Low", "Close"):
+                for key in [(field, ticker), (ticker, field)]:
+                    if key in raw.columns:
+                        cols[field] = raw[key]
+                        break
+            if len(cols) < 3:
+                return pd.DataFrame(columns=["High", "Low", "Close"])
+            return pd.DataFrame(cols)
+        return raw[["High", "Low", "Close"]]
+    except Exception as e:
+        log.warning("Basket OHLC download failed for %s: %s", ticker, e)
+        return pd.DataFrame(columns=["High", "Low", "Close"])
+
+
 def _reconstruct_series(
     tickers: list[str], weights: dict[str, float], start: str | None = None, end: str | None = None
 ) -> dict:

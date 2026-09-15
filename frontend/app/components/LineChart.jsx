@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, CrosshairMode, LineSeries, PriceScaleMode } from "lightweight-charts";
+import { createChart, createSeriesMarkers, ColorType, CrosshairMode, LineSeries, PriceScaleMode } from "lightweight-charts";
 
-export default function LineChart({ dates, datasets, visibleRange, referenceLine, logScale }) {
+/**
+ * markers: optional array of lightweight-charts marker objects ({time, position, color,
+ * shape, ...} — the library's own shape, passed straight through) applied to the first
+ * series in `datasets`. Used by the Volatility page to highlight the weeks matching a
+ * selected Distribution-of-Returns histogram bin; unused (and inert) for every other
+ * caller of this shared component.
+ */
+export default function LineChart({ dates, datasets, visibleRange, referenceLine, logScale, markers }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
+  const markersApiRef = useRef(null);
 
   // Recreate chart when data changes
   useEffect(() => {
@@ -35,8 +43,9 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
     });
 
     chartRef.current = chart;
+    markersApiRef.current = null;
 
-    datasets.forEach((ds) => {
+    datasets.forEach((ds, i) => {
       const series = chart.addSeries(LineSeries, {
         color:            ds.borderColor      ?? "#3b82f6",
         lineWidth:        ds.borderWidth      ?? 2,
@@ -54,6 +63,10 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
         .sort((a, b) => (a.time < b.time ? -1 : 1));
 
       series.setData(data);
+
+      if (i === 0) {
+        markersApiRef.current = createSeriesMarkers(series, markers ?? []);
+      }
     });
 
     // Draw horizontal reference line (e.g. 50-threshold)
@@ -107,6 +120,12 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
       chartRef.current.timeScale().fitContent();
     }
   }, [visibleRange]);
+
+  // Update markers without recreating the chart (e.g. clicking a different histogram bin)
+  useEffect(() => {
+    if (!markersApiRef.current) return;
+    markersApiRef.current.setMarkers(markers ?? []);
+  }, [markers]);
 
   return <div ref={containerRef} style={{ width: "100%", height: 380 }} />;
 }
