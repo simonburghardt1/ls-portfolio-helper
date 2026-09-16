@@ -152,7 +152,7 @@ export default function PortfolioManagerPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
         <PageHeader
           title="Portfolios"
-          subtitle="Create and manage named portfolios. Load them into the backtester or heatmap."
+          subtitle="Create and manage named portfolios. Load them into the backtester."
           style={{ marginBottom: 0 }}
         />
         <button onClick={startNew} style={primaryBtn}>+ New Portfolio</button>

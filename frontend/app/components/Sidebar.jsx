@@ -52,7 +52,6 @@ const NAV = [
         label: "Markets",
         items: [
           { label: "Market Regime",       href: "/portfolio/market-regime" },
-          { label: "Heatmap",             href: "/portfolio/heatmap" },
           { label: "High Beta Momentum",  href: "/portfolio/markets/high-beta-momentum" },
           { label: "Baskets",             href: "/portfolio/markets/baskets" },
           { label: "Seasonality",         href: "/portfolio/markets/seasonality", soon: true },
@@ -142,10 +141,10 @@ export default function Sidebar() {
       {/* Brand */}
       <div style={{ padding: "26px 22px 22px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <div style={{ fontSize: 15, color: "var(--text-primary)", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 4 }}>
-          LS PLATFORM
+          PM Workbench
         </div>
         <div style={{ fontSize: 11, color: "var(--text-secondary)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          Trading &amp; Portfolio
+          Portfolio Management
         </div>
       </div>
 

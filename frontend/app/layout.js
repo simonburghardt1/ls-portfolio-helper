@@ -2,7 +2,7 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata = {
-  title: "Trading Platform",
+  title: "PM Workbench",
   description: "Macro Dashboard · Portfolio Management · Track Record",
 };
 
