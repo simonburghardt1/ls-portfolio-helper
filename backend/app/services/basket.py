@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.basket import Basket
 from app.repositories import basket as basket_repo
 from app.services import high_beta_momentum as hbm_service
-from app.services.portfolio import _compute_beta
+from app.services.portfolio import _compute_beta, resolve_crypto_ticker, resolve_and_validate_tickers, is_known_crypto_symbol
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +89,18 @@ def create_basket(
     if len(set(tickers)) != len(tickers):
         raise BasketValidationError("Duplicate tickers are not allowed in a Basket.")
 
+    resolved_map, unresolved = resolve_and_validate_tickers(tickers)
+    if unresolved:
+        raise BasketValidationError(
+            f"No price data available for: {', '.join(unresolved)} "
+            "(ticker may be delisted, mistyped, or temporarily unavailable)."
+        )
+    tickers = [resolved_map[t] for t in tickers]
+    if len(set(tickers)) != len(tickers):
+        raise BasketValidationError(
+            "Two of these tickers resolve to the same underlying asset — remove the duplicate."
+        )
+
     weights = _equal_weights(tickers) if weighting_method == "equal" else _market_cap_weights(tickers)
     constituents = [{"ticker": t, "weight": weights[t]} for t in tickers]
 
@@ -152,6 +164,18 @@ def update_basket(
     if len(set(tickers)) != len(tickers):
         raise BasketValidationError("Duplicate tickers are not allowed in a Basket.")
 
+    resolved_map, unresolved = resolve_and_validate_tickers(tickers)
+    if unresolved:
+        raise BasketValidationError(
+            f"No price data available for: {', '.join(unresolved)} "
+            "(ticker may be delisted, mistyped, or temporarily unavailable)."
+        )
+    tickers = [resolved_map[t] for t in tickers]
+    if len(set(tickers)) != len(tickers):
+        raise BasketValidationError(
+            "Two of these tickers resolve to the same underlying asset — remove the duplicate."
+        )
+
     weights = _equal_weights(tickers) if weighting_method == "equal" else _market_cap_weights(tickers)
     constituents = [{"ticker": t, "weight": weights[t]} for t in tickers]
     effective_date = datetime.now(timezone.utc).date()
@@ -166,11 +190,7 @@ def update_basket(
     )
 
 
-def _download_close(ticker: str, start: str, end: str | None = None) -> pd.Series:
-    """Same shape as market_regime.py's _dl helper — one ticker's daily Close series.
-    `end` is optional (omit for "through today", matching yf.download's own default) —
-    added for asset_price_provider.py's arbitrary-window callers; existing callers that
-    never pass it keep today's exact behavior."""
+def _download_close_raw(ticker: str, start: str, end: str | None = None) -> pd.Series:
     try:
         # yfinance treats an explicit end=None differently from omitting the kwarg entirely —
         # passing None resolves to "now" internally and raises when start is in the future
@@ -191,10 +211,40 @@ def _download_close(ticker: str, start: str, end: str | None = None) -> pd.Serie
         return pd.Series(dtype=float, name=ticker)
 
 
-def _download_ohlc(ticker: str, start: str, end: str | None = None) -> pd.DataFrame:
-    """Same yfinance call as _download_close, but keeps High/Low/Close instead of discarding
-    two of them — for callers (services/volatility.py's ATR) that need the full daily range,
-    not just the Close. Same end=None-vs-omitted guard as _download_close (see its docstring)."""
+def _download_close(ticker: str, start: str, end: str | None = None) -> pd.Series:
+    """Same shape as market_regime.py's _dl helper — one ticker's daily Close series.
+    `end` is optional (omit for "through today", matching yf.download's own default) —
+    added for asset_price_provider.py's arbitrary-window callers; existing callers that
+    never pass it keep today's exact behavior.
+
+    Covers a bare crypto symbol typed anywhere a raw ticker is accepted (e.g.
+    AssetSelector's Ticker mode on Correlation/Beta/Volatility), transparently to every
+    caller of this function. Two cases: (1) the raw ticker is a *known* crypto symbol
+    (KNOWN_CRYPTO_SYMBOLS) — several of these coincidentally collide with a real,
+    unrelated stock ticker (e.g. "BTC", "ETH", "TRX" — confirmed empirically), so the
+    crypto pair is resolved and preferred *before* even trying the raw ticker, skipping a
+    wasted call for data nobody wants; (2) any other ticker that comes back empty gets one
+    resolve_crypto_ticker() retry — covers less common coins not on the known list, as
+    long as they don't also happen to collide with an unrelated real ticker. The returned
+    Series keeps the *original* ticker as its name even when the resolved symbol differs,
+    so callers that key by the ticker they asked for (e.g. _reconstruct_series's weight
+    lookup) keep working unchanged."""
+    if is_known_crypto_symbol(ticker):
+        resolved = resolve_crypto_ticker(ticker)
+        if resolved:
+            series = _download_close_raw(resolved, start, end)
+            if not series.empty:
+                return series.rename(ticker)
+
+    series = _download_close_raw(ticker, start, end)
+    if series.empty:
+        resolved = resolve_crypto_ticker(ticker)
+        if resolved and resolved != ticker:
+            series = _download_close_raw(resolved, start, end).rename(ticker)
+    return series
+
+
+def _download_ohlc_raw(ticker: str, start: str, end: str | None = None) -> pd.DataFrame:
     try:
         kwargs = {"end": end} if end is not None else {}
         raw = yf.download(ticker, start=start, interval="1d", auto_adjust=True, progress=False, **kwargs)
@@ -214,6 +264,26 @@ def _download_ohlc(ticker: str, start: str, end: str | None = None) -> pd.DataFr
     except Exception as e:
         log.warning("Basket OHLC download failed for %s: %s", ticker, e)
         return pd.DataFrame(columns=["High", "Low", "Close"])
+
+
+def _download_ohlc(ticker: str, start: str, end: str | None = None) -> pd.DataFrame:
+    """Same yfinance call as _download_close, but keeps High/Low/Close instead of discarding
+    two of them — for callers (services/volatility.py's ATR) that need the full daily range,
+    not just the Close. Same end=None-vs-omitted guard, and the same known-crypto-preferred
+    plus empty-result-fallback resolution as _download_close (see its docstring)."""
+    if is_known_crypto_symbol(ticker):
+        resolved = resolve_crypto_ticker(ticker)
+        if resolved:
+            df = _download_ohlc_raw(resolved, start, end)
+            if not df.empty:
+                return df
+
+    df = _download_ohlc_raw(ticker, start, end)
+    if df.empty:
+        resolved = resolve_crypto_ticker(ticker)
+        if resolved and resolved != ticker:
+            df = _download_ohlc_raw(resolved, start, end)
+    return df
 
 
 def _reconstruct_series(

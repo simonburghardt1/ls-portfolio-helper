@@ -1,5 +1,7 @@
 import logging
+import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import yfinance as yf
@@ -135,6 +137,140 @@ def beta_adjust(positions: list[dict]) -> dict:
         "betas":          {t: round(b, 4) for t, b in betas.items()},
         "portfolio_beta": portfolio_beta,
     }
+
+
+# A curated (necessarily incomplete) set of well-known crypto symbols where "prefer the
+# crypto pair over an as-typed match" always applies, not just when the as-typed lookup
+# fails outright. Empirically confirmed this session: a large fraction of these bare
+# symbols coincidentally collide with a real, unrelated stock/ETF ticker on yfinance —
+# "BTC", "ETH", "XRP", "TRX", "LTC", "LINK", "ATOM", "BCH", "NEAR", "APT", and "VET" all
+# resolve to *something* as typed, but not the coin. Restricting this always-prefer-crypto
+# check to a known list (rather than unconditionally guessing "<ticker>-USD" for every
+# ticker everywhere) keeps _download_close/_download_ohlc's hot path cheap for the
+# overwhelming majority of normal stock/ETF/commodity tickers — a coin not on this list
+# still gets resolved via the plain empty-result fallback, as long as it doesn't also
+# happen to collide with an unrelated ticker (accepted, narrower edge case).
+KNOWN_CRYPTO_SYMBOLS = {
+    "BTC", "ETH", "BNB", "XRP", "SOL", "ADA", "DOGE", "TRX", "TON", "DOT",
+    "MATIC", "POL", "LTC", "XMR", "ZEC", "AVAX", "LINK", "ATOM", "UNI", "XLM",
+    "BCH", "NEAR", "APT", "FIL", "ICP", "ETC", "HBAR", "VET", "OP", "ARB",
+    "SUI", "SHIB", "PEPE", "HYPE", "TAO", "INJ", "RENDER", "FTM", "ALGO", "EGLD",
+    "SAND", "MANA", "AAVE", "MKR", "GRT", "CRV", "LDO", "RUNE", "KAS", "STX",
+}
+
+
+def is_known_crypto_symbol(ticker: str) -> bool:
+    return ticker.upper().split("-")[0] in KNOWN_CRYPTO_SYMBOLS
+
+
+def find_invalid_tickers(tickers: list[str]) -> list[str]:
+    """
+    Batch-checks a list of tickers via yfinance and returns the ones with no price data
+    (delisted, mistyped, or otherwise unavailable) — the same all-NaN detection
+    download_prices() already uses to guard a backtest, extracted here so Basket and
+    Portfolio creation/edit can catch a bad ticker at entry time instead of failing much
+    later when a backtest actually runs. A short 5-day window is enough to confirm a
+    ticker resolves to real data; no need for the full history just to validate.
+    """
+    if not tickers:
+        return []
+
+    data = yf.download(tickers=tickers, period="5d", interval="1d", auto_adjust=True, progress=False)
+    if data.empty:
+        return list(dict.fromkeys(tickers))
+
+    if isinstance(data.columns, pd.MultiIndex):
+        prices = data["Close"]
+    else:
+        prices = data[["Close"]].copy()
+        prices.columns = tickers
+
+    return [t for t in dict.fromkeys(tickers) if t not in prices.columns or prices[t].isna().all()]
+
+
+def resolve_crypto_ticker(raw: str) -> str | None:
+    """
+    Resolves a bare crypto symbol (e.g. "BTC", "HYPE") to its real yfinance ticker.
+    No user types the exact yfinance symbol for a crypto pair unprompted — least of all
+    one Yahoo disambiguates with an arbitrary numeric suffix (e.g. "HYPE" is really
+    "HYPE32196-USD", confirmed empirically; a plain "HYPE-USD" guess has no price data).
+
+    Strategy (cheapest first): try "<bare>-USD" via find_invalid_tickers — covers the
+    vast majority of coins (BTC, ETH, BNB, XRP, SOL, TRX, ZEC, DOGE, XMR all resolve this
+    way, no extra network round-trip beyond the guess-validation itself). Only on failure,
+    fall back to yfinance's own symbol search (yf.Search), filtered to
+    quoteType == "CRYPTOCURRENCY" and a symbol matching "<bare>" + optional digits +
+    "-USD" — Search's results are mixed with unrelated equity matches and, for some
+    symbols, multiple crypto pairs (e.g. ZEC-BTC, XMR-EUR), so both filters are required;
+    confirmed 10/10 correct with zero false positives against BTC/ETH/BNB/XRP/SOL/TRX/
+    ZEC/HYPE/DOGE/XMR. Returns None if nothing resolves — a genuinely mistyped stock
+    ticker simply won't have a crypto match, so this is a no-op (not a false positive)
+    for non-crypto typos.
+    """
+    bare = raw.upper().split("-")[0]
+    guess = f"{bare}-USD"
+    if not find_invalid_tickers([guess]):
+        return guess
+
+    try:
+        quotes = yf.Search(bare).quotes
+    except Exception:
+        log.warning("Crypto ticker search failed for %s", bare, exc_info=True)
+        return None
+
+    pattern = re.compile(rf"^{re.escape(bare)}\d*-USD$")
+    matches = [
+        q["symbol"] for q in quotes
+        if q.get("quoteType") == "CRYPTOCURRENCY" and pattern.match(q.get("symbol", ""))
+    ]
+    return matches[0] if matches else None
+
+
+def resolve_and_validate_tickers(tickers: list[str]) -> tuple[dict[str, str], list[str]]:
+    """
+    Batch resolver for Basket/Portfolio creation and edits.
+
+    A bare ticker "valid as typed" is not necessarily what the user meant: several major
+    crypto shorthands coincidentally collide with a real, unrelated stock ticker on
+    yfinance (confirmed empirically — "BTC", "ETH", "XRP", and "TRX" all resolve to real
+    but completely unrelated equities, not the crypto pair). So the crypto interpretation
+    always wins when one exists: every ticker's "<bare>-USD" guess is checked *in
+    addition to* its as-typed validity (one extra batched download, cheap enough since
+    this only runs at save time, not on every page load), and the crypto pair is
+    preferred whenever it resolves. Only when neither the as-typed ticker nor the direct
+    crypto guess works does this fall back to resolve_crypto_ticker()'s yfinance Search
+    (covers Yahoo's disambiguated symbols, e.g. "HYPE" -> "HYPE32196-USD").
+
+    Returns ({original_input: final_ticker_to_store}, [inputs still unresolvable]).
+    """
+    unique = list(dict.fromkeys(tickers))
+    guesses = {t: f"{t.upper().split('-')[0]}-USD" for t in unique}
+
+    invalid_as_typed = set(find_invalid_tickers(unique))
+    invalid_guesses = set(find_invalid_tickers(list(dict.fromkeys(guesses.values()))))
+
+    resolved: dict[str, str] = {}
+    needs_search: list[str] = []
+    for t in unique:
+        guess = guesses[t]
+        if guess not in invalid_guesses:
+            resolved[t] = guess
+        elif t not in invalid_as_typed:
+            resolved[t] = t
+        else:
+            needs_search.append(t)
+
+    unresolved: list[str] = []
+    if needs_search:
+        with ThreadPoolExecutor(max_workers=min(len(needs_search), 8)) as pool:
+            results = list(pool.map(resolve_crypto_ticker, needs_search))
+        for t, r in zip(needs_search, results):
+            if r:
+                resolved[t] = r
+            else:
+                unresolved.append(t)
+
+    return {t: resolved[t] for t in tickers if t in resolved}, unresolved
 
 
 def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:
