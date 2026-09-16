@@ -23,7 +23,7 @@ class BasketConstituent(Base):
     __tablename__ = "basket_constituent"
 
     basket_id:      Mapped[int]  = mapped_column(ForeignKey("basket.id"), primary_key=True)
-    ticker:         Mapped[str]  = mapped_column(String(10), primary_key=True)
+    ticker:         Mapped[str]  = mapped_column(String(20), primary_key=True)
     effective_date: Mapped[date] = mapped_column(Date, primary_key=True)
     weight:         Mapped[float] = mapped_column(Float, nullable=False)
 
