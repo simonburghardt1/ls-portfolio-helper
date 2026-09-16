@@ -43,7 +43,14 @@ class BasketValidationError(Exception):
 
 def _fetch_market_cap(ticker: str) -> float | None:
     try:
-        cap = getattr(yf.Ticker(ticker).fast_info, "market_cap", None)
+        t = yf.Ticker(ticker)
+        cap = getattr(t.fast_info, "market_cap", None)
+        if not cap:
+            # fast_info never populates market_cap for crypto pairs (confirmed empirically:
+            # None for BTC-USD/ETH-USD/etc regardless of the coin) — the fuller .info dict
+            # has it correctly. Only falls back here when fast_info came up empty, so normal
+            # stocks/ETFs keep the fast path unchanged.
+            cap = t.info.get("marketCap")
         return float(cap) if cap else None
     except Exception:
         log.warning("Basket market-cap fetch failed for %s", ticker, exc_info=True)
@@ -337,8 +344,10 @@ def _latest_and_change(index_level: list[float]) -> tuple[float | None, float | 
 
 
 def _ytd_change(dates: list[str], index_level: list[float]) -> float | None:
-    """Year-to-date change of the live-reconstructed series — mirrors the frontend's own
-    computeRangeChanges/rangeStartDate YTD logic (baskets/[id]/page.jsx) so both agree."""
+    """Year-to-date change of a series that's already a real, correctly-weighted NAV — used
+    only for HBM (see _hbm_as_basket_entry), whose hbm_index_level reflects its own actual
+    periodic rebalancing, so a raw ratio is the right "real return" measure there. NOT used
+    for custom Baskets — see _ytd_change_reseeded for those."""
     if not dates or not index_level:
         return None
     ytd_start = f"{datetime.now(timezone.utc).year}-01-01"
@@ -349,6 +358,32 @@ def _ytd_change(dates: list[str], index_level: list[float]) -> float | None:
     if not base:
         return None
     return round(index_level[-1] / base - 1, 4)
+
+
+def _ytd_change_reseeded(dates: list[str], ticker_prices: dict[str, list], weights: dict[str, float]) -> float | None:
+    """Year-to-date change for a custom Basket, assuming a fresh rebalance to target weight
+    on the first trading day of the year — mirrors the Basket detail page's rebaseWeighted/
+    computeRangeChanges (frontend baskets/[id]/page.jsx), so this list-card figure agrees
+    with what the detail page itself shows when YTD is selected there, instead of the real
+    (never-rebalanced) buy-and-hold ratio a single index_level ratio would give — that ratio
+    can be dominated by whichever holding happened to already be a huge share of the Basket
+    by New Year's, not by this year's own performance (the "ZEC vs HYPE" case this replaced)."""
+    if not dates or not ticker_prices or not weights:
+        return None
+    ytd_start = f"{datetime.now(timezone.utc).year}-01-01"
+    idx = next((i for i, d in enumerate(dates) if d >= ytd_start), None)
+    if idx is None:
+        return None
+    total = 0.0
+    for ticker, weight in weights.items():
+        prices = ticker_prices.get(ticker)
+        if not prices or idx >= len(prices):
+            return None
+        p0, p1 = prices[idx], prices[-1]
+        if not p0 or p1 is None:
+            return None
+        total += weight * (p1 / p0)
+    return round(total - 1, 4)
 
 
 def _cagr(dates: list[str], index_level: list[float]) -> float | None:
@@ -395,10 +430,10 @@ def _beta_vs_spy(dates: list[str], index_level: list[float]) -> float | None:
     return round(_compute_beta(basket_ret, spy_ret), 4)
 
 
-def _basket_dict(b: Basket, series: dict, tickers: list[str]) -> dict:
+def _basket_dict(b: Basket, series: dict, tickers: list[str], weights: dict[str, float]) -> dict:
     index_level = series.get("index_level", [])
     _, nav_change_pct = _latest_and_change(index_level)
-    ytd_change_pct = _ytd_change(series.get("dates", []), index_level)
+    ytd_change_pct = _ytd_change_reseeded(series.get("dates", []), series.get("ticker_prices", {}), weights)
     return {
         "id": b.id,
         "name": b.name,
@@ -461,10 +496,10 @@ def list_baskets(db: Session, user_id: int) -> list[dict]:
     def _compute(b: Basket) -> dict:
         constituents = constituents_by_basket[b.id]
         if not constituents:
-            return _basket_dict(b, {}, [])
+            return _basket_dict(b, {}, [], {})
         tickers = [c.ticker for c in constituents]
         weights = {c.ticker: c.weight for c in constituents}
-        return _basket_dict(b, _reconstruct_series(tickers, weights), tickers)
+        return _basket_dict(b, _reconstruct_series(tickers, weights), tickers, weights)
 
     with ThreadPoolExecutor(max_workers=min(len(baskets), 4)) as pool:
         return prefix + list(pool.map(_compute, baskets))
@@ -476,20 +511,30 @@ def get_basket_detail(db: Session, basket_id: int, user_id: int) -> dict | None:
         return None
     constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
     if not constituents:
-        return {**_basket_dict(basket, {}, []), "cagr": None, "beta_vs_spy": None, "num_holdings": 0}
+        return {**_basket_dict(basket, {}, [], {}), "cagr": None, "beta_vs_spy": None, "num_holdings": 0}
     tickers = [c.ticker for c in constituents]
     weights = {c.ticker: c.weight for c in constituents}
     series = _reconstruct_series(tickers, weights)
-    result = _basket_dict(basket, series, tickers)
+    result = _basket_dict(basket, series, tickers, weights)
     result["cagr"] = _cagr(series.get("dates", []), series.get("index_level", []))
     result["beta_vs_spy"] = _beta_vs_spy(series.get("dates", []), series.get("index_level", []))
     result["num_holdings"] = len(tickers)
     return result
 
 
+SERIES_FULL_HISTORY_YEARS = 11  # matches correlation.py/beta.py/volatility.py's FETCH_YEARS
+                                 # convention — long enough for the detail page's 3Y/5Y/Max
+                                 # range options, unlike the default SERIES_LOOKBACK_DAYS
+                                 # (~2y) used everywhere else a Basket's price series is
+                                 # needed (list cards, regime, etc.) that don't need this depth.
+
+
 def get_basket_series(db: Session, basket_id: int, user_id: int) -> dict | None:
     """Full reconstructed series plus a per-holding breakdown (ticker, weight, aligned prices)
-    for the frontend to derive performance/contribution over whichever range is selected."""
+    for the frontend to derive performance/contribution over whichever range is selected —
+    including a from-scratch, target-weight reconstruction per range (see the detail page's
+    rebaseWeighted()), which is why this fetches SERIES_FULL_HISTORY_YEARS back rather than
+    the shorter default SERIES_LOOKBACK_DAYS other Basket price callers use."""
     basket = basket_repo.get_basket(db, basket_id)
     if not basket or not _visible_to(basket, user_id):
         return None
@@ -500,7 +545,8 @@ def get_basket_series(db: Session, basket_id: int, user_id: int) -> dict | None:
 
     tickers = [c.ticker for c in constituents]
     weights = {c.ticker: c.weight for c in constituents}
-    series = _reconstruct_series(tickers, weights)
+    start = (datetime.now(timezone.utc).date() - timedelta(days=365 * SERIES_FULL_HISTORY_YEARS)).isoformat()
+    series = _reconstruct_series(tickers, weights, start=start)
 
     holdings = [
         {"ticker": t, "weight": weights[t], "prices": series["ticker_prices"].get(t, [])}

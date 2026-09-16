@@ -37,6 +37,9 @@ const RANGES = [
   { label: "3M", days: 90 },
   { label: "YTD", days: null },
   { label: "1Y", days: 365 },
+  { label: "3Y", days: 1095 },
+  { label: "5Y", days: 1825 },
+  { label: "Max", days: null },
 ];
 
 // Keep in sync with backend/app/services/basket.py's COMPARISON_BENCHMARKS — duplicated
@@ -59,13 +62,17 @@ function rangeStartDate(rangeLabel) {
   if (rangeLabel === "YTD") {
     return `${now.getFullYear()}-01-01`;
   }
+  if (rangeLabel === "Max") {
+    return "1900-01-01"; // earlier than any real series — findIndex naturally lands on its first date
+  }
   const days = RANGES.find((r) => r.label === rangeLabel)?.days ?? 30;
   const d = new Date(now);
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
 }
 
-// Rebases the series to 100 at the first date >= fromDate — "index the basket to 100 for the timeframe".
+// Plain rescale to 100 at the first date >= fromDate — used only for the external compare
+// ticker overlay (a single price series with no per-holding weights to reseed).
 function rebase(dates, levels, fromDate) {
   const startIdx = dates.findIndex((d) => d >= fromDate);
   if (startIdx === -1) return { dates: [], levels: [] };
@@ -77,44 +84,61 @@ function rebase(dates, levels, fromDate) {
   };
 }
 
+// Simulates buying every holding fresh at its *target* weight on the first date of the
+// selected window and tracking forward with real prices from there — matches what the
+// chart's own "indexed to 100" framing already visually implies (selecting a timeframe
+// means "what if I'd bought in fresh here"), rather than rescaling the Basket's real,
+// never-rebalanced history (whose slope within the window is still driven by whatever
+// weights had already drifted to by that point). Exactly _reconstruct_series's own
+// fixed-weight-buy-and-hold formula (100 * Σ weight_i * price_i(t)/price_i(t0)), just
+// computed client-side per selected range from the holdings arrays already in hand.
+// "Max" naturally reduces to the Basket's true total return, since target weights genuinely
+// were applied at the real inception — reseeding there changes nothing.
+function rebaseWeighted(dates, holdings, fromDate) {
+  if (!dates?.length || !holdings?.length) return { dates: [], levels: [] };
+  const startIdx = dates.findIndex((d) => d >= fromDate);
+  if (startIdx === -1) return { dates: [], levels: [] };
+
+  const bases = holdings.map((h) => h.prices[startIdx]);
+  if (bases.some((b) => !b)) return { dates: [], levels: [] };
+
+  const slicedDates = dates.slice(startIdx);
+  const levels = slicedDates.map((_, i) => {
+    const idx = startIdx + i;
+    let total = 0;
+    holdings.forEach((h, hi) => {
+      const p = h.prices[idx];
+      if (p != null) total += h.weight * (p / bases[hi]);
+    });
+    return total * 100;
+  });
+  return { dates: slicedDates, levels };
+}
+
 function pct(v) {
   if (v == null || isNaN(v)) return "—";
   return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
 }
 
-// Per-holding performance and contribution over the selected range.
-//
-// `weight` shown to the user is always the Basket's static *target* weight (how it was
-// constructed — e.g. exactly 1/N for Equal-weight) so an Equal-weight Basket visibly reads
-// as equal-weighted, no matter which range is selected.
-//
-// `contribution` cannot use that same target weight, though: this Basket never rebalances
-// (no rebalancing mechanic exists yet — AD-8 only covers creation + daily NAV extension), so
-// each ticker's *actual* dollar-share drifts away from its target weight over time. Using the
-// static target weight for contribution would make per-holding contributions NOT sum to the
-// Basket's own return over the window (verified/caught in an earlier round). So contribution
-// is computed against the drifted, effective weight *at the start of the selected window*
-// instead: effective_weight_i(t0) = (target_weight_i * price_i,t0 / price_i,0) /
-// (index_level[t0] / 100), i.e. this ticker's actual share of Basket value at t0 — the target
-// weight is only used for display, never for the contribution math.
-function computeHoldingsBreakdown(dates, indexLevel, holdings, fromDate) {
+// Per-holding performance and contribution over the selected range — assumes a fresh
+// rebalance to target weight at the start of the selected window (see rebaseWeighted's
+// docstring for why), so contribution is simply targetWeight × performance and this always
+// sums to the Basket's own return for the window by construction. "Max" reflects the
+// Basket's true un-rebalanced history, since it never actually rebalanced before then.
+function computeHoldingsBreakdown(dates, holdings, fromDate) {
   if (!dates?.length || !holdings?.length) return [];
   const startIdx = dates.findIndex((d) => d >= fromDate);
   if (startIdx === -1) return [];
-  const basketValueAtStart = indexLevel[startIdx];
-  if (!basketValueAtStart) return [];
 
   return holdings
     .map((h) => {
-      const priceAtInception = h.prices[0];
       const startPrice = h.prices[startIdx];
       const endPrice = h.prices[h.prices.length - 1];
-      if (!priceAtInception || !startPrice) {
+      if (!startPrice || !endPrice) {
         return { ticker: h.ticker, targetWeight: h.weight, performance: null, contribution: null };
       }
-      const effectiveWeight = (h.weight * startPrice / priceAtInception) / (basketValueAtStart / 100);
       const performance = endPrice / startPrice - 1;
-      return { ticker: h.ticker, targetWeight: h.weight, performance, contribution: effectiveWeight * performance };
+      return { ticker: h.ticker, targetWeight: h.weight, performance, contribution: h.weight * performance };
     })
     .sort((a, b) => (b.contribution ?? -Infinity) - (a.contribution ?? -Infinity));
 }
@@ -135,17 +159,33 @@ function bmsbLabel(price, ema, sma) {
   return { text: "Inside Band", color: "var(--text-secondary)" };
 }
 
-// % change over each selectable timeframe, from the Basket's own index series — independent
-// of whichever range is currently selected for the chart below (this row shows all of them
-// at once). "1D" uses the literal last two points, not rangeStartDate/findIndex — a calendar
+// Target-weight-weighted return between two indices into `holdings[].prices` — same
+// "reseed to target weight, track forward" story as rebaseWeighted, just evaluated at a
+// single end point instead of a whole series (Σ weight_i × price_i(to)/price_i(from) − 1).
+function weightedReturn(holdings, fromIdx, toIdx) {
+  let total = 0;
+  for (const h of holdings) {
+    const p0 = h.prices[fromIdx];
+    const p1 = h.prices[toIdx];
+    if (p0 == null || p1 == null) continue;
+    total += h.weight * (p1 / p0);
+  }
+  return total - 1;
+}
+
+// % change over each selectable timeframe, from a fresh target-weight rebalance at the
+// start of that timeframe (same reseed logic as rebaseWeighted/computeHoldingsBreakdown,
+// so this KPI row and the chart/table below always tell the same story) — independent of
+// whichever range is currently selected for the chart below (this row shows all of them at
+// once). "1D" uses the literal last two points, not rangeStartDate/findIndex — a calendar
 // "1 day ago" lookup breaks across weekends (Friday's "1 day ago" is Sunday, no trading match).
-function computeRangeChanges(dates, levels) {
-  if (!dates?.length || !levels?.length) return {};
+function computeRangeChanges(dates, holdings) {
+  if (!dates?.length || !holdings?.length) return {};
   const lastIdx = dates.length - 1;
-  const out = { "1D": lastIdx >= 1 ? levels[lastIdx] / levels[lastIdx - 1] - 1 : null };
+  const out = { "1D": lastIdx >= 1 ? weightedReturn(holdings, lastIdx - 1, lastIdx) : null };
   for (const r of RANGES) {
     const startIdx = dates.findIndex((d) => d >= rangeStartDate(r.label));
-    out[r.label] = startIdx === -1 ? null : levels[lastIdx] / levels[startIdx] - 1;
+    out[r.label] = startIdx === -1 ? null : weightedReturn(holdings, startIdx, lastIdx);
   }
   return out;
 }
@@ -221,16 +261,16 @@ export default function BasketDetailPage() {
 
   const rebased = useMemo(() => {
     if (!series?.dates?.length) return { dates: [], levels: [] };
-    return rebase(series.dates, series.index_level, rangeStartDate(range));
+    return rebaseWeighted(series.dates, series.holdings, rangeStartDate(range));
   }, [series, range]);
 
   const holdingsBreakdown = useMemo(
-    () => computeHoldingsBreakdown(series?.dates, series?.index_level, series?.holdings, rangeStartDate(range)),
+    () => computeHoldingsBreakdown(series?.dates, series?.holdings, rangeStartDate(range)),
     [series, range]
   );
 
   const rangeChanges = useMemo(
-    () => computeRangeChanges(series?.dates, series?.index_level),
+    () => computeRangeChanges(series?.dates, series?.holdings),
     [series]
   );
 
@@ -522,7 +562,7 @@ export default function BasketDetailPage() {
                 Holdings — {range} performance &amp; contribution
               </div>
               <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
-                Weight is how the Basket was constructed (target weight). Contribution accounts for how each holding&apos;s actual share has drifted from that target since the Basket doesn&apos;t rebalance — contributions sum to the Basket&apos;s own return for this window.
+                Weight is the Basket&apos;s target allocation. Performance and Contribution assume a fresh rebalance to that target weight at the start of the selected range — matching the chart above, which is indexed to 100 there too — so contributions sum to the Basket&apos;s own return for this window. &quot;Max&quot; reflects the Basket&apos;s true history since inception, since it never actually rebalances on its own.
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
