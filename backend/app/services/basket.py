@@ -10,7 +10,7 @@ import pandas as pd
 import yfinance as yf
 from sqlalchemy.orm import Session
 
-from app.models.basket import Basket
+from app.models.basket import Basket, BasketRegime
 from app.repositories import basket as basket_repo
 from app.services import high_beta_momentum as hbm_service
 from app.services.portfolio import _compute_beta, resolve_crypto_ticker, resolve_and_validate_tickers, is_known_crypto_symbol
@@ -456,7 +456,9 @@ def _beta_vs_spy(dates: list[str], index_level: list[float]) -> float | None:
     return round(_compute_beta(basket_ret, spy_ret), 4)
 
 
-def _basket_dict(b: Basket, series: dict, tickers: list[str], weights: dict[str, float]) -> dict:
+def _basket_dict(
+    b: Basket, series: dict, tickers: list[str], weights: dict[str, float], regime: BasketRegime | None = None
+) -> dict:
     index_level = series.get("index_level", [])
     _, nav_change_pct = _latest_and_change(index_level)
     ytd_change_pct = _ytd_change_reseeded(series.get("dates", []), series.get("ticker_prices", {}), weights)
@@ -469,6 +471,11 @@ def _basket_dict(b: Basket, series: dict, tickers: list[str], weights: dict[str,
         "ytd_change_pct": ytd_change_pct,
         "nav_change_pct": nav_change_pct,
         "tickers": tickers,
+        # Sourced from the persisted BasketRegime table (basket_regime_daily, Story 3.2) —
+        # a cheap DB read, never a live recompute, so every card on the list page can show
+        # one without paying for the full regime methodology per Basket per request.
+        "regime_score": regime.score01 if regime else None,
+        "regime_label": regime.regime if regime else None,
     }
 
 
@@ -518,14 +525,16 @@ def list_baskets(db: Session, user_id: int) -> list[dict]:
     # DB reads happen up front, single-threaded — Session isn't safe for concurrent use.
     # Only the pure yfinance/pandas computation below is parallelized across Baskets.
     constituents_by_basket = {b.id: basket_repo.get_effective_constituents(db, b.id, as_of=today) for b in baskets}
+    regime_by_basket = basket_repo.latest_regime_by_basket(db, [b.id for b in baskets])
 
     def _compute(b: Basket) -> dict:
         constituents = constituents_by_basket[b.id]
+        regime = regime_by_basket.get(b.id)
         if not constituents:
-            return _basket_dict(b, {}, [], {})
+            return _basket_dict(b, {}, [], {}, regime)
         tickers = [c.ticker for c in constituents]
         weights = {c.ticker: c.weight for c in constituents}
-        return _basket_dict(b, _reconstruct_series(tickers, weights), tickers, weights)
+        return _basket_dict(b, _reconstruct_series(tickers, weights), tickers, weights, regime)
 
     with ThreadPoolExecutor(max_workers=min(len(baskets), 4)) as pool:
         return prefix + list(pool.map(_compute, baskets))

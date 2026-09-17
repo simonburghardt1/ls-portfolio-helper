@@ -7,9 +7,11 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.basket import BasketRegime
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.basket import BasketValidationError, TickerAmbiguousError
@@ -44,6 +46,8 @@ class BasketOut(BaseModel):
     cagr: float | None = None
     beta_vs_spy: float | None = None
     num_holdings: int | None = None
+    regime_score: float | None = None
+    regime_label: str | None = None
 
 
 class HoldingOut(BaseModel):
@@ -92,6 +96,34 @@ def list_baskets(
     current_user: User = Depends(get_current_user),
 ):
     return basket_service.list_baskets(db, user_id=current_user.id)
+
+
+@router.get("/regime/status")
+def basket_regime_status(db: Session = Depends(get_db)):
+    """Latest date, earliest date, and row count across all Baskets' persisted regime rows
+    (basket_regime_daily) — for the admin/indicators page, mirrors
+    routers/market.py::market_regime_status. Declared before /{basket_id} so "regime" is
+    never parsed as a basket_id."""
+    count = db.query(func.count()).select_from(BasketRegime).scalar() or 0
+    latest = db.query(func.max(BasketRegime.date)).scalar()
+    earliest = db.query(func.min(BasketRegime.date)).scalar()
+    return {
+        "count": count,
+        "latest_date": latest.isoformat() if latest else None,
+        "earliest_date": earliest.isoformat() if earliest else None,
+        "interval": "daily",
+    }
+
+
+@router.post("/regime/refresh")
+def basket_regime_refresh(db: Session = Depends(get_db)):
+    """Manual trigger for the basket_regime_daily job (also runs nightly via scheduler.py) —
+    mirrors routers/market.py::market_regime_refresh."""
+    try:
+        updated = basket_regime_service.compute_and_persist_all_basket_regimes(db)
+        return {"status": "ok", "updated": updated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=repr(e))
 
 
 @router.get("/{basket_id}", response_model=BasketOut)

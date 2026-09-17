@@ -22,8 +22,12 @@
  *   caption:     optional plain muted line below the value (string or node),
  *                for a secondary fact that isn't a delta (e.g. "score 0.55").
  *                Ignored when `change` is present — `change` wins.
+ *   footer:      optional node always rendered below change/caption, regardless of which
+ *                (if either) is present — for a genuinely separate third fact (e.g. the
+ *                Basket overview's regime score + Uptrend/Ranging/Downtrend label below
+ *                the 1D/YTD change). Unlike `caption`, never suppressed by `change`.
  */
-export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, changeLabel = "MoM", onClick, isSelected, small = false, valueColor, caption }) {
+export default function KpiCard({ id, label, value, formatted, unit, change, good_direction, changeLabel = "MoM", onClick, isSelected, small = false, valueColor, caption, footer }) {
     const display = formatted ?? (value == null ? "--" : Number(value).toFixed(2));
 
     let changeEl = null;
@@ -85,6 +89,11 @@ export default function KpiCard({ id, label, value, formatted, unit, change, goo
                 {unit && <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-data-sm-size)", color: "var(--text-secondary)" }}>{unit}</div>}
             </div>
             {changeEl}
+            {footer != null && (
+                <div style={{ fontFamily: "var(--font-family-sans)", fontSize: "var(--text-data-sm-size)", marginTop: 6 }}>
+                    {footer}
+                </div>
+            )}
         </Tag>
     );
 }

@@ -35,3 +35,18 @@ class BasketNav(Base):
     basket_id:   Mapped[int]   = mapped_column(ForeignKey("basket.id"), primary_key=True)
     date:        Mapped[date]  = mapped_column(Date, primary_key=True)
     index_level: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class BasketRegime(Base):
+    """Computed per-Basket regime data for one daily bar (AD-10, Story 3.2) — mirrors
+    MarketRegimeRow's shape (market_data.py), written by the basket_regime_daily job."""
+    __tablename__ = "basket_regime"
+
+    basket_id:               Mapped[int]         = mapped_column(ForeignKey("basket.id"), primary_key=True)
+    date:                    Mapped[date]        = mapped_column(Date, primary_key=True)
+    regime:                  Mapped[str | None]  = mapped_column(String(10), nullable=True)  # "up" | "down" | "ranging"
+    score01:                 Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_bmsb:              Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_vol:               Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_breadth:           Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_relative_strength: Mapped[float | None] = mapped_column(Float, nullable=True)

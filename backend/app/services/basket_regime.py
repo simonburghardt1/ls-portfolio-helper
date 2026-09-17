@@ -25,6 +25,7 @@ import pandas as pd
 import yfinance as yf
 from sqlalchemy.orm import Session
 
+from app.models.basket import Basket
 from app.repositories import basket as basket_repo
 from app.services.basket import _visible_to, _download_close, _reconstruct_series, SERIES_LOOKBACK_DAYS
 
@@ -131,21 +132,27 @@ def _round_list(vals) -> list[float | None]:
     return [round(float(v), 4) if v is not None and not (isinstance(v, float) and pd.isna(v)) else None for v in vals]
 
 
-def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | None:
-    basket = basket_repo.get_basket(db, basket_id)
-    if not basket or not _visible_to(basket, user_id):
-        return None
+_EMPTY_REGIME_SERIES = {
+    "dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []},
+    "breadth_pct": [], "prices": [], "ema21": [], "sma20": [], "realized_vol_last": None,
+}
 
-    constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
-    if not constituents:
-        return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "realized_vol_last": None, "iv_rv_ratio": None, "prices": [], "ema21": [], "sma20": []}
 
-    tickers = [c.ticker for c in constituents]
-    weights = {c.ticker: c.weight for c in constituents}
-
+def _compute_regime_series(tickers: list[str], weights: dict[str, float]) -> dict:
+    """
+    The scored/historical half of the per-Basket regime methodology (AD-10) — BMSB, Vol,
+    Breadth, Relative Strength and their composite, over the Basket's full available price
+    history. Deliberately excludes the live, per-constituent options-chain Basket VIX/IV-RV
+    snapshot (see _basket_vix/module docstring: not historically scorable, so it isn't part
+    of this series) — extracted out of the former single-function compute_basket_regime so
+    the daily persistence job (compute_and_persist_all_basket_regimes) can compute just this
+    cheap part, once per Basket per day, without paying for an options-chain fetch per
+    constituent for every Basket. compute_basket_regime (the detail-page path) still needs
+    both, and remains the only caller that also computes the live VIX snapshot.
+    """
     series = _reconstruct_series(tickers, weights)
     if not series["dates"]:
-        return {"dates": [], "score01": [], "components": {"bmsb": [], "vol": [], "breadth": [], "relative_strength": []}, "breadth_pct": [], "basket_vix": None, "realized_vol_last": None, "iv_rv_ratio": None, "prices": [], "ema21": [], "sma20": []}
+        return dict(_EMPTY_REGIME_SERIES)
 
     dates = pd.to_datetime(series["dates"])
     nav = pd.Series(series["index_level"], index=dates)
@@ -191,19 +198,8 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
     composite_smoothed = composite_series.ewm(span=SMOOTH_SPAN, adjust=False).mean()
     score01 = ((composite_smoothed + 1) / 2 * 100).clip(0, 100)
 
-    # IV/RV ratio: today's live Basket VIX (implied vol) against today's realized vol —
-    # a snapshot-only comparison, not a scored/history-backed component. We can't score
-    # or chart this over time the way the other four components are (see module
-    # docstring: yfinance has no historical options data, so there's nothing to
-    # normalize against a rolling range), but a same-day ratio needs no history at all.
-    basket_vix_value = _basket_vix(tickers, weights)
     realized_vol_last = realized_vol.iloc[-1]
     realized_vol_last = None if pd.isna(realized_vol_last) else round(float(realized_vol_last), 4)
-    iv_rv_ratio = (
-        round(basket_vix_value / realized_vol_last, 4)
-        if basket_vix_value is not None and realized_vol_last
-        else None
-    )
 
     return {
         "dates": series["dates"],
@@ -215,10 +211,111 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
             "relative_strength": _round_list(rs_scores),
         },
         "breadth_pct": _round_list(breadth_pct.tolist()),
-        "basket_vix": round(basket_vix_value, 4) if basket_vix_value is not None else None,
         "realized_vol_last": realized_vol_last,
-        "iv_rv_ratio": iv_rv_ratio,
         "prices": _round_list(nav.tolist()),
         "ema21": _round_list(ema.tolist()),
         "sma20": _round_list(sma.tolist()),
     }
+
+
+def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | None:
+    basket = basket_repo.get_basket(db, basket_id)
+    if not basket or not _visible_to(basket, user_id):
+        return None
+
+    constituents = basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
+    if not constituents:
+        return {**_EMPTY_REGIME_SERIES, "basket_vix": None, "iv_rv_ratio": None}
+
+    tickers = [c.ticker for c in constituents]
+    weights = {c.ticker: c.weight for c in constituents}
+
+    series = _compute_regime_series(tickers, weights)
+    if not series["dates"]:
+        return {**series, "basket_vix": None, "iv_rv_ratio": None}
+
+    # IV/RV ratio: today's live Basket VIX (implied vol) against today's realized vol —
+    # a snapshot-only comparison, not a scored/history-backed component. We can't score
+    # or chart this over time the way the other four components are (see module
+    # docstring: yfinance has no historical options data, so there's nothing to
+    # normalize against a rolling range), but a same-day ratio needs no history at all.
+    basket_vix_value = _basket_vix(tickers, weights)
+    iv_rv_ratio = (
+        round(basket_vix_value / series["realized_vol_last"], 4)
+        if basket_vix_value is not None and series["realized_vol_last"]
+        else None
+    )
+
+    return {
+        **series,
+        "basket_vix": round(basket_vix_value, 4) if basket_vix_value is not None else None,
+        "iv_rv_ratio": iv_rv_ratio,
+    }
+
+
+def _last_or_none(vals: list) -> float | None:
+    return vals[-1] if vals else None
+
+
+def compute_and_persist_all_basket_regimes(db: Session) -> int:
+    """
+    The basket_regime_daily job (scheduler.py, AD-4): computes today's regime for every real
+    Basket (HBM's synthetic entry has its own separate regime concept — out of scope here)
+    and upserts one BasketRegime row each, so the Basket overview list page can show a score
+    from a cheap DB read instead of recomputing full history live for every Basket on every
+    request. Never calls the live options-chain Basket VIX (see _compute_regime_series) —
+    that stays a detail-page-only, on-request snapshot. A Basket with no price history yet
+    is skipped (logged), matching every other job in scheduler.py's swallow-and-continue
+    convention. Returns the number of rows written.
+    """
+    baskets = basket_repo.list_all_baskets(db)  # every Basket regardless of owner — an internal batch job, not a per-user request
+    if not baskets:
+        return 0
+
+    today = datetime.now(timezone.utc).date()
+    constituents_by_basket = {b.id: basket_repo.get_effective_constituents(db, b.id, as_of=today) for b in baskets}
+
+    def _compute(b: Basket) -> dict | None:
+        constituents = constituents_by_basket[b.id]
+        if not constituents:
+            return None
+        tickers = [c.ticker for c in constituents]
+        weights = {c.ticker: c.weight for c in constituents}
+        try:
+            series = _compute_regime_series(tickers, weights)
+        except Exception:
+            log.warning("basket_regime_daily: computation failed for basket_id=%s", b.id, exc_info=True)
+            return None
+        if not series["dates"]:
+            return None
+        score = _last_or_none(series["score01"])
+        return {
+            "basket_id": b.id,
+            "date": datetime.fromisoformat(series["dates"][-1]).date(),
+            "regime": _label_for_score(score),
+            "score01": score,
+            "score_bmsb": _last_or_none(series["components"]["bmsb"]),
+            "score_vol": _last_or_none(series["components"]["vol"]),
+            "score_breadth": _last_or_none(series["components"]["breadth"]),
+            "score_relative_strength": _last_or_none(series["components"]["relative_strength"]),
+        }
+
+    with ThreadPoolExecutor(max_workers=min(len(baskets), 4)) as pool:
+        rows = [r for r in pool.map(_compute, baskets) if r is not None]
+
+    if rows:
+        basket_repo.upsert_basket_regime(db, rows)
+    return len(rows)
+
+
+def _label_for_score(score: float | None) -> str | None:
+    """Discrete Uptrend/Ranging/Downtrend bucket for a 0-100 score01 value — same thresholds
+    (60/40) as the frontend's scoreToRegime (app/lib/regime.js), duplicated here only because
+    this is what gets persisted/read outside the browser (admin status, future backend use)."""
+    if score is None:
+        return None
+    if score > 60:
+        return "up"
+    if score < 40:
+        return "down"
+    return "ranging"

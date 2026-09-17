@@ -1,14 +1,15 @@
 """
 Basket repository — owns all SQLAlchemy Session access for the Basket domain
-(Basket, BasketConstituent, BasketNav). Services call these functions and never
-touch Session directly for this domain (AD-1).
+(Basket, BasketConstituent, BasketNav, BasketRegime). Services call these functions and
+never touch Session directly for this domain (AD-1).
 """
 from datetime import date
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models.basket import Basket, BasketConstituent, BasketNav
+from app.models.basket import Basket, BasketConstituent, BasketNav, BasketRegime
 
 
 def create_basket(
@@ -99,6 +100,12 @@ def list_baskets(db: Session, user_id: int) -> list[Basket]:
     )
 
 
+def list_all_baskets(db: Session) -> list[Basket]:
+    """Every Basket regardless of owner — for internal batch jobs (basket_regime_daily),
+    not a per-user request path like list_baskets above."""
+    return db.query(Basket).all()
+
+
 def get_basket(db: Session, basket_id: int) -> Basket | None:
     return db.get(Basket, basket_id)
 
@@ -131,3 +138,36 @@ def last_two_navs_by_basket(db: Session, basket_ids: list[int]) -> dict[int, lis
         if len(bucket) < 2:
             bucket.append(row)
     return by_basket
+
+
+def upsert_basket_regime(db: Session, rows: list[dict]) -> None:
+    """Bulk-upserts computed BasketRegime rows (one per basket per day) — mirrors
+    market_regime.py's _upsert_regime pattern. Each dict must have basket_id, date, regime,
+    score01, score_bmsb, score_vol, score_breadth, score_relative_strength."""
+    if not rows:
+        return
+    stmt = pg_insert(BasketRegime).values(rows).on_conflict_do_update(
+        index_elements=["basket_id", "date"],
+        set_={c: pg_insert(BasketRegime).excluded[c]
+              for c in ("regime", "score01", "score_bmsb", "score_vol", "score_breadth", "score_relative_strength")}
+    )
+    db.execute(stmt)
+    db.commit()
+
+
+def latest_regime_by_basket(db: Session, basket_ids: list[int]) -> dict[int, BasketRegime]:
+    """Latest persisted BasketRegime row per basket — the cheap, no-yfinance read the
+    Basket overview list page uses (services/basket.py::list_baskets)."""
+    if not basket_ids:
+        return {}
+    rows = (
+        db.query(BasketRegime)
+        .filter(BasketRegime.basket_id.in_(basket_ids))
+        .order_by(BasketRegime.basket_id, BasketRegime.date.desc())
+        .all()
+    )
+    latest: dict[int, BasketRegime] = {}
+    for row in rows:
+        if row.basket_id not in latest:
+            latest[row.basket_id] = row
+    return latest

@@ -8,6 +8,11 @@ import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
 import Badge from "@/app/components/Badge";
 import Button from "@/app/components/Button";
+import { REGIME_CONFIG } from "@/app/components/RegimeChart";
+import { scoreToRegime } from "@/app/lib/regime";
+
+// Same thresholds as the Basket detail page's BASKET_REGIME_THRESHOLDS (score01 0-100 scale).
+const REGIME_THRESHOLDS = { up: 60, down: 40 };
 
 function pctDelta(v) {
   if (v == null || isNaN(v)) return null;
@@ -71,6 +76,8 @@ export default function BasketsPage() {
           {baskets.map((b) => {
             const changePct = pctDelta(b.nav_change_pct);
             const ytdPct = pctDelta(b.ytd_change_pct);
+            const regimeBucket = scoreToRegime(b.regime_score, REGIME_THRESHOLDS);
+            const regimeCfg = regimeBucket ? REGIME_CONFIG[regimeBucket] : null;
             return (
               <KpiCard
                 key={b.id}
@@ -97,6 +104,11 @@ export default function BasketsPage() {
                 changeLabel="YTD"
                 good_direction="up"
                 caption={ytdPct == null ? "No YTD data yet" : undefined}
+                footer={regimeCfg ? (
+                  <span style={{ color: regimeCfg.color }}>
+                    {Math.round(b.regime_score)} · {regimeCfg.label}
+                  </span>
+                ) : undefined}
               />
             );
           })}

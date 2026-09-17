@@ -55,6 +55,17 @@ const INDICATORS = [
     isRegime:    true,
   },
   {
+    key:         "basket-regime",
+    label:       "Basket Regime",
+    description: "Per-Basket BMSB/Realized-Vol/Breadth/Relative-Strength composite (Story 3.2), "
+               + "persisted once daily for every Basket so the overview list page can show a score "
+               + "without recomputing full regime history live. Auto-refreshes daily at 22:20 UTC "
+               + "(after Market Regime and Commodity Prices).",
+    statusUrl:   `${API}/api/baskets/regime/status`,
+    refreshUrl:  `${API}/api/baskets/regime/refresh`,
+    statusSeries: null,
+  },
+  {
     key:         "cot",
     label:       "COT Data",
     description: "CFTC Commitments of Traders — 21 contracts via Socrata REST API (Disaggregated + TFF reports). Weekly cadence, updated each Friday.",
