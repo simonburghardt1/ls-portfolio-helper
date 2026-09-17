@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
 import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
@@ -220,6 +220,8 @@ function computeDrawdown(dates, levels) {
 
 export default function BasketDetailPage() {
   const { id } = useParams();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [range, setRange] = useState("3M");
   const [selectedCompares, setSelectedCompares] = useState([]);
   const [regimePeriod, setRegimePeriod] = useState("1Y");
@@ -274,6 +276,20 @@ export default function BasketDetailPage() {
     queryKey: ["basket-regime", id],
     queryFn: () => api.get(`/api/baskets/${id}/regime`),
   });
+
+  const deleteBasket = useMutation({
+    mutationFn: () => api.delete(`/api/baskets/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["baskets"] });
+      router.push("/portfolio/markets/baskets");
+    },
+  });
+
+  function handleDelete() {
+    if (confirm(`Delete Basket "${basket?.name}"? This cannot be undone.`)) {
+      deleteBasket.mutate();
+    }
+  }
 
   const rebased = useMemo(() => {
     if (!series?.dates?.length) return { dates: [], levels: [] };
@@ -383,10 +399,26 @@ export default function BasketDetailPage() {
                 <Badge variant="neutral">CUSTOM</Badge>
               )}
             </div>
-            <Link href={`/portfolio/markets/baskets/${id}/edit`} style={{ textDecoration: "none" }}>
-              <Button variant="secondary">Edit</Button>
-            </Link>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Link href={`/portfolio/markets/baskets/${id}/edit`} style={{ textDecoration: "none" }}>
+                <Button variant="secondary">Edit</Button>
+              </Link>
+              <Button
+                variant="secondary"
+                onClick={handleDelete}
+                disabled={deleteBasket.isPending}
+                style={{ color: "var(--negative)", borderColor: "var(--negative)" }}
+              >
+                {deleteBasket.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
           </div>
+
+          {deleteBasket.isError && (
+            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "var(--negative)" }}>
+              {deleteBasket.error?.message || "Could not delete this Basket."}
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
             <KpiCard label="Weighting" formatted={basket.weighting_method === "market_cap" ? "Market Cap" : "Equal-weight"} small />

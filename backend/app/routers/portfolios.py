@@ -29,11 +29,13 @@ class PositionSchema(BaseModel):
 class PortfolioCreate(BaseModel):
     name: str
     positions: list[PositionSchema]
+    disambiguations: dict[str, str] = {}
 
 
 class PortfolioUpdate(BaseModel):
     name: str
     positions: list[PositionSchema]
+    disambiguations: dict[str, str] = {}
 
 
 class PortfolioOut(BaseModel):
@@ -53,11 +55,16 @@ def list_portfolios(db: Session = Depends(get_db)):
     return db.query(Portfolio).order_by(Portfolio.updated_at.desc()).all()
 
 
-def _resolve_positions(positions: list[PositionSchema]) -> list[dict]:
+def _resolve_positions(positions: list[PositionSchema], disambiguations: dict[str, str]) -> list[dict]:
     """Resolves each position's ticker (bare crypto symbols included, e.g. "BTC" ->
-    "BTC-USD") and rejects any that still don't resolve to real price data."""
+    "BTC-USD") and rejects any that still don't resolve to real price data. Raises a 409
+    with a structured {"ambiguous": {...}} detail when a ticker matches both a real stock
+    and a real cryptocurrency and disambiguations doesn't already say which one was meant
+    — the frontend shows a picker and resubmits with that filled in."""
     tickers = [p.ticker.upper() for p in positions]
-    resolved_map, unresolved = resolve_and_validate_tickers(tickers)
+    resolved_map, unresolved, ambiguous = resolve_and_validate_tickers(tickers, disambiguations)
+    if ambiguous:
+        raise HTTPException(status_code=409, detail={"ambiguous": ambiguous})
     if unresolved:
         raise HTTPException(
             status_code=400,
@@ -74,7 +81,7 @@ def _resolve_positions(positions: list[PositionSchema]) -> list[dict]:
 def create_portfolio(payload: PortfolioCreate, db: Session = Depends(get_db)):
     if db.query(Portfolio).filter_by(name=payload.name).first():
         raise HTTPException(status_code=409, detail=f"Portfolio '{payload.name}' already exists.")
-    positions = _resolve_positions(payload.positions)
+    positions = _resolve_positions(payload.positions, payload.disambiguations)
     portfolio = Portfolio(name=payload.name, positions=positions)
     db.add(portfolio)
     db.commit()
@@ -91,7 +98,7 @@ def update_portfolio(portfolio_id: int, payload: PortfolioUpdate, db: Session = 
     if payload.name != portfolio.name:
         if db.query(Portfolio).filter_by(name=payload.name).first():
             raise HTTPException(status_code=409, detail=f"Portfolio '{payload.name}' already exists.")
-    positions = _resolve_positions(payload.positions)
+    positions = _resolve_positions(payload.positions, payload.disambiguations)
     portfolio.name = payload.name
     portfolio.positions = positions
     portfolio.updated_at = datetime.now(timezone.utc)

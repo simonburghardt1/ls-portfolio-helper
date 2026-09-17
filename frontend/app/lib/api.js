@@ -34,9 +34,17 @@ async function request(path, options = {}) {
       window.location.href = "/login?expired=1";
     }
 
-    throw new Error(error.detail || "Request failed");
+    // Some endpoints (e.g. ticker disambiguation, 409) return a structured `detail` object
+    // rather than a string — preserve it (and the status) so callers can branch on it
+    // instead of just showing `.message` as a plain error banner.
+    const message = typeof error.detail === "string" ? error.detail : "Request failed";
+    const err = new Error(message);
+    err.status = res.status;
+    err.detail = error.detail;
+    throw err;
   }
 
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -44,4 +52,5 @@ export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: "POST", body: JSON.stringify(body) }),
   put: (path, body) => request(path, { method: "PUT", body: JSON.stringify(body) }),
+  delete: (path) => request(path, { method: "DELETE" }),
 };

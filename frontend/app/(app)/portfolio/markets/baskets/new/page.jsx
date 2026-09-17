@@ -17,7 +17,7 @@ export default function NewBasketPage() {
       queryClient.invalidateQueries({ queryKey: ["baskets"] });
       router.push("/portfolio/markets/baskets");
     },
-    onError: (err) => setServerError(err.message || "Save failed."),
+    onError: (err) => setServerError(err),
   });
 
   return (

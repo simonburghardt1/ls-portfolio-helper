@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
-from app.services.basket import BasketValidationError
+from app.services.basket import BasketValidationError, TickerAmbiguousError
 from app.services import basket as basket_service
 from app.services import basket_regime as basket_regime_service
 
@@ -29,6 +29,7 @@ class BasketCreate(BaseModel):
     # here — a Field violation would short-circuit to FastAPI's automatic 422 before
     # reaching that check, which AC #3 disallows.
     weighting_method: Literal["equal", "market_cap"]
+    disambiguations: dict[str, str] = {}
 
 
 class BasketOut(BaseModel):
@@ -159,7 +160,10 @@ def create_basket(
             user_id=current_user.id,
             tickers=tickers,
             weighting_method=payload.weighting_method,
+            disambiguations=payload.disambiguations,
         )
+    except TickerAmbiguousError as e:
+        raise HTTPException(status_code=409, detail={"ambiguous": e.ambiguous})
     except BasketValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -186,7 +190,10 @@ def update_basket(
             name=payload.name,
             tickers=tickers,
             weighting_method=payload.weighting_method,
+            disambiguations=payload.disambiguations,
         )
+    except TickerAmbiguousError as e:
+        raise HTTPException(status_code=409, detail={"ambiguous": e.ambiguous})
     except BasketValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -195,3 +202,13 @@ def update_basket(
 
     detail = basket_service.get_basket_detail(db, basket_id, user_id=current_user.id)
     return detail
+
+
+@router.delete("/{basket_id}", status_code=204)
+def delete_basket(
+    basket_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not basket_service.delete_basket(db, basket_id, user_id=current_user.id):
+        raise HTTPException(status_code=404, detail="Basket not found.")

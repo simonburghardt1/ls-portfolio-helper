@@ -239,36 +239,94 @@ def resolve_crypto_ticker(raw: str) -> str | None:
     return matches[0] if matches else None
 
 
-def resolve_and_validate_tickers(tickers: list[str]) -> tuple[dict[str, str], list[str]]:
+def _real_crypto_tickers(guesses: list[str], min_days: int = 200) -> set[str]:
+    """
+    Confirms which "<bare>-USD" guesses are a real, established cryptocurrency rather than
+    a thin Yahoo-listed tokenized-stock derivative sharing the same base symbol (e.g.
+    "AVGO-USD" is quoteType CRYPTOCURRENCY but only ~1 month of history — a tokenized wrapper
+    around the Broadcom stock, not the actual coin). find_invalid_tickers()'s 5-day window
+    is too lenient to tell these apart; a real coin has a long, continuous price history, so
+    requiring ~200 non-NaN daily closes over the last year cleanly separates the two
+    (confirmed empirically against ~200 known real cryptocurrencies and the AVGO/ASML/QCOM/
+    INTC/CRDO/MRVL/AMAT/KLAC/LRCX/MPWR/TER derivative collisions).
+    """
+    if not guesses:
+        return set()
+
+    data = yf.download(tickers=guesses, period="1y", interval="1d", auto_adjust=True, progress=False)
+    if data.empty:
+        return set()
+
+    if isinstance(data.columns, pd.MultiIndex):
+        closes = data["Close"]
+    else:
+        closes = data[["Close"]].copy()
+        closes.columns = guesses
+
+    return {g for g in dict.fromkeys(guesses) if g in closes.columns and closes[g].notna().sum() >= min_days}
+
+
+def resolve_and_validate_tickers(
+    tickers: list[str], disambiguations: dict[str, str] | None = None
+) -> tuple[dict[str, str], list[str], dict[str, dict]]:
     """
     Batch resolver for Basket/Portfolio creation and edits.
 
     A bare ticker "valid as typed" is not necessarily what the user meant: several major
     crypto shorthands coincidentally collide with a real, unrelated stock ticker on
-    yfinance (confirmed empirically — "BTC", "ETH", "XRP", and "TRX" all resolve to real
-    but completely unrelated equities, not the crypto pair). So the crypto interpretation
-    always wins when one exists: every ticker's "<bare>-USD" guess is checked *in
-    addition to* its as-typed validity (one extra batched download, cheap enough since
-    this only runs at save time, not on every page load), and the crypto pair is
-    preferred whenever it resolves. Only when neither the as-typed ticker nor the direct
-    crypto guess works does this fall back to resolve_crypto_ticker()'s yfinance Search
-    (covers Yahoo's disambiguated symbols, e.g. "HYPE" -> "HYPE32196-USD").
+    yfinance (confirmed empirically — e.g. "BTC", "ETH", "XRP", "TRX", and (less obviously)
+    "STX" — Stacks the coin vs. Seagate Technology the stock — all resolve to real but
+    completely unrelated equities, not just the crypto pair). Rather than a hardcoded list
+    of "known crypto symbols" (tried, but doesn't generalize — STX above was already in such
+    a list, an S&P 500 stock ticker collision shipped by mistake), every ticker's "<bare>-USD"
+    guess is checked *in addition to* its as-typed validity, and:
+      - only the crypto guess is real (see _real_crypto_tickers) -> use it
+      - only the as-typed ticker is real -> use it (fixes the AVGO-style bug: the guess
+        exists but is a thin tokenized derivative, not a real coin)
+      - both are real -> genuinely ambiguous, can't be guessed safely either way; reported
+        back to the caller instead of silently picked, unless `disambiguations` (a
+        {input_ticker: "stock"|"crypto"} map, supplied once the user has picked one) says
+        otherwise
+      - neither -> falls back to resolve_crypto_ticker()'s yfinance Search (covers Yahoo's
+        disambiguated symbols, e.g. "HYPE" -> "HYPE32196-USD")
 
-    Returns ({original_input: final_ticker_to_store}, [inputs still unresolvable]).
+    Returns ({original_input: final_ticker_to_store}, [inputs still unresolvable],
+    {input_ticker: {"stock": {...}, "crypto": {...}}} for ones needing a user decision).
     """
+    disambiguations = disambiguations or {}
     unique = list(dict.fromkeys(tickers))
     guesses = {t: f"{t.upper().split('-')[0]}-USD" for t in unique}
 
     invalid_as_typed = set(find_invalid_tickers(unique))
-    invalid_guesses = set(find_invalid_tickers(list(dict.fromkeys(guesses.values()))))
+    real_crypto = _real_crypto_tickers(list(dict.fromkeys(guesses.values())))
 
     resolved: dict[str, str] = {}
+    ambiguous: dict[str, dict] = {}
     needs_search: list[str] = []
     for t in unique:
         guess = guesses[t]
-        if guess not in invalid_guesses:
+        is_crypto = guess in real_crypto
+        is_stock = t not in invalid_as_typed
+        choice = disambiguations.get(t)
+
+        if choice == "stock" and is_stock:
+            resolved[t] = t
+        elif choice == "crypto" and is_crypto:
             resolved[t] = guess
-        elif t not in invalid_as_typed:
+        elif is_crypto and is_stock and _quote_type(t) == "EQUITY":
+            # Only a real, distinct company is worth prompting over (the reported bug and
+            # STX/Seagate are both like this). A same-ticker ETF/trust — e.g. the 2024 spot
+            # Bitcoin/Ethereum ETFs that literally trade as "BTC"/"ETH" — isn't a different
+            # asset a user typing the bare symbol plausibly meant instead of the coin itself,
+            # so it doesn't count as a real alternative here (confirmed empirically: "BTC"/
+            # "ETH" resolve as EQUITY-less ETF quoteTypes, "AVGO"/"STX" as real EQUITY).
+            ambiguous[t] = {
+                "stock": {"ticker": t, "name": _display_name(t)},
+                "crypto": {"ticker": guess, "name": _display_name(guess)},
+            }
+        elif is_crypto:
+            resolved[t] = guess
+        elif is_stock:
             resolved[t] = t
         else:
             needs_search.append(t)
@@ -283,7 +341,31 @@ def resolve_and_validate_tickers(tickers: list[str]) -> tuple[dict[str, str], li
             else:
                 unresolved.append(t)
 
-    return {t: resolved[t] for t in tickers if t in resolved}, unresolved
+    return (
+        {t: resolved[t] for t in tickers if t in resolved},
+        unresolved,
+        {t: ambiguous[t] for t in tickers if t in ambiguous},
+    )
+
+
+def _quote_type(ticker: str) -> str | None:
+    """yfinance's quoteType for the as-typed ticker (e.g. "EQUITY", "ETF") — only called for
+    the rare ticker that's already confirmed real on both the stock and crypto side, to
+    decide whether the "stock side" is an actual distinct company worth prompting over."""
+    try:
+        return yf.Ticker(ticker).info.get("quoteType")
+    except Exception:
+        return None
+
+
+def _display_name(ticker: str) -> str:
+    """Best-effort short human-readable name for a disambiguation prompt; falls back to the
+    ticker itself if yfinance has nothing (never blocks the flow over a missing label)."""
+    try:
+        info = yf.Ticker(ticker).info
+        return info.get("shortName") or info.get("longName") or ticker
+    except Exception:
+        return ticker
 
 
 def download_prices(tickers: list[str], period: str = "2y") -> pd.DataFrame:

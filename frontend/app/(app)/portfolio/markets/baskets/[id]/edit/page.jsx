@@ -25,7 +25,7 @@ export default function EditBasketPage() {
       queryClient.invalidateQueries({ queryKey: ["basket-series", id] });
       router.push(`/portfolio/markets/baskets/${id}`);
     },
-    onError: (err) => setServerError(err.message || "Save failed."),
+    onError: (err) => setServerError(err),
   });
 
   if (isLoading) {

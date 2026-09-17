@@ -18,6 +18,10 @@ export default function PortfolioManagerPage() {
   const [form,         setForm]         = useState(EMPTY_FORM);
   const [saving,       setSaving]       = useState(false);
   const [saveError,    setSaveError]    = useState(null);
+  const [disambiguations, setDisambiguations] = useState({});
+
+  const ambiguous = saveError && typeof saveError === "object" ? saveError.ambiguous : null;
+  const saveErrorMessage = typeof saveError === "string" ? saveError : null;
 
   const fetchPortfolios = useCallback(async () => {
     setLoading(true);
@@ -39,6 +43,7 @@ export default function PortfolioManagerPage() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setSaveError(null);
+    setDisambiguations({});
     // Scroll to form
     document.getElementById("portfolio-form")?.scrollIntoView({ behavior: "smooth" });
   }
@@ -50,6 +55,7 @@ export default function PortfolioManagerPage() {
       positions: portfolio.positions.map(p => ({ ...p, weight: String(p.weight) })),
     });
     setSaveError(null);
+    setDisambiguations({});
     document.getElementById("portfolio-form")?.scrollIntoView({ behavior: "smooth" });
   }
 
@@ -57,6 +63,11 @@ export default function PortfolioManagerPage() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setSaveError(null);
+    setDisambiguations({});
+  }
+
+  function pickDisambiguation(ticker, choice) {
+    setDisambiguations(d => ({ ...d, [ticker]: choice }));
   }
 
   function setFormName(name) {
@@ -103,6 +114,7 @@ export default function PortfolioManagerPage() {
         side: p.side,
         weight: Number(p.weight),
       })),
+      disambiguations,
     };
 
     try {
@@ -115,7 +127,10 @@ export default function PortfolioManagerPage() {
       });
       if (!res.ok) {
         const err = await res.json();
-        setSaveError(err.detail || "Save failed.");
+        // A 409 with a structured `detail.ambiguous` means a ticker matched both a real
+        // stock and a real cryptocurrency — keep the object so the picker below can render,
+        // instead of collapsing it to a plain string like every other error here.
+        setSaveError(res.status === 409 && err.detail?.ambiguous ? err.detail : (err.detail || "Save failed."));
         return;
       }
       clearForm();
@@ -321,9 +336,35 @@ export default function PortfolioManagerPage() {
           ) : null;
         })()}
 
-        {saveError && (
+        {saveErrorMessage && (
           <div style={{ fontSize: 13, color: "#fca5a5", background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "8px 12px", marginBottom: 14 }}>
-            {saveError}
+            {saveErrorMessage}
+          </div>
+        )}
+
+        {ambiguous && Object.keys(ambiguous).length > 0 && (
+          <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            {Object.entries(ambiguous).map(([ticker, { stock, crypto }]) => (
+              <div key={ticker} style={{ background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "10px 12px" }}>
+                <div style={{ fontSize: 13, color: "#e5e7eb", marginBottom: 8 }}>
+                  <strong>{ticker}</strong> matches both a stock and a cryptocurrency — which did you mean?
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => pickDisambiguation(ticker, "stock")}
+                    style={iconBtn(disambiguations[ticker] === "stock" ? "#1e3a5f" : "#1f2937", disambiguations[ticker] === "stock" ? "#93c5fd" : "#9ca3af")}
+                  >
+                    {stock.name} (Stock)
+                  </button>
+                  <button
+                    onClick={() => pickDisambiguation(ticker, "crypto")}
+                    style={iconBtn(disambiguations[ticker] === "crypto" ? "#1e3a5f" : "#1f2937", disambiguations[ticker] === "crypto" ? "#93c5fd" : "#9ca3af")}
+                  >
+                    {crypto.name} (Crypto)
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

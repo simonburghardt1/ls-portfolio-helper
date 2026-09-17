@@ -71,6 +71,15 @@ def update_basket(
     return basket
 
 
+def delete_basket(db: Session, basket: Basket) -> None:
+    """Deletes a Basket and all its BasketConstituent/BasketNav rows (no ON DELETE CASCADE
+    on either FK, per e5a9c3f7d1b2's migration — deleted explicitly here instead)."""
+    db.query(BasketConstituent).filter_by(basket_id=basket.id).delete()
+    db.query(BasketNav).filter_by(basket_id=basket.id).delete()
+    db.delete(basket)
+    db.commit()
+
+
 def add_nav_row(db: Session, basket_id: int, nav_date: date, index_level: float) -> BasketNav:
     """Writes exactly one BasketNav row. AD-8: creation's day-zero row is the only synchronous writer."""
     nav = BasketNav(basket_id=basket_id, date=nav_date, index_level=index_level)

@@ -41,6 +41,15 @@ class BasketValidationError(Exception):
     """Raised on a domain rule violation; the router maps this to a typed 400 (AD-12)."""
 
 
+class TickerAmbiguousError(Exception):
+    """Raised when a ticker matches both a real stock and a real cryptocurrency and the
+    caller hasn't said which one was meant yet; the router maps this to a 409 carrying the
+    candidates so the frontend can show a picker (see resolve_and_validate_tickers)."""
+
+    def __init__(self, ambiguous: dict[str, dict]):
+        self.ambiguous = ambiguous
+
+
 def _fetch_market_cap(ticker: str) -> float | None:
     try:
         t = yf.Ticker(ticker)
@@ -83,6 +92,7 @@ def create_basket(
     user_id: int,
     tickers: list[str],
     weighting_method: str,
+    disambiguations: dict[str, str] | None = None,
 ) -> Basket:
     if not (MIN_HOLDINGS <= len(tickers) <= MAX_HOLDINGS):
         raise BasketValidationError(
@@ -96,7 +106,9 @@ def create_basket(
     if len(set(tickers)) != len(tickers):
         raise BasketValidationError("Duplicate tickers are not allowed in a Basket.")
 
-    resolved_map, unresolved = resolve_and_validate_tickers(tickers)
+    resolved_map, unresolved, ambiguous = resolve_and_validate_tickers(tickers, disambiguations)
+    if ambiguous:
+        raise TickerAmbiguousError(ambiguous)
     if unresolved:
         raise BasketValidationError(
             f"No price data available for: {', '.join(unresolved)} "
@@ -140,6 +152,7 @@ def update_basket(
     name: str,
     tickers: list[str],
     weighting_method: str,
+    disambiguations: dict[str, str] | None = None,
 ) -> Basket | None:
     """
     Edits a Basket's name/tickers/weighting, effective immediately (effective_date = today).
@@ -171,7 +184,9 @@ def update_basket(
     if len(set(tickers)) != len(tickers):
         raise BasketValidationError("Duplicate tickers are not allowed in a Basket.")
 
-    resolved_map, unresolved = resolve_and_validate_tickers(tickers)
+    resolved_map, unresolved, ambiguous = resolve_and_validate_tickers(tickers, disambiguations)
+    if ambiguous:
+        raise TickerAmbiguousError(ambiguous)
     if unresolved:
         raise BasketValidationError(
             f"No price data available for: {', '.join(unresolved)} "
@@ -195,6 +210,17 @@ def update_basket(
         constituents=constituents,
         effective_date=effective_date,
     )
+
+
+def delete_basket(db: Session, basket_id: int, user_id: int) -> bool:
+    """Deletes a Basket (system or the caller's own — same no-admin-role deferral as
+    update_basket, AD-5). Returns False if it doesn't exist or isn't visible to the caller,
+    so the router can 404 instead of silently no-op-ing."""
+    basket = basket_repo.get_basket(db, basket_id)
+    if not basket or not _visible_to(basket, user_id):
+        return False
+    basket_repo.delete_basket(db, basket)
+    return True
 
 
 def _download_close_raw(ticker: str, start: str, end: str | None = None) -> pd.Series:

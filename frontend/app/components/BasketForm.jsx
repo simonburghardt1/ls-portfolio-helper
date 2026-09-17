@@ -26,9 +26,13 @@ function paddedTickers(tickers) {
  *   initialWeightingMethod:     "equal" | "market_cap" (default "equal")
  *   initialTickers:             string[] (default 5 empty rows)
  *   submitLabel, savingLabel:   button text (idle / pending)
- *   onSubmit({name, tickers, weighting_method}): called with a validated payload
+ *   onSubmit({name, tickers, weighting_method, disambiguations}): called with a validated payload
  *   isPending:                  bool — disables the submit button, shows savingLabel
- *   serverError:                string | null — surfaced below the form (e.g. mutation error)
+ *   serverError:                Error | string | null — the mutation's error. A 409 with a
+ *                               `{ambiguous: {ticker: {stock, crypto}}}` detail (a ticker that
+ *                               matches both a real stock and a real cryptocurrency) renders an
+ *                               inline picker instead of a plain error banner; anything else
+ *                               shows its message as before.
  *   cancelHref:                 Link target for the Cancel button
  */
 export default function BasketForm({
@@ -48,6 +52,9 @@ export default function BasketForm({
   const [weightingMethod, setWeightingMethod] = useState(initialWeightingMethod);
   const [tickers, setTickers] = useState(() => paddedTickers(initialTickers));
   const [validationError, setValidationError] = useState(null);
+  const [disambiguations, setDisambiguations] = useState({});
+
+  const ambiguous = serverError?.status === 409 ? serverError.detail?.ambiguous : null;
 
   function updateTicker(index, value) {
     setTickers((t) => {
@@ -88,10 +95,16 @@ export default function BasketForm({
       name: name.trim(),
       tickers: tickers.map((t) => t.trim()).filter(Boolean),
       weighting_method: weightingMethod,
+      disambiguations,
     });
   }
 
-  const displayError = validationError || serverError;
+  function pickDisambiguation(ticker, choice) {
+    setDisambiguations((d) => ({ ...d, [ticker]: choice }));
+  }
+
+  const errorMessage = typeof serverError === "string" ? serverError : serverError?.message;
+  const displayError = validationError || (!ambiguous ? errorMessage : null);
 
   return (
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
@@ -163,6 +176,34 @@ export default function BasketForm({
         {displayError && (
           <div style={{ fontSize: 13, color: "var(--negative)", background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "8px 12px", marginBottom: 14 }}>
             {displayError}
+          </div>
+        )}
+
+        {ambiguous && Object.keys(ambiguous).length > 0 && (
+          <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            {Object.entries(ambiguous).map(([ticker, { stock, crypto }]) => (
+              <div key={ticker} style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "10px 12px" }}>
+                <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 8 }}>
+                  <strong>{ticker}</strong> matches both a stock and a cryptocurrency — which did you mean?
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Button
+                    variant="range-toggle"
+                    active={disambiguations[ticker] === "stock"}
+                    onClick={() => pickDisambiguation(ticker, "stock")}
+                  >
+                    {stock.name} (Stock)
+                  </Button>
+                  <Button
+                    variant="range-toggle"
+                    active={disambiguations[ticker] === "crypto"}
+                    onClick={() => pickDisambiguation(ticker, "crypto")}
+                  >
+                    {crypto.name} (Crypto)
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
