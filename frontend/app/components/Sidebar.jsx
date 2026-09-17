@@ -54,7 +54,7 @@ const NAV = [
           { label: "Market Regime",       href: "/portfolio/market-regime" },
           { label: "High Beta Momentum",  href: "/portfolio/markets/high-beta-momentum" },
           { label: "Baskets",             href: "/portfolio/markets/baskets" },
-          { label: "Seasonality",         href: "/portfolio/markets/seasonality", soon: true },
+          { label: "Seasonality",         href: "/portfolio/markets/seasonality" },
         ],
       },
       {
