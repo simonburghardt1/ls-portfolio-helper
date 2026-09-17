@@ -14,9 +14,10 @@ function pctDelta(v) {
   return v * 100;
 }
 
-function formatYtd(v) {
+// `change` (already *100, from pctDelta) formatted to a string for the primary/big value slot.
+function fmtPct(v) {
   if (v == null || isNaN(v)) return "—";
-  return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
 // Kept in sync with backend/app/services/basket.py's HBM_SYNTHETIC_ID — the legacy High Beta
@@ -69,6 +70,7 @@ export default function BasketsPage() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
           {baskets.map((b) => {
             const changePct = pctDelta(b.nav_change_pct);
+            const ytdPct = pctDelta(b.ytd_change_pct);
             return (
               <KpiCard
                 key={b.id}
@@ -88,13 +90,13 @@ export default function BasketsPage() {
                     )}
                   </div>
                 }
-                formatted={formatYtd(b.ytd_change_pct)}
-                unit={b.ytd_change_pct != null ? "YTD" : undefined}
-                valueColor={b.ytd_change_pct == null ? undefined : b.ytd_change_pct >= 0 ? "var(--positive)" : "var(--negative)"}
-                change={changePct}
-                changeLabel="1D"
+                formatted={fmtPct(changePct)}
+                unit={changePct != null ? "1D" : undefined}
+                valueColor={changePct == null ? undefined : changePct >= 0 ? "var(--positive)" : "var(--negative)"}
+                change={ytdPct}
+                changeLabel="YTD"
                 good_direction="up"
-                caption={changePct == null ? "No prior-day NAV yet" : undefined}
+                caption={ytdPct == null ? "No YTD data yet" : undefined}
               />
             );
           })}
