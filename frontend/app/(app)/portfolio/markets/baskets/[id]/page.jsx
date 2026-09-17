@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
 import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
@@ -52,10 +52,13 @@ const COMPARISON_BENCHMARKS = [
   { ticker: "BTC-USD", label: "Bitcoin" },
 ];
 
-const SELECT_STYLE = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-  color: "#e5e7eb", fontSize: 13, padding: "6px 10px", cursor: "pointer",
-};
+const MAX_COMPARISONS = 5;
+
+// The Basket's own line keeps #a78bfa (--chart-10, established throughout this file as
+// "this Basket"). These 5 slots pull from the app's own categorical chart tokens
+// (globals.css) — literal hex since canvas charts can't consume CSS vars — skipping
+// chart-4 (#8b5cf6, purple) so it doesn't read too close to the Basket's own line.
+const COMPARE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4"];
 
 function rangeStartDate(rangeLabel) {
   const now = new Date();
@@ -218,18 +221,27 @@ function computeDrawdown(dates, levels) {
 export default function BasketDetailPage() {
   const { id } = useParams();
   const [range, setRange] = useState("3M");
-  const [selectedCompare, setSelectedCompare] = useState("");
+  const [selectedCompares, setSelectedCompares] = useState([]);
   const [regimePeriod, setRegimePeriod] = useState("1Y");
 
   // App Router doesn't remount this component when navigating between two instances of the
-  // same dynamic route (/baskets/16 -> /baskets/15) — without this, a compare ticker selected
-  // on one Basket would carry over to another where it's neither a benchmark nor a constituent.
-  // Reset during render (React's documented pattern for "adjust state when a prop changes"),
-  // not in an Effect — avoids an extra commit/cascading-render for what's a synchronous bail-out.
+  // same dynamic route (/baskets/16 -> /baskets/15) — without this, compare tickers selected
+  // on one Basket would carry over to another where they're neither a benchmark nor a
+  // constituent. Reset during render (React's documented pattern for "adjust state when a
+  // prop changes"), not in an Effect — avoids an extra commit/cascading-render for what's a
+  // synchronous bail-out.
   const [prevId, setPrevId] = useState(id);
   if (id !== prevId) {
     setPrevId(id);
-    setSelectedCompare("");
+    setSelectedCompares([]);
+  }
+
+  function toggleCompare(ticker) {
+    setSelectedCompares((prev) => {
+      if (prev.includes(ticker)) return prev.filter((t) => t !== ticker);
+      if (prev.length >= MAX_COMPARISONS) return prev;
+      return [...prev, ticker];
+    });
   }
 
   const { data: basket, isLoading: basketLoading, isError: basketError } = useQuery({
@@ -243,14 +255,18 @@ export default function BasketDetailPage() {
   });
 
   // A selected compare ticker that's already a Basket constituent has its prices sitting in
-  // `series.holdings` already — only fire a network request for the 5 external benchmarks.
-  const compareIsConstituent = selectedCompare !== "" && (series?.holdings ?? []).some((h) => h.ticker === selectedCompare);
+  // `series.holdings` already — only fire a network request for the external benchmarks.
+  const externalCompareTickers = selectedCompares.filter(
+    (t) => !(series?.holdings ?? []).some((h) => h.ticker === t)
+  );
 
-  const { data: compareData, isError: compareErrorFlag } = useQuery({
-    queryKey: ["basket-compare", id, selectedCompare],
-    queryFn: () => api.get(`/api/baskets/${id}/compare?ticker=${encodeURIComponent(selectedCompare)}`),
-    enabled: selectedCompare !== "" && !compareIsConstituent,
+  const compareQueries = useQueries({
+    queries: externalCompareTickers.map((ticker) => ({
+      queryKey: ["basket-compare", id, ticker],
+      queryFn: () => api.get(`/api/baskets/${id}/compare?ticker=${encodeURIComponent(ticker)}`),
+    })),
   });
+  const compareErrorFlag = compareQueries.some((q) => q.isError);
 
   // Separate query, own loading state — regime involves live options-chain lookups per
   // ticker and can take longer than the price series; it shouldn't block the chart.
@@ -274,19 +290,27 @@ export default function BasketDetailPage() {
     [series]
   );
 
-  const compareSeries = useMemo(() => {
-    if (selectedCompare === "") return null;
-    if (compareIsConstituent) {
-      const holding = series.holdings.find((h) => h.ticker === selectedCompare);
-      return holding ? { dates: series.dates, prices: holding.prices } : null;
-    }
-    return compareData ?? null;
-  }, [selectedCompare, compareIsConstituent, series, compareData]);
-
-  const compareRebased = useMemo(() => {
-    if (!compareSeries?.dates?.length) return null;
-    return rebase(compareSeries.dates, compareSeries.prices, rangeStartDate(range));
-  }, [compareSeries, range]);
+  // One rebased {ticker, dates, levels} entry per selected comparison, in selection order —
+  // each resolved from series.holdings (constituent) or the matching useQueries result
+  // (external benchmark), then independently indexed to 100 at the range's own start.
+  const compareRebasedList = useMemo(() => {
+    if (!selectedCompares.length || !series) return [];
+    return selectedCompares
+      .map((ticker) => {
+        const holding = series.holdings.find((h) => h.ticker === ticker);
+        let raw;
+        if (holding) {
+          raw = { dates: series.dates, prices: holding.prices };
+        } else {
+          const idx = externalCompareTickers.indexOf(ticker);
+          raw = idx === -1 ? null : compareQueries[idx]?.data ?? null;
+        }
+        if (!raw?.dates?.length) return null;
+        const rebasedSeries = rebase(raw.dates, raw.prices, rangeStartDate(range));
+        return rebasedSeries.dates.length ? { ticker, ...rebasedSeries } : null;
+      })
+      .filter(Boolean);
+  }, [selectedCompares, series, range, compareQueries, externalCompareTickers]);
 
   // Drawdown follows the same range as the main chart — mathematically equivalent to
   // recomputing over the raw range-sliced data, since drawdown is a pure ratio (v/peak - 1)
@@ -380,27 +404,38 @@ export default function BasketDetailPage() {
             ))}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-            <div style={{ display: "flex", gap: 4 }}>
-              {RANGES.map((r) => (
-                <Button key={r.label} variant="range-toggle" active={range === r.label} onClick={() => setRange(r.label)}>
-                  {r.label}
+          <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
+            {RANGES.map((r) => (
+              <Button key={r.label} variant="range-toggle" active={range === r.label} onClick={() => setRange(r.label)}>
+                {r.label}
+              </Button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Compare
+            </span>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {COMPARISON_BENCHMARKS.map((b) => (
+                <Button key={b.ticker} variant="range-toggle" active={selectedCompares.includes(b.ticker)} onClick={() => toggleCompare(b.ticker)}>
+                  {b.label}
                 </Button>
               ))}
             </div>
-            <select value={selectedCompare} onChange={(e) => setSelectedCompare(e.target.value)} style={SELECT_STYLE}>
-              <option value="">— None —</option>
-              <optgroup label="Benchmarks">
-                {COMPARISON_BENCHMARKS.map((b) => (
-                  <option key={b.ticker} value={b.ticker}>{b.label}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Holdings">
-                {(basket.tickers ?? []).map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </optgroup>
-            </select>
+            <div style={{ width: 1, height: 16, background: "var(--border)" }} />
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {(basket.tickers ?? []).map((t) => (
+                <Button key={t} variant="range-toggle" active={selectedCompares.includes(t)} onClick={() => toggleCompare(t)}>
+                  {t}
+                </Button>
+              ))}
+            </div>
+            {selectedCompares.length >= MAX_COMPARISONS && (
+              <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                {MAX_COMPARISONS} selected — remove one to add another.
+              </span>
+            )}
           </div>
 
           {compareErrorFlag && (
@@ -413,9 +448,14 @@ export default function BasketDetailPage() {
                 dates={rebased.dates}
                 datasets={[
                   { dates: rebased.dates, data: rebased.levels, borderColor: "#a78bfa", borderWidth: 2, label: `${basket.name} (indexed to 100)` },
-                  ...(compareRebased?.dates?.length
-                    ? [{ dates: compareRebased.dates, data: compareRebased.levels, borderColor: "#3b82f6" /* --chart-1 */, borderWidth: 2, lineStyle: 2, label: compareLabel(selectedCompare) }]
-                    : []),
+                  ...compareRebasedList.map((c, i) => ({
+                    dates: c.dates,
+                    data: c.levels,
+                    borderColor: COMPARE_COLORS[i % COMPARE_COLORS.length],
+                    borderWidth: 2,
+                    lineStyle: 2,
+                    label: compareLabel(c.ticker),
+                  })),
                 ]}
                 referenceLine={100}
               />
@@ -426,11 +466,13 @@ export default function BasketDetailPage() {
             )}
           </div>
 
-          {compareRebased?.dates?.length > 0 && compareRebased.dates[0] !== rebased.dates[0] && (
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
-              {compareLabel(selectedCompare)} price history starts {compareRebased.dates[0]} — rebased to its own start, not the selected range&apos;s.
-            </div>
-          )}
+          {compareRebasedList
+            .filter((c) => c.dates[0] !== rebased.dates[0])
+            .map((c) => (
+              <div key={c.ticker} style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
+                {compareLabel(c.ticker)} price history starts {c.dates[0]} — rebased to its own start, not the selected range&apos;s.
+              </div>
+            ))}
 
           {/* ── Regime (FR-9): BMSB, Vol, Breadth, Relative Strength → composite gauge ── */}
           <div style={{ marginTop: 28 }}>
