@@ -2,6 +2,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 import yfinance as yf
@@ -68,9 +69,15 @@ def compute_portfolio_analytics(positions: list[dict]) -> dict:
     }
 
 
-def beta_adjust(positions: list[dict]) -> dict:
+def _beta_neutralize_weights(positions: list[dict], betas: dict[str, float]) -> dict:
     """
-    Rescale position weights so that portfolio beta vs SPY approaches 0.
+    Rescale position weights so that portfolio beta (vs whatever benchmark `betas` was
+    computed against — caller's choice, this function is pure arithmetic) approaches 0.
+    Pulled out of beta_adjust() as its own pure function (no I/O) so a caller who already
+    has betas computed under a *different* convention (e.g. the Portfolio Beta page's
+    weekly/^GSPC betas, vs this module's own daily/SPY convention used elsewhere) can
+    reuse the exact same algorithm against its own already-computed numbers, instead of
+    getting a silently-different result recomputed under beta_adjust's own convention.
 
     Two-step algorithm:
       Step 1 — inverse-beta weighting within each side:
@@ -83,17 +90,6 @@ def beta_adjust(positions: list[dict]) -> dict:
         and solve for scale factors k_L, k_S such that the net portfolio beta = 0
         while total gross exposure is unchanged.
     """
-    tickers = list({p["ticker"].upper() for p in positions})
-    prices = download_prices(tickers + ["SPY"], period="1y")
-    returns = prices.pct_change().dropna()
-    spy_returns = returns["SPY"]
-
-    betas: dict[str, float] = {
-        t: _compute_beta(returns[t], spy_returns)
-        for t in tickers
-        if t in returns.columns
-    }
-
     # Step 1: within each side, redistribute weight ∝ 1/β (preserving side total)
     positions_adj = [dict(p) for p in positions]
     for side in ("long", "short"):
@@ -137,6 +133,23 @@ def beta_adjust(positions: list[dict]) -> dict:
         "betas":          {t: round(b, 4) for t, b in betas.items()},
         "portfolio_beta": portfolio_beta,
     }
+
+
+def beta_adjust(positions: list[dict]) -> dict:
+    """Rescale position weights so that portfolio beta vs SPY (daily returns, 1Y)
+    approaches 0 — see _beta_neutralize_weights for the actual algorithm."""
+    tickers = list({p["ticker"].upper() for p in positions})
+    prices = download_prices(tickers + ["SPY"], period="1y")
+    returns = prices.pct_change().dropna()
+    spy_returns = returns["SPY"]
+
+    betas: dict[str, float] = {
+        t: _compute_beta(returns[t], spy_returns)
+        for t in tickers
+        if t in returns.columns
+    }
+
+    return _beta_neutralize_weights(positions, betas)
 
 
 # A curated (necessarily incomplete) set of well-known crypto symbols where "prefer the
@@ -342,6 +355,65 @@ def download_prices_chunked(tickers: list[str], start: str, end: str | None = No
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, axis=1).sort_index()
+
+
+def compute_portfolio_beta(positions: list[dict], benchmark: str = "^GSPC") -> dict:
+    """
+    Per-position beta (1Y, weekly returns) vs `benchmark`, plus long/short subtotals and
+    the portfolio's net beta — mirrors the user's own reference workbook (Beta.xlsx):
+    SLOPE(stock weekly returns, benchmark weekly returns) over the most recent ~52 weekly
+    points, mathematically identical to _compute_beta's Cov/Var OLS formula, just fed
+    weekly- instead of daily-resampled returns.
+
+    Deliberately separate from compute_portfolio_analytics (which already computes a
+    similar per-ticker beta vs SPY, but with *daily* returns) rather than changing that
+    function's behavior — it's the Backtesting page's existing KPI source and shouldn't
+    silently shift for an unrelated new page.
+
+    Uses `^GSPC` (the real S&P 500 index), not this app's usual `SPY` proxy — a deliberate,
+    page-scoped exception (confirmed with the user); every other page keeps SPY for now.
+
+    Uses download_prices_chunked (tolerant — drops a bad/delisted ticker) rather than
+    download_prices (hard-fails the whole request on one bad ticker) so one stale position
+    doesn't break the whole page.
+    """
+    tickers = list({p["ticker"].upper() for p in positions})
+    start = (datetime.now(timezone.utc).date() - timedelta(days=730)).isoformat()
+    prices = download_prices_chunked(tickers + [benchmark], start=start)
+
+    weekly = prices.resample("W").last()
+    returns = weekly.pct_change().dropna(how="all").tail(53)
+
+    bench_ret = returns[benchmark] if benchmark in returns.columns else None
+
+    betas: dict[str, float | None] = {}
+    for t in tickers:
+        if bench_ret is None or t not in returns.columns:
+            betas[t] = None
+            continue
+        aligned = pd.concat([returns[t], bench_ret], axis=1).dropna()
+        betas[t] = round(_compute_beta(aligned.iloc[:, 0], aligned.iloc[:, 1]), 4) if len(aligned) >= 10 else None
+
+    rows = [
+        {"ticker": p["ticker"].upper(), "side": p["side"], "weight": p["weight"], "beta": betas.get(p["ticker"].upper())}
+        for p in positions
+    ]
+
+    def summarize(side_rows: list[dict]) -> dict:
+        weight = sum(r["weight"] for r in side_rows)
+        weighted_beta = sum(r["weight"] * r["beta"] for r in side_rows if r["beta"] is not None)
+        return {"weight": round(weight, 4), "weighted_beta": round(weighted_beta, 4)}
+
+    long_summary = summarize([r for r in rows if r["side"] == "long"])
+    short_summary = summarize([r for r in rows if r["side"] == "short"])
+
+    return {
+        "rows": rows,
+        "long": long_summary,
+        "short": short_summary,
+        "net_weight": round(long_summary["weight"] - short_summary["weight"], 4),
+        "portfolio_beta": round(long_summary["weighted_beta"] - short_summary["weighted_beta"], 4),
+    }
 
 
 def build_portfolio_return_series(

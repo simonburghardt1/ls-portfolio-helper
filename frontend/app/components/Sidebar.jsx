@@ -73,7 +73,7 @@ const NAV = [
           { label: "Distribution of Returns",  href: "/portfolio/distribution-of-returns", soon: true },
           { label: "Backtesting",              href: "/portfolio/backtesting" },
           { label: "Volatility & Correlation", href: "/portfolio/risk/volatility" },
-          { label: "Beta",                     href: "/portfolio/risk/beta",       soon: true },
+          { label: "Beta",                     href: "/portfolio/risk/beta" },
         ],
       },
     ],

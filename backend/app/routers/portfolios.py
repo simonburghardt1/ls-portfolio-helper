@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.portfolio import Portfolio
-from app.services.portfolio import resolve_and_validate_tickers
+from app.services.portfolio import resolve_and_validate_tickers, compute_portfolio_beta
 from app.services.track_record import compute_volatility
 
 router = APIRouter(prefix="/api/portfolios", tags=["portfolios"])
@@ -107,6 +107,53 @@ def delete_portfolio(portfolio_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Portfolio not found.")
     db.delete(portfolio)
     db.commit()
+
+
+class BetaRowOut(BaseModel):
+    ticker: str
+    side: str
+    weight: float
+    beta: float | None
+
+
+class BetaSideSummaryOut(BaseModel):
+    weight: float
+    weighted_beta: float
+
+
+class PortfolioBetaOut(BaseModel):
+    rows: list[BetaRowOut]
+    long: BetaSideSummaryOut
+    short: BetaSideSummaryOut
+    net_weight: float
+    portfolio_beta: float
+
+
+class BetaLookupOut(BaseModel):
+    ticker: str
+    beta: float | None
+
+
+@router.get("/beta/lookup", response_model=BetaLookupOut)
+def portfolio_beta_lookup(ticker: str):
+    """Single-ticker beta (1Y, weekly, vs ^GSPC) for the what-if sandbox's ticker-swap
+    field — reuses compute_portfolio_beta itself (a synthetic 1-position list) rather
+    than the single-stock Beta page's rolling-window engine, so a swapped-in ticker's
+    number is guaranteed consistent with every other row already on the page."""
+    ticker = ticker.strip().upper()
+    result = compute_portfolio_beta([{"ticker": ticker, "side": "long", "weight": 1.0}])
+    return {"ticker": ticker, "beta": result["rows"][0]["beta"]}
+
+
+@router.get("/{portfolio_id}/beta", response_model=PortfolioBetaOut)
+def portfolio_beta(portfolio_id: int, db: Session = Depends(get_db)):
+    """Per-position beta (1Y, weekly returns, vs ^GSPC) plus long/short/net totals."""
+    portfolio = db.get(Portfolio, portfolio_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found.")
+    if not portfolio.positions:
+        raise HTTPException(status_code=400, detail="Portfolio has no positions.")
+    return compute_portfolio_beta(portfolio.positions)
 
 
 @router.get("/{portfolio_id}/volatility")
