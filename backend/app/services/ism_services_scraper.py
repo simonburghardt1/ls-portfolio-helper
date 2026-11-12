@@ -13,6 +13,13 @@ from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
 
+from app.services.ism_parsing import (
+    SUPPLIER_DELIVERIES_DIRECTION,
+    IsmReportParser,
+    extract_report_html,
+    report_month_from_dateline,
+)
+
 log = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -162,8 +169,8 @@ def parse_html(html: str, url: str) -> Optional[dict]:
         log.warning("No component values found for %s", url)
         return None
 
-    industry_rankings = _parse_industry_rankings(soup)
-    respondent_comments = _parse_respondent_comments(soup)
+    industry_rankings = _PARSER.parse_rankings(soup)
+    respondent_comments = _PARSER.parse_respondent_comments(soup)
 
     return {
         "date":                report_date,
@@ -171,27 +178,30 @@ def parse_html(html: str, url: str) -> Optional[dict]:
         "industry_rankings":   industry_rankings,
         "respondent_comments": respondent_comments,
         "source_url":          url,
+        "report_html":         extract_report_html(html),
     }
 
 
 # ── Date extraction ────────────────────────────────────────────────────────────
 
 def _extract_date(url: str, soup: BeautifulSoup) -> Optional[date]:
-    """Try URL first, then page title, then first heading."""
+    """
+    Report month, from the release's own dateline first, then the URL, then the <title>.
+    Page headings are deliberately never used: pre-2020 releases have no year in URL or
+    title, and the first heading with a month+year on the page is PRNewswire's "related news"
+    sidebar — which stamps such a release with whatever month that sidebar shows at import time.
+    """
+    d = report_month_from_dateline(soup)
+    if d:
+        return d
+
     d = _date_from_text(url.lower())
     if d:
         return d
 
     title = soup.find("title")
     if title:
-        d = _date_from_text(title.get_text().lower())
-        if d:
-            return d
-
-    for tag in soup.find_all(["h1", "h2", "h3"]):
-        d = _date_from_text(tag.get_text().lower())
-        if d:
-            return d
+        return _date_from_text(title.get_text().lower())
 
     return None
 
@@ -256,153 +266,48 @@ def _try_float(text: str) -> Optional[float]:
         return None
 
 
-# ── Industry rankings parser ───────────────────────────────────────────────────
+# ── Industry rankings & respondent comments ─────────────────────────────────────
 
-_MONTHS_RE = r"(?:january|february|march|april|may|june|july|august|september|october|november|december)"
-
-# Each entry: (component_col, direction_sign, keyword_regex)
-# The full compiled pattern is: keyword + up to 150 chars (non-period) + "are:"/"order:" + LIST.
-_COMP_DIR_PATTERNS: list[tuple[str, int, str]] = [
-    # Overall PMI — "services industries reporting growth in June — listed in order — are: ..."
-    # Month name distinguishes this from component-specific paragraphs ("increase in new orders")
-    ("pmi", +1, r"services\s+industries\s+reporting\s+growth\s+in\s+" + _MONTHS_RE),
-    ("pmi", -1, r"industries\s+reporting\s+a\s+contraction\s+in\s+(?:the\s+month\s+of\s+)?" + _MONTHS_RE),
-    # Business Activity/Production
-    ("business_activity", +1, r"(?:an?\s+)?increase\s+in\s+business\s+activity"),
-    ("business_activity", -1, r"(?:a\s+)?decrease\s+in\s+business\s+activity"),
-    # New Orders
-    ("new_orders", +1, r"(?:an?\s+)?increase\s+in\s+new\s+orders"),
-    ("new_orders", -1, r"(?:a\s+)?decrease\s+in\s+new\s+orders"),
-    # Employment
-    ("employment", +1, r"(?:an?\s+)?increase\s+in\s+employment"),
-    ("employment", -1, r"(?:a\s+)?decrease\s+in\s+employment"),
-    # Supplier Deliveries — slower = expansion (positive), faster = contraction (negative)
-    ("supplier_deliveries", +1, r"slower\s+(?:supplier\s+)?deliveries"),
-    ("supplier_deliveries", -1, r"faster\s+(?:supplier\s+)?deliveries"),
-    # Inventories
-    ("inventories", +1, r"(?:an?\s+)?increase\s+in\s+inventories"),
-    ("inventories", -1, r"(?:a\s+)?decrease\s+in\s+inventories"),
-    # Prices — this section uses "..., in the following order: LIST." (no "are")
-    ("prices", +1, r"(?:an?\s+)?increase\s+in\s+prices\s+paid"),
-    ("prices", -1, r"(?:a\s+)?decrease\s+in\s+prices\s+paid"),
-    # Backlog of Orders — press release calls the list "order backlogs"
-    ("backlog_of_orders", +1, r"(?:an?\s+)?increase\s+in\s+order\s+backlogs"),
-    ("backlog_of_orders", -1, r"(?:a\s+)?decrease\s+in\s+order\s+backlogs"),
-    # New Export Orders
-    ("new_export_orders", +1, r"(?:an?\s+)?increase\s+in\s+new\s+export\s+orders"),
-    ("new_export_orders", -1, r"(?:a\s+)?decrease\s+in\s+new\s+export\s+orders"),
-    # Imports
-    ("imports", +1, r"(?:an?\s+)?increase\s+in\s+imports"),
-    ("imports", -1, r"(?:a\s+)?decrease\s+in\s+imports"),
-    # Inventory Sentiment — "too high" mentions are the expansion-side list;
-    # the report labels the other side "a decrease in inventory sentiment" (not "too low")
-    ("inventory_sentiment", +1, r"sentiment\s+that\s+their\s+inventories\s+were\s+too\s+high"),
-    ("inventory_sentiment", -1, r"(?:a\s+)?decrease\s+in\s+inventory\s+sentiment"),
+# The 18 NAICS-based industries ISM reports on for Services.
+CANONICAL_INDUSTRIES = [
+    "Accommodation & Food Services", "Agriculture, Forestry, Fishing & Hunting",
+    "Arts, Entertainment & Recreation", "Construction", "Educational Services",
+    "Finance & Insurance", "Health Care & Social Assistance", "Information",
+    "Management of Companies & Support Services", "Mining", "Other Services",
+    "Professional, Scientific & Technical Services", "Public Administration",
+    "Real Estate, Rental & Leasing", "Retail Trade", "Transportation & Warehousing",
+    "Utilities", "Wholesale Trade",
 ]
 
-# Middle span allows any char except period so commas/dashes/colons don't break matching.
-# Accepts either "...are: LIST." (most sections) or "...order: LIST." (Prices section).
-_COMPILED_PATTERNS: list[tuple[str, int, re.Pattern]] = [
-    (col, sign, re.compile(kw_re + r"[^.]{0,150}?(?:are?|order):\s+([^.]{5,})\.", re.IGNORECASE))
-    for col, sign, kw_re in _COMP_DIR_PATTERNS
-]
-
-
-def _parse_industry_rankings(soup: BeautifulSoup) -> dict[str, list[dict]]:
-    """
-    Returns: {component_col: [{"industry": str, "score": int}, ...]}
-    Positive score = growth/increase rank, negative = decline/decrease rank.
-    Industries not mentioned are NOT included (score = 0 implied).
-    """
-    paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
-    full_text = " ".join(paragraphs)
-
-    rankings: dict[str, list[dict]] = {}
-
-    for comp, direction, pattern in _COMPILED_PATTERNS:
-        # Only the first match: some press releases repeat a component's lead-in
-        # phrase later in unrelated boilerplate (observed for "employment" in one
-        # report), which would otherwise produce duplicate (date, component,
-        # industry) rows and violate the DB unique constraint on insert.
-        match = pattern.search(full_text)
-        if not match:
-            continue
-        industries = _split_industry_list(match.group(1))
-        if not industries:
-            continue
-        n = len(industries)
-        entries = rankings.setdefault(comp, [])
-        for i, ind in enumerate(industries):
-            entries.append({"industry": ind, "score": (n - i) * direction})
-
-    return rankings
-
-
-# ── Respondent comments parser ─────────────────────────────────────────────────
-
-_COMMENT_RE = re.compile(
-    r'["“‘]'          # opening quote (straight, curly double, or curly single)
-    r'(.+?)'                     # quote body (non-greedy)
-    r'["”’]'          # closing quote
-    r'\s*'
-    r'[\(\[]?'                   # optional open paren/bracket
-    r'([A-Z][^)\]\n]{3,80})'    # industry name: capital start, 4-80 chars
-    r'[\)\]]?\s*$',
-    re.DOTALL,
+_PARSER = IsmReportParser(
+    component_keywords=[
+        ("new_export_orders",   r"export"),
+        ("imports",             r"\bimports?\b"),
+        ("inventory_sentiment", r"sentiment|too\s+(?:high|low)"),
+        ("backlog_of_orders",   r"backlog"),
+        ("new_orders",          r"new\s+orders"),
+        ("business_activity",   r"business\s+activity"),
+        ("employment",          r"\bemploy"),
+        ("supplier_deliveries", r"deliver"),
+        ("inventories",         r"inventor"),
+        ("prices",              r"\bprices?\b"),
+    ],
+    section_names=(
+        r"new export orders|new orders|business activity|employment|supplier deliveries|"
+        r"inventory sentiment|inventories|prices|backlog of orders|imports"
+    ),
+    direction_overrides={
+        "supplier_deliveries": SUPPLIER_DELIVERIES_DIRECTION,
+        # Inventories "too high" relative to business needs = negative for future activity,
+        # "too low" (reported as "a decrease in inventory sentiment") = positive. Same
+        # convention as Manufacturing's Customers' Inventories.
+        "inventory_sentiment": [
+            (re.compile(r"too\s+high|\bincreas|\bhigher\b", re.I), -1),
+            (re.compile(r"too\s+low|decreas|\blower\b", re.I), +1),
+        ],
+    },
+    canonical_industries=CANONICAL_INDUSTRIES,
 )
-
-
-def _parse_respondent_comments(soup: BeautifulSoup) -> dict[str, str]:
-    """
-    Parse the "WHAT RESPONDENTS ARE SAYING" section.
-    Returns {industry_name: comment_text}.
-    """
-    comments: dict[str, str] = {}
-
-    target_ul = None
-    for tag in soup.find_all(["h2", "h3", "h4", "p", "b", "strong"]):
-        if "what respondents are saying" in tag.get_text().lower():
-            for sib in tag.find_next_siblings():
-                if sib.name == "ul":
-                    target_ul = sib
-                    break
-                if sib.name in ("h2", "h3", "h4"):
-                    break
-            break
-
-    items = target_ul.find_all("li") if target_ul else soup.find_all("li")
-
-    for li in items:
-        text = li.get_text(" ", strip=True)
-        m = _COMMENT_RE.search(text)
-        if not m:
-            continue
-        quote   = m.group(1).strip()
-        industry = _title_case_industry(m.group(2).strip().rstrip(".,;"))
-        if industry and quote and industry not in comments:
-            comments[industry] = quote
-
-    return comments
-
-
-def _split_industry_list(raw: str) -> list[str]:
-    """Parse '; '-separated industry list, stripping 'and', trailing punctuation."""
-    raw = raw.strip().rstrip(".")
-    parts = re.split(r";\s*", raw)
-    result = []
-    for part in parts:
-        part = re.sub(r"^\s*and\s+", "", part, flags=re.IGNORECASE).strip()
-        part = re.sub(r"\s+and\s*$", "", part, flags=re.IGNORECASE).strip()
-        if part and len(part) > 2:
-            result.append(_title_case_industry(part))
-    return result
-
-
-def _title_case_industry(name: str) -> str:
-    """Normalise capitalisation: 'PRINTING & RELATED' → 'Printing & Related'."""
-    if name != name.upper() and name != name.lower():
-        return name
-    return name.title()
 
 
 def _clean_text(text: str) -> str:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LineChart from "@/app/components/LineChart";
 import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
@@ -164,6 +164,7 @@ export default function IsmServicesPage() {
               { key: "heatmap",  label: "Heatmap" },
               { key: "rankings", label: "Sector Rankings" },
               { key: "comments", label: "Industry Comments" },
+              { key: "report",   label: "Full Report" },
             ]}
             active={tab}
             onChange={setTab}
@@ -235,6 +236,9 @@ export default function IsmServicesPage() {
                   data={commentsData}
                 />
           )}
+
+          {/* ── Full Report Tab ── */}
+          {tab === "report" && <FullReportView />}
         </>
       )}
     </PageShell>
@@ -263,10 +267,13 @@ function scoreTextColor(s) {
 
 // ── Heatmap (dates = rows, components = columns) ───────────────────────────────
 
+// Components where a reading below 50 is the bullish one
+const INVERTED_HEAT_COLS = new Set(["inventory_sentiment"]);
+
 function HeatmapView({ series, labels, components }) {
   const allDates = [...new Set(
     Object.values(series).flatMap((s) => s.dates)
-  )].sort((a, b) => (a > b ? -1 : 1)).slice(0, 36);
+  )].sort((a, b) => (a > b ? -1 : 1));
 
   const lookup = {};
   for (const [col, s] of Object.entries(series)) {
@@ -292,45 +299,78 @@ function HeatmapView({ series, labels, components }) {
     return "#111827";
   }
 
-  const cellW = 50;
-  const rowH  = 26;
-  const dateW = 56;
+  const cellW = 76;
+  const rowH  = 28;
+  const dateW = 64;
+  const gridW = dateW + components.length * cellW;
+
+  const gridRef   = useRef(null);
+  const headerRef = useRef(null);
+  const [pinnedLeft, setPinnedLeft] = useState(null); // set while the in-flow header is off-screen
+
+  // The page scrolls on the window, but the app layout's <main> has overflow: auto — that's what
+  // a CSS-sticky header would bind to, and <main> never scrolls itself. So a fixed copy of the
+  // header is shown at the top of the window while the grid is on screen but its header isn't.
+  useEffect(() => {
+    function update() {
+      const grid = gridRef.current, header = headerRef.current;
+      if (!grid || !header) return;
+      const g = grid.getBoundingClientRect();
+      const next = g.top < 0 && g.bottom > header.offsetHeight ? Math.round(g.left) : null;
+      setPinnedLeft((prev) => (prev === next ? prev : next)); // no re-render of ~10k cells per scroll event
+    }
+    update();
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  const header = (
+    <div style={{ display: "flex", alignItems: "flex-end", padding: `8px 0 8px ${dateW}px` }}>
+      {components.map((col) => (
+        <div key={col} style={{
+          width: cellW - 2, flexShrink: 0, marginRight: 2, textAlign: "center",
+          fontSize: 12, fontWeight: 600, lineHeight: 1.25, color: "#d1d5db",
+        }}>
+          {labels[col] ?? col}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <div style={{ minWidth: dateW + components.length * (cellW + 2) }}>
-        {/* Column headers: component labels (angled) */}
-        <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 6, paddingLeft: dateW }}>
-          {components.map((col) => (
-            <div key={col} style={{
-              width: cellW, flexShrink: 0, marginRight: 2,
-              height: 60, display: "flex", alignItems: "flex-end", justifyContent: "center",
-            }}>
-              <div style={{
-                fontSize: 9, color: "#9ca3af", textAlign: "center",
-                transform: "rotate(-35deg)", transformOrigin: "bottom center",
-                whiteSpace: "nowrap", marginBottom: 4,
-              }}>
-                {labels[col] ?? col}
-              </div>
-            </div>
-          ))}
-        </div>
+    <div>
+      <div ref={gridRef} style={{ minWidth: gridW }}>
+        {/* Column headers — in place, plus a copy pinned to the window top while scrolled past */}
+        <div ref={headerRef}>{header}</div>
+        {pinnedLeft !== null && (
+          <div style={{
+            position: "fixed", top: 0, left: pinnedLeft, width: gridW, zIndex: 10,
+            background: "var(--bg-base)", borderBottom: "1px solid var(--border)",
+          }}>
+            {header}
+          </div>
+        )}
 
         {/* Data rows: one per date */}
         {allDates.map((d) => (
           <div key={d} style={{ display: "flex", alignItems: "center", marginBottom: 2 }}>
-            <div style={{ width: dateW, flexShrink: 0, fontSize: 11, color: "#6b7280", paddingRight: 8, textAlign: "right", whiteSpace: "nowrap" }}>
+            <div style={{ width: dateW, flexShrink: 0, fontSize: 12, color: "#6b7280", paddingRight: 8, textAlign: "right", whiteSpace: "nowrap" }}>
               {fmtDate(d)}
             </div>
             {components.map((col) => {
               const val = lookup[col]?.[d];
+              // High Inventory Sentiment (inventories "too high") is bearish → color the value mirrored around 50
+              const colorVal = val != null && INVERTED_HEAT_COLS.has(col) ? 100 - val : val;
               return (
                 <div key={col} title={val != null ? `${labels[col]}: ${val}` : "No data"} style={{
                   width: cellW - 2, height: rowH, flexShrink: 0, marginRight: 2,
-                  background: heatColor(val), borderRadius: 3,
+                  background: heatColor(colorVal), borderRadius: 3,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 9, fontWeight: 600, color: textColor(val),
+                  fontSize: 11, fontWeight: 600, color: textColor(colorVal),
                 }}>
                   {val != null ? val.toFixed(1) : ""}
                 </div>
@@ -350,6 +390,9 @@ function HeatmapView({ series, labels, components }) {
               <span style={{ fontSize: 10, color: "#6b7280" }}>{label}</span>
             </div>
           ))}
+          <span style={{ fontSize: 10, color: "#6b7280" }}>
+            · Inventory Sentiment colored inverted (low = bullish)
+          </span>
         </div>
       </div>
     </div>
@@ -391,11 +434,17 @@ function RankingsView({ allRankings, labels, components }) {
   );
 }
 
+const RANK_VISIBLE_MONTHS = 24;
+
 function ComponentRankHeatmap({ data }) {
   const { dates, industries, scores } = data;
+  const scrollRef = useRef(null);
 
-  // Show up to 24 most recent months (oldest → newest left to right)
-  const recentDates = [...dates].slice(-24);
+  // All months, oldest → newest left to right. The viewport is sized to 24 months and opens
+  // scrolled to the newest end; older months are reached via the horizontal scrollbar.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  }, [dates]);
 
   if (!industries.length) return (
     <div style={{ fontSize: 12, color: "#374151" }}>No industry data for this component.</div>
@@ -403,13 +452,17 @@ function ComponentRankHeatmap({ data }) {
 
   const cellW = 36;
   const industryW = 210;
+  // Industry labels stay pinned while the month columns scroll underneath them.
+  const pinned = { position: "sticky", left: 0, zIndex: 1, background: "var(--bg-base)" };
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <div style={{ minWidth: industryW + recentDates.length * (cellW + 1) }}>
+    <div>
+      <div ref={scrollRef} style={{ overflowX: "auto", maxWidth: industryW + RANK_VISIBLE_MONTHS * (cellW + 1) }}>
+      <div style={{ width: industryW + dates.length * (cellW + 1) }}>
         {/* Date header */}
-        <div style={{ display: "flex", alignItems: "flex-end", paddingLeft: industryW, marginBottom: 4 }}>
-          {recentDates.map((d) => (
+        <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 4 }}>
+          <div style={{ ...pinned, width: industryW, flexShrink: 0, alignSelf: "stretch" }} />
+          {dates.map((d) => (
             <div key={d} style={{
               width: cellW, flexShrink: 0, marginRight: 1,
               height: 48, display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -429,16 +482,17 @@ function ComponentRankHeatmap({ data }) {
         {industries.map((ind) => (
           <div key={ind} style={{ display: "flex", alignItems: "center", marginBottom: 1 }}>
             <div style={{
+              ...pinned,
               width: industryW, flexShrink: 0,
+              height: 18, lineHeight: "18px", // full row height so scrolled cells can't peek out
               fontSize: 10, color: "#9ca3af",
               paddingRight: 8, textAlign: "right",
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
             }}>
               {ind}
             </div>
-            {recentDates.map((d, j) => {
-              const idx = dates.indexOf(d);
-              const s = scores[ind]?.[idx] ?? 0;
+            {dates.map((d, j) => {
+              const s = scores[ind]?.[j] ?? 0;
               return (
                 <div key={j} title={`${ind} ${fmtDate(d)}: ${s}`} style={{
                   width: cellW, height: 18, flexShrink: 0, marginRight: 1,
@@ -452,20 +506,21 @@ function ComponentRankHeatmap({ data }) {
             })}
           </div>
         ))}
+      </div>
+      </div>
 
-        {/* Score legend */}
-        <div style={{ display: "flex", gap: 8, marginTop: 10, paddingLeft: industryW, flexWrap: "wrap" }}>
-          {[
-            ["+10+","#14532d"],["+7","#166534"],["+4","#16a34a"],["+1","#4ade80"],
-            ["0","#ca8a04"],
-            ["-1","#fca5a5"],["-4","#ef4444"],["-7","#991b1b"],["-10−","#7f1d1d"],
-          ].map(([label, color]) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              <div style={{ width: 10, height: 10, background: color, borderRadius: 2 }} />
-              <span style={{ fontSize: 9, color: "#6b7280" }}>{label}</span>
-            </div>
-          ))}
-        </div>
+      {/* Score legend — outside the scroller so it doesn't move with the months */}
+      <div style={{ display: "flex", gap: 8, marginTop: 10, paddingLeft: industryW, flexWrap: "wrap" }}>
+        {[
+          ["+10+","#14532d"],["+7","#166534"],["+4","#16a34a"],["+1","#4ade80"],
+          ["0","#ca8a04"],
+          ["-1","#fca5a5"],["-4","#ef4444"],["-7","#991b1b"],["-10−","#7f1d1d"],
+        ].map(([label, color]) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <div style={{ width: 10, height: 10, background: color, borderRadius: 2 }} />
+            <span style={{ fontSize: 9, color: "#6b7280" }}>{label}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -547,6 +602,84 @@ function IndustryCommentsView({ industryList, selectedIndustry, onIndustryChange
             Comments available from the first imported report forward.
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Full Report Tab ────────────────────────────────────────────────────────────
+
+function fmtMonthLong(d) {
+  const [y, m] = d.split("-");
+  return `${["January","February","March","April","May","June","July","August","September","October","November","December"][parseInt(m) - 1]} ${y}`;
+}
+
+function FullReportView() {
+  const [dates, setDates]       = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [report, setReport]     = useState(null);
+  const [error, setError]       = useState(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/ism/services/reports`)
+      .then((r) => r.json())
+      .then((d) => {
+        setDates(d.dates || []);
+        if (d.dates?.length) setSelected(d.dates[0]); // newest first
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    setReport(null);
+    setError(null);
+    fetch(`${API}/api/ism/services/reports/${selected}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setReport)
+      .catch((e) => setError(e.message));
+  }, [selected]);
+
+  if (dates === null && !error) return <LoadingState />;
+  if (dates?.length === 0) {
+    return (
+      <div style={{ color: "#6b7280", fontSize: 13, padding: "40px 0" }}>
+        No full reports stored yet. Import ISM reports from the admin page first.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+        <select value={selected || ""} onChange={(e) => setSelected(e.target.value)} style={SELECT_STYLE}>
+          {(dates || []).map((d) => (
+            <option key={d} value={d}>{fmtMonthLong(d)}</option>
+          ))}
+        </select>
+        {report?.source_url && (
+          <a href={report.source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#60a5fa" }}>
+            Open on PRNewswire ↗
+          </a>
+        )}
+      </div>
+
+      {error && <div style={{ color: "#f87171", fontSize: 13 }}>Could not load report: {error}</div>}
+      {!report && !error && <LoadingState />}
+
+      {report && (
+        <>
+          <style>{`
+            .ism-full-report { max-width: 920px; overflow-x: auto; font-size: 14px; line-height: 1.6; color: var(--text-primary); }
+            .ism-full-report p { margin: 0 0 12px; }
+            .ism-full-report ul, .ism-full-report ol { margin: 0 0 12px; padding-left: 22px; }
+            .ism-full-report table { border-collapse: collapse; margin: 8px 0 20px; font-size: 12px; width: 100%; }
+            .ism-full-report td, .ism-full-report th { border: 1px solid var(--border); padding: 4px 8px; vertical-align: top; }
+            .ism-full-report tr:first-child td { color: var(--text-secondary); }
+          `}</style>
+          {/* report.html is whitelist-sanitized server-side (ism_scraper._extract_report_html) */}
+          <div className="ism-full-report" dangerouslySetInnerHTML={{ __html: report.html }} />
+        </>
       )}
     </div>
   );

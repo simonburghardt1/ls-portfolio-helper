@@ -8,7 +8,7 @@ GET  /api/ism/services/rankings   – industry scores per component
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -135,6 +135,8 @@ def _upsert_report(db: Session, data: dict):
 
     existing.source_url = data["source_url"]
     existing.scraped_at = datetime.now(timezone.utc)
+    if data.get("report_html"):
+        existing.report_html = data["report_html"]
 
     db.flush()
 
@@ -223,6 +225,29 @@ def get_rankings(
         "scores":     scores,
         "component":  component,
         "label":      COMPONENT_LABELS.get(component, component),
+    }
+
+
+@router.get("/reports")
+def list_full_reports(db: Session = Depends(get_db)):
+    """Months that have a stored full press-release body, newest first (Full Report dropdown)."""
+    dates = db.execute(
+        select(IsmSvcReport.date)
+        .where(IsmSvcReport.report_html.is_not(None))
+        .order_by(IsmSvcReport.date.desc())
+    ).scalars().all()
+    return {"dates": [d.isoformat() for d in dates]}
+
+
+@router.get("/reports/{report_date}")
+def get_full_report(report_date: date, db: Session = Depends(get_db)):
+    report = db.get(IsmSvcReport, report_date)
+    if report is None or report.report_html is None:
+        raise HTTPException(status_code=404, detail="No full report stored for this month.")
+    return {
+        "date":       report.date.isoformat(),
+        "html":       report.report_html,
+        "source_url": report.source_url,
     }
 
 
