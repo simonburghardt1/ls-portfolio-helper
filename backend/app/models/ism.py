@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from sqlalchemy import Date, DateTime, Float, Integer, SmallInteger, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Date, DateTime, Float, Integer, SmallInteger, String, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.session import Base
 
@@ -25,6 +25,8 @@ class IsmMfgReport(Base):
 
     source_url:  Mapped[str | None] = mapped_column(String(500))
     scraped_at:  Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Full press-release body, whitelist-sanitized at scrape time (ism_scraper._extract_report_html)
+    report_html: Mapped[str | None] = mapped_column(Text)
 
 
 class IsmMfgIndustryRank(Base):
