@@ -7,7 +7,7 @@ from app.db.session import Base
 class Portfolio(Base):
     __tablename__ = "portfolios"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     # Stored as [{ticker: str, side: "long"|"short", weight: float}, ...]
     positions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

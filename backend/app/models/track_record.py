@@ -1,7 +1,7 @@
 import datetime
 from datetime import timezone
 
-from sqlalchemy import Date, DateTime, Float, Integer, String
+from sqlalchemy import Date, DateTime, Float, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -12,7 +12,7 @@ class LivePosition(Base):
     __tablename__ = "live_positions"
 
     id:           Mapped[int]                  = mapped_column(Integer,              primary_key=True, autoincrement=True)
-    ticker:       Mapped[str]                  = mapped_column(String(20))
+    ticker:       Mapped[str]                  = mapped_column(String(20),           index=True)
     company_name: Mapped[str | None]           = mapped_column(String(200),          nullable=True)
     entry_date:   Mapped[datetime.date]        = mapped_column(Date)
     side:         Mapped[str]                  = mapped_column(String(10))           # "long" | "short"
@@ -30,14 +30,14 @@ class RealizedTrade(Base):
     __tablename__ = "realized_trades"
 
     id:              Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
-    ticker:          Mapped[str]               = mapped_column(String(20))
+    ticker:          Mapped[str]               = mapped_column(String(20),           index=True)
     company_name:    Mapped[str | None]        = mapped_column(String(200),          nullable=True)
     side:            Mapped[str]               = mapped_column(String(10))           # "long" | "short"
     shares:          Mapped[float]             = mapped_column(Float)
     avg_entry_price: Mapped[float]             = mapped_column(Float)
     avg_exit_price:  Mapped[float]             = mapped_column(Float)
     entry_date:      Mapped[datetime.date]     = mapped_column(Date)
-    exit_date:       Mapped[datetime.date]     = mapped_column(Date)
+    exit_date:       Mapped[datetime.date]     = mapped_column(Date,                 index=True)
     pnl_dollar:      Mapped[float]             = mapped_column(Float)
     pnl_pct:         Mapped[float]             = mapped_column(Float)
     win_score:       Mapped[int]               = mapped_column(Integer)              # +1 (win) | -1 (loss)
@@ -48,6 +48,10 @@ class RealizedTrade(Base):
 class CashPosition(Base):
     """Foreign-currency cash balance, updated on each IBKR import."""
     __tablename__ = "cash_positions"
+    # Plain index next to the unique constraint — both exist in the DB (migration c4d5e6f7a8b9).
+    # Declared via Index, not index=True: combined with unique=True that would turn the
+    # unique constraint into a unique index and drift the other way.
+    __table_args__ = (Index("ix_cash_positions_currency", "currency"),)
 
     id:             Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
     currency:       Mapped[str]               = mapped_column(String(10),           unique=True)
@@ -59,6 +63,7 @@ class CashPosition(Base):
 class EquityEntry(Base):
     """Weekly/periodic equity curve data point."""
     __tablename__ = "equity_entries"
+    __table_args__ = (Index("ix_equity_entries_date", "date"),)  # see CashPosition
 
     id:              Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
     date:            Mapped[datetime.date]     = mapped_column(Date,                 unique=True)

@@ -10,7 +10,7 @@ class MarketPrice(Base):
     """Raw weekly closing price per ticker."""
     __tablename__ = "market_prices"
 
-    date:   Mapped[datetime.date] = mapped_column(Date,       primary_key=True)
+    date:   Mapped[datetime.date] = mapped_column(Date,       primary_key=True, index=True)
     ticker: Mapped[str]           = mapped_column(String(10), primary_key=True)
     close:  Mapped[float | None]  = mapped_column(Float,      nullable=True)
 
@@ -19,7 +19,7 @@ class MarketRegimeRow(Base):
     """Computed regime data for one weekly bar."""
     __tablename__ = "market_regime"
 
-    date:          Mapped[datetime.date] = mapped_column(Date,       primary_key=True)
+    date:          Mapped[datetime.date] = mapped_column(Date,       primary_key=True, index=True)
     spy_price:     Mapped[float | None]  = mapped_column(Float,      nullable=True)
     ema21:         Mapped[float | None]  = mapped_column(Float,      nullable=True)
     sma20:         Mapped[float | None]  = mapped_column(Float,      nullable=True)
