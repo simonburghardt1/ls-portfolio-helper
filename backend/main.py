@@ -28,13 +28,13 @@ from app.routers.correlation import router as correlation_router
 from app.routers.beta import router as beta_router
 from app.routers.volatility import router as volatility_router
 from app.routers.seasonality import router as seasonality_router
-from app.scheduler import create_scheduler
+from app.scheduler import create_scheduler, start_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler = create_scheduler()
-    scheduler.start()
+    start_scheduler(scheduler)
     yield
     scheduler.shutdown()
 

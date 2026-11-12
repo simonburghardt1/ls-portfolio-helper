@@ -1,5 +1,7 @@
 """
-Background scheduler — runs once on app startup.
+Background scheduler — runs once on app startup. All times UTC. Jobs are persisted in
+Postgres, so a run missed while the backend was down is caught up on the next startup
+(see create_scheduler).
 
 Jobs:
   07:00  Scrape University of Michigan (ICS / ICC / ICE)
@@ -26,10 +28,11 @@ Jobs:
 import logging
 from datetime import datetime, timezone, timedelta
 
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.models.macro_cache import MacroCache
 from app.services.uom_scraper import scrape_and_upsert
 from app.services.fred import FredClient
@@ -157,7 +160,11 @@ async def _job_fred_cpi():
         db.close()
 
 
-async def _job_market_regime():
+# The four evening jobs below are plain (sync) functions on purpose: their work is blocking
+# (yfinance downloads, pandas), and the AsyncIOExecutor runs a non-coroutine job in a worker
+# thread instead of on the event loop. As `async def` they would freeze the API for the whole
+# run — which matters now that missed runs are caught up right at startup.
+def _job_market_regime():
     db = SessionLocal()
     try:
         update_market_data(db)
@@ -168,7 +175,7 @@ async def _job_market_regime():
         db.close()
 
 
-async def _job_commodities():
+def _job_commodities():
     db = SessionLocal()
     try:
         update_all_commodities(db)
@@ -179,7 +186,7 @@ async def _job_commodities():
         db.close()
 
 
-async def _job_basket_regime():
+def _job_basket_regime():
     db = SessionLocal()
     try:
         updated = compute_and_persist_all_basket_regimes(db)
@@ -190,7 +197,7 @@ async def _job_basket_regime():
         db.close()
 
 
-async def _job_high_beta_momentum():
+def _job_high_beta_momentum():
     db = SessionLocal()
     try:
         update_high_beta_momentum(db)
@@ -201,17 +208,61 @@ async def _job_high_beta_momentum():
         db.close()
 
 
+def _cron(**fields) -> CronTrigger:
+    # Explicit UTC: a CronTrigger without a timezone silently takes the machine's local zone
+    # (here CET), which put the 22:00 market job right on the US close instead of after it.
+    return CronTrigger(timezone="UTC", **fields)
+
+
+_JOBS = [
+    (_job_uom,                 _cron(hour=7, minute=0),   "uom_daily"),
+    (_job_fred,                _cron(hour=7, minute=5),   "fred_daily"),
+    (_job_nfib,                _cron(hour=7, minute=10),  "nfib_daily"),
+    (_job_nfib_industries,     _cron(hour=7, minute=20),  "nfib_industries_daily"),
+    (_job_nfib_regions,        _cron(hour=7, minute=30),  "nfib_regions_daily"),
+    (_job_market_regime,       _cron(hour=22, minute=0),  "market_regime_daily"),
+    (_job_commodities,         _cron(hour=22, minute=10), "commodities_daily"),
+    (_job_basket_regime,       _cron(hour=22, minute=20), "basket_regime_daily"),
+    (_job_high_beta_momentum,  _cron(hour=23, minute=0),  "hbm_daily"),
+    (_job_ism,                 _cron(day="1,2,3", hour=16, minute=0),             "ism_monthly"),
+    (_job_fred_cpi,            _cron(day="10,11,12,13,14,15", hour=15, minute=0), "cpi_monthly"),
+]
+
+
 def create_scheduler() -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(_job_uom,  CronTrigger(hour=7, minute=0),  id="uom_daily")
-    scheduler.add_job(_job_fred, CronTrigger(hour=7, minute=5),  id="fred_daily")
-    scheduler.add_job(_job_nfib,            CronTrigger(hour=7, minute=10), id="nfib_daily")
-    scheduler.add_job(_job_nfib_industries, CronTrigger(hour=7, minute=20), id="nfib_industries_daily")
-    scheduler.add_job(_job_nfib_regions,    CronTrigger(hour=7, minute=30), id="nfib_regions_daily")
-    scheduler.add_job(_job_market_regime,   CronTrigger(hour=22, minute=0), id="market_regime_daily")
-    scheduler.add_job(_job_commodities,     CronTrigger(hour=22, minute=10), id="commodities_daily")
-    scheduler.add_job(_job_basket_regime,   CronTrigger(hour=22, minute=20), id="basket_regime_daily")
-    scheduler.add_job(_job_high_beta_momentum, CronTrigger(hour=23, minute=0), id="hbm_daily")
-    scheduler.add_job(_job_ism,      CronTrigger(day="1,2,3",        hour=16, minute=0),  id="ism_monthly")
-    scheduler.add_job(_job_fred_cpi, CronTrigger(day="10,11,12,13,14,15", hour=15, minute=0), id="cpi_monthly")
-    return scheduler
+    """
+    Jobs live in Postgres (table apscheduler_jobs, managed by APScheduler itself — excluded
+    from Alembic in alembic/env.py) together with their next run time. The app doesn't run
+    24/7, so with an in-memory store a job whose time passed while the backend was down was
+    simply never run. Persisted, the scheduler sees on startup that the stored next run time
+    lies in the past and runs the job once (coalesce: several missed runs → one run;
+    misfire_grace_time=None: no matter how late — also covers the PC waking from sleep).
+    """
+    return AsyncIOScheduler(
+        jobstores={"default": SQLAlchemyJobStore(engine=engine)},
+        job_defaults={"coalesce": True, "misfire_grace_time": None, "max_instances": 1},
+        timezone="UTC",
+    )
+
+
+def start_scheduler(scheduler: AsyncIOScheduler) -> None:
+    """
+    Starts paused, syncs the stored jobs with _JOBS, then resumes. A stored job is only
+    replaced when its function or trigger changed in code: re-adding an unchanged job would
+    reset its next run time to the future and throw away exactly the missed run we want to
+    catch up on.
+    """
+    scheduler.start(paused=True)
+    wanted_ids = set()
+    for func, trigger, job_id in _JOBS:
+        wanted_ids.add(job_id)
+        existing = scheduler.get_job(job_id)
+        if existing is not None and existing.func is func and repr(existing.trigger) == repr(trigger):
+            if existing.next_run_time and existing.next_run_time <= datetime.now(timezone.utc):
+                log.info("Scheduler: %s missed its run at %s — catching up now.", job_id, existing.next_run_time)
+            continue
+        scheduler.add_job(func, trigger, id=job_id, replace_existing=True)
+    for job in scheduler.get_jobs():
+        if job.id not in wanted_ids:
+            job.remove()
+    scheduler.resume()
