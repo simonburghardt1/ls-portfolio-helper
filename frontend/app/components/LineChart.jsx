@@ -10,7 +10,7 @@ import { createChart, createSeriesMarkers, ColorType, CrosshairMode, LineSeries,
  * selected Distribution-of-Returns histogram bin; unused (and inert) for every other
  * caller of this shared component.
  */
-export default function LineChart({ dates, datasets, visibleRange, referenceLine, logScale, markers }) {
+export default function LineChart({ dates, datasets, visibleRange, referenceLine, logScale, markers, height = 380 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const markersApiRef = useRef(null);
@@ -39,7 +39,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
       leftPriceScale: { visible: hasLeftAxis, borderColor: "#374151" },
       timeScale: { borderColor: "#374151", timeVisible: true },
       width: containerRef.current.clientWidth,
-      height: 380,
+      height,
     });
 
     chartRef.current = chart;
@@ -109,7 +109,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
       chart.remove();
       chartRef.current = null;
     };
-  }, [dates, datasets, logScale]);
+  }, [dates, datasets, logScale, height]);
 
   // Update visible range without recreating the chart
   useEffect(() => {
@@ -127,5 +127,5 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
     markersApiRef.current.setMarkers(markers ?? []);
   }, [markers]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: 380 }} />;
+  return <div ref={containerRef} style={{ width: "100%", height }} />;
 }

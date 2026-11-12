@@ -24,7 +24,10 @@ function paddedTickers(tickers) {
  *   title, subtitle:            page heading text
  *   initialName:                string (default "")
  *   initialWeightingMethod:     "equal" | "market_cap" (default "equal")
- *   initialTickers:             string[] (default 5 empty rows)
+ *   initialTickers:             string[] (default 5 empty rows). Treated as already-resolved
+ *                               tickers from a saved Basket: each one's stock/crypto choice is
+ *                               pre-answered (see storedDisambiguations), so editing or copying a
+ *                               Basket holding e.g. META doesn't ask "stock or crypto?" again.
  *   submitLabel, savingLabel:   button text (idle / pending)
  *   onSubmit({name, tickers, weighting_method, disambiguations}): called with a validated payload
  *   isPending:                  bool — disables the submit button, shows savingLabel
@@ -35,6 +38,13 @@ function paddedTickers(tickers) {
  *                               shows its message as before.
  *   cancelHref:                 Link target for the Cancel button
  */
+// A saved Basket stores each ticker as resolved: a bare symbol ("META") was resolved as the
+// stock, a "-USD" pair ("BTC-USD") as the crypto. The backend only consults this map for
+// tickers that match both, so the extra entries for unambiguous ones are inert.
+function storedDisambiguations(tickers) {
+  return Object.fromEntries((tickers ?? []).map((t) => [t, t.endsWith("-USD") ? "crypto" : "stock"]));
+}
+
 export default function BasketForm({
   title,
   subtitle,
@@ -52,7 +62,7 @@ export default function BasketForm({
   const [weightingMethod, setWeightingMethod] = useState(initialWeightingMethod);
   const [tickers, setTickers] = useState(() => paddedTickers(initialTickers));
   const [validationError, setValidationError] = useState(null);
-  const [disambiguations, setDisambiguations] = useState({});
+  const [disambiguations, setDisambiguations] = useState(() => storedDisambiguations(initialTickers));
 
   const ambiguous = serverError?.status === 409 ? serverError.detail?.ambiguous : null;
 

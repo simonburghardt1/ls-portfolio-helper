@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import KpiCard from "@/app/components/KpiCard";
 import Badge from "@/app/components/Badge";
 import Button from "@/app/components/Button";
 import LineChart from "@/app/components/LineChart";
+import Tabs from "@/app/components/Tabs";
 import RegimeChart, { REGIME_CONFIG } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
 
@@ -367,8 +368,24 @@ export default function BasketDetailPage() {
   );
   const regimeCfg = currentRegimeInfo ? REGIME_CONFIG[currentRegimeInfo.regime] : null;
 
+  const [tab, setTab] = useState("performance");
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const compareRef = useRef(null);
+  const menuRef = useRef(null);
+  useClickOutside(compareRef, compareOpen, () => setCompareOpen(false));
+  useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
+
   const isLoading = basketLoading || seriesLoading;
   const isError = basketError || seriesError;
+
+  // Header regime pill: the live composite once /regime has loaded, until then the
+  // persisted daily score (same one the Basket overview cards show).
+  const headerScore = lastNonNull(regime?.score01) ?? basket?.regime_score ?? null;
+  const headerBucket = headerScore != null ? scoreToRegime(headerScore, BASKET_REGIME_THRESHOLDS) : null;
+  const headerRegime = headerBucket ? REGIME_CONFIG[headerBucket] : null;
+
+  const compareColor = (ticker) => COMPARE_COLORS[selectedCompares.indexOf(ticker) % COMPARE_COLORS.length];
 
   return (
     <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
@@ -390,27 +407,69 @@ export default function BasketDetailPage() {
 
       {!isLoading && !isError && basket && (
         <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, margin: "12px 0 24px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <PageHeader title={basket.name} style={{ marginBottom: 0 }} />
-              {basket.user_id == null ? (
-                <Badge variant="disabled">SYSTEM</Badge>
-              ) : (
-                <Badge variant="neutral">CUSTOM</Badge>
-              )}
+          {/* ── Header: name, regime, key facts as one quiet line ── */}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, margin: "12px 0 20px" }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <PageHeader title={basket.name} style={{ marginBottom: 0 }} />
+                {headerRegime && (
+                  <span
+                    title="Regime score (0-100): ≥60 Uptrend, ≤40 Downtrend, otherwise Ranging"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px",
+                      borderRadius: "var(--radius-full)", fontSize: 12, fontWeight: 600,
+                      color: headerRegime.color, border: `1px solid ${headerRegime.color}`,
+                      background: `${headerRegime.color}1f`,
+                    }}
+                  >
+                    {headerRegime.label}
+                    <span style={{ fontFamily: "var(--font-family-mono)", opacity: 0.85 }}>{Math.round(headerScore)}</span>
+                  </span>
+                )}
+                {basket.user_id == null ? <Badge variant="disabled">SYSTEM</Badge> : <Badge variant="neutral">CUSTOM</Badge>}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, fontSize: 13, color: "var(--text-secondary)" }}>
+                <MetaItem>{basket.weighting_method === "market_cap" ? "Market-cap weighted" : "Equal-weight"}</MetaItem>
+                <Dot />
+                <MetaItem>{basket.num_holdings ?? "—"} holdings</MetaItem>
+                <Dot />
+                <MetaItem>β {basket.beta_vs_spy != null ? basket.beta_vs_spy.toFixed(2) : "—"} <Muted>vs SPY</Muted></MetaItem>
+                <Dot />
+                <MetaItem>CAGR <Num color={changeColor(basket.cagr)}>{pct(basket.cagr)}</Num></MetaItem>
+                <Dot />
+                <MetaItem>Today <Num color={changeColor(rangeChanges["1D"])}>{pct(rangeChanges["1D"])}</Num></MetaItem>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Link href={`/portfolio/markets/baskets/${id}/edit`} style={{ textDecoration: "none" }}>
                 <Button variant="secondary">Edit</Button>
               </Link>
-              <Button
-                variant="secondary"
-                onClick={handleDelete}
-                disabled={deleteBasket.isPending}
-                style={{ color: "var(--negative)", borderColor: "var(--negative)" }}
-              >
-                {deleteBasket.isPending ? "Deleting…" : "Delete"}
-              </Button>
+              <div ref={menuRef} style={{ position: "relative" }}>
+                <Button variant="secondary" onClick={() => setMenuOpen((o) => !o)} title="More actions" aria-label="More actions">
+                  ⋯
+                </Button>
+                {menuOpen && (
+                  <div style={{ ...popoverStyle, right: 0, minWidth: 160 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); router.push(`/portfolio/markets/baskets/new?copyFrom=${id}`); }}
+                      style={menuItemStyle}
+                    >
+                      Copy Basket
+                    </button>
+                    <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); handleDelete(); }}
+                      disabled={deleteBasket.isPending}
+                      style={{ ...menuItemStyle, color: "var(--negative)" }}
+                    >
+                      {deleteBasket.isPending ? "Deleting…" : "Delete Basket"}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -420,251 +479,235 @@ export default function BasketDetailPage() {
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
-            <KpiCard label="Weighting" formatted={basket.weighting_method === "market_cap" ? "Market Cap" : "Equal-weight"} small />
-            <KpiCard label="# Holdings" formatted={basket.num_holdings ?? "—"} small />
-            <KpiCard label="CAGR" formatted={pct(basket.cagr)} valueColor={changeColor(basket.cagr)} small />
-            <KpiCard label="Beta (vs SPY)" formatted={basket.beta_vs_spy != null ? basket.beta_vs_spy.toFixed(2) : "—"} small />
-            {["1D", "1W", "1M", "3M", "YTD", "1Y"].map((label) => (
-              <KpiCard
-                key={label}
-                label={`${label} Change`}
-                formatted={pct(rangeChanges[label])}
-                valueColor={changeColor(rangeChanges[label])}
-                small
-              />
-            ))}
-          </div>
+          <Tabs
+            tabs={[
+              { key: "performance", label: "Performance" },
+              { key: "regime", label: "Regime" },
+              { key: "holdings", label: "Holdings" },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
 
-          <div style={{ display: "flex", gap: 4, marginBottom: 12, flexWrap: "wrap" }}>
-            {RANGES.map((r) => (
-              <Button key={r.label} variant="range-toggle" active={range === r.label} onClick={() => setRange(r.label)}>
-                {r.label}
-              </Button>
-            ))}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Compare
-            </span>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {COMPARISON_BENCHMARKS.map((b) => (
-                <Button key={b.ticker} variant="range-toggle" active={selectedCompares.includes(b.ticker)} onClick={() => toggleCompare(b.ticker)}>
-                  {b.label}
-                </Button>
-              ))}
+          {/* ── Range bar (Performance + Holdings): each range shows its own return ── */}
+          {tab !== "regime" && (
+            <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
+              {RANGES.map((r) => {
+                const v = rangeChanges[r.label];
+                return (
+                  <Button
+                    key={r.label}
+                    variant="range-toggle"
+                    active={range === r.label}
+                    onClick={() => setRange(r.label)}
+                    style={{ padding: "6px 12px", minWidth: 76, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}
+                  >
+                    <span style={{ fontSize: 11, letterSpacing: "0.04em" }}>{r.label}</span>
+                    <span style={{ fontFamily: "var(--font-family-mono)", fontSize: 13, fontWeight: 600, color: changeColor(v) ?? "var(--text-secondary)" }}>
+                      {pct(v)}
+                    </span>
+                  </Button>
+                );
+              })}
             </div>
-            <div style={{ width: 1, height: 16, background: "var(--border)" }} />
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {(basket.tickers ?? []).map((t) => (
-                <Button key={t} variant="range-toggle" active={selectedCompares.includes(t)} onClick={() => toggleCompare(t)}>
-                  {t}
-                </Button>
-              ))}
-            </div>
-            {selectedCompares.length >= MAX_COMPARISONS && (
-              <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                {MAX_COMPARISONS} selected — remove one to add another.
-              </span>
-            )}
-          </div>
-
-          {compareErrorFlag && (
-            <div style={{ fontSize: 11, color: "var(--negative)", marginBottom: 8 }}>Could not load comparison data.</div>
           )}
 
-          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "16px 8px 8px" }}>
-            {rebased.dates.length > 0 ? (
-              <LineChart
-                dates={rebased.dates}
-                datasets={[
-                  { dates: rebased.dates, data: rebased.levels, borderColor: "#a78bfa", borderWidth: 2, label: `${basket.name} (indexed to 100)` },
-                  ...compareRebasedList.map((c, i) => ({
-                    dates: c.dates,
-                    data: c.levels,
-                    borderColor: COMPARE_COLORS[i % COMPARE_COLORS.length],
-                    borderWidth: 2,
-                    lineStyle: 2,
-                    label: compareLabel(c.ticker),
-                  })),
-                ]}
-                referenceLine={100}
-              />
-            ) : (
-              <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-                Not enough price history yet for this timeframe.
-              </div>
-            )}
-          </div>
-
-          {compareRebasedList
-            .filter((c) => c.dates[0] !== rebased.dates[0])
-            .map((c) => (
-              <div key={c.ticker} style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
-                {compareLabel(c.ticker)} price history starts {c.dates[0]} — rebased to its own start, not the selected range&apos;s.
-              </div>
-            ))}
-
-          {/* ── Regime (FR-9): BMSB, Vol, Breadth, Relative Strength → composite gauge ── */}
-          <div style={{ marginTop: 28 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>
-              Regime
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
-              Composite of BMSB, realized-volatility, breadth, and relative-strength-vs-SPY, equal-weighted and 2-week smoothed. Realized Vol is scored against its own trailing 1-year range, so it needs about a year of history before it produces a value — its line on the chart below will only cover the most recent portion of a shorter-lived Basket&apos;s history, not the whole timeframe; that&apos;s expected, not missing data. &quot;Basket VIX&quot; and &quot;IV/RV Ratio&quot; are live options-market snapshots — separate from the composite, and only available while option quotes are actively trading. They&apos;re same-day-only (no historical implied-vol data source exists to score or chart them over time), unlike the four components above.
-            </div>
-            {regimeLoading ? (
-              <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "24px 0", textAlign: "center" }}>Loading…</div>
-            ) : (
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "20px 24px" }}>
-                <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                  {(() => {
-                    const last = (arr) => (arr?.length ? arr[arr.length - 1] : null);
-                    const bmsbScore = last(regime?.components?.bmsb);
-                    const bmsb = bmsbLabel(last(regime?.prices), last(regime?.ema21), last(regime?.sma20));
-                    const vol = last(regime?.components?.vol);
-                    const volCfg = scoreToRegime(vol, COMPONENT_THRESHOLDS) ? REGIME_CONFIG[scoreToRegime(vol, COMPONENT_THRESHOLDS)] : null;
-                    const breadthPct = last(regime?.breadth_pct);
-                    const relStrength = last(regime?.components?.relative_strength);
-                    const relCfg = scoreToRegime(relStrength, COMPONENT_THRESHOLDS) ? REGIME_CONFIG[scoreToRegime(relStrength, COMPONENT_THRESHOLDS)] : null;
-                    const ivRvRatio = regime?.iv_rv_ratio;
-                    const ivRvCaption =
-                      ivRvRatio == null
-                        ? "needs a live options quote"
-                        : ivRvRatio > 1
-                        ? `options pricing ${((ivRvRatio - 1) * 100).toFixed(0)}% more vol than realized`
-                        : ivRvRatio < 1
-                        ? `options pricing ${((1 - ivRvRatio) * 100).toFixed(0)}% less vol than realized`
-                        : "in line with realized vol";
-                    return (
-                      <>
-                        {regimeCfg && (
-                          <KpiCard
-                            label="Regime"
-                            formatted={regimeCfg.label}
-                            valueColor={regimeCfg.color}
-                            small
-                            caption={`${currentRegimeInfo.periods}d · score ${lastNonNull(regime?.score01)?.toFixed(0)}`}
-                          />
-                        )}
-                        <KpiCard
-                          label="BMSB"
-                          formatted={bmsb.text}
-                          valueColor={bmsb.color}
-                          small
-                          caption={bmsbScore != null ? `composite score ${bmsbScore.toFixed(2)}` : undefined}
-                        />
-                        <KpiCard label="Vol (realized)" formatted={volCfg?.label ?? "—"} valueColor={volCfg?.color ?? "var(--text-secondary)"} small caption={vol != null ? `score ${vol.toFixed(2)}` : undefined} />
-                        <KpiCard label="Breadth" formatted={breadthPct != null ? `${(breadthPct * 100).toFixed(0)}%` : "—"} small caption="% > own 50D SMA" />
-                        <KpiCard label="Relative Strength" formatted={relCfg?.label ?? "—"} valueColor={relCfg?.color ?? "var(--text-secondary)"} small caption={relStrength != null ? `score ${relStrength.toFixed(2)}` : undefined} />
-
-                        {/* Divider — everything past here is a live-only informational snapshot,
-                            not part of the 4-component composite above (no historical implied-vol
-                            data source exists to score/chart it against, see basket_regime.py). */}
-                        <div style={{ alignSelf: "stretch", width: 1, background: "var(--border)", margin: "2px 0" }} />
-
-                        <KpiCard
-                          label="Basket VIX"
-                          formatted={regime?.basket_vix != null ? `${(regime.basket_vix * 100).toFixed(1)}%` : "—"}
-                          small
-                          caption={regime?.basket_vix != null ? "30D implied vol" : "no live quotes right now"}
-                        />
-                        <KpiCard
-                          label="IV/RV Ratio"
-                          formatted={ivRvRatio != null ? `${ivRvRatio.toFixed(2)}x` : "—"}
-                          small
-                          caption={ivRvCaption}
-                        />
-                      </>
-                    );
-                  })()}
+          {/* ── Performance ── */}
+          {tab === "performance" && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap", minHeight: 30 }}>
+                {selectedCompares.map((t) => (
+                  <span key={t} style={chipStyle}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: compareColor(t) }} />
+                    {compareLabel(t)}
+                    <button type="button" onClick={() => toggleCompare(t)} aria-label={`Remove ${compareLabel(t)}`} style={chipCloseStyle}>×</button>
+                  </span>
+                ))}
+                <div ref={compareRef} style={{ position: "relative" }}>
+                  <Button variant="secondary" onClick={() => setCompareOpen((o) => !o)} style={{ padding: "4px 12px" }}>
+                    + Compare
+                  </Button>
+                  {compareOpen && (
+                    <div style={{ ...popoverStyle, left: 0, width: 240, maxHeight: 360, overflowY: "auto" }}>
+                      <CompareGroup
+                        title="Benchmarks"
+                        items={COMPARISON_BENCHMARKS.map((b) => ({ ticker: b.ticker, label: b.label }))}
+                        selected={selectedCompares}
+                        full={selectedCompares.length >= MAX_COMPARISONS}
+                        onToggle={toggleCompare}
+                        colorFor={compareColor}
+                      />
+                      <CompareGroup
+                        title="Holdings"
+                        items={(basket.tickers ?? []).map((t) => ({ ticker: t, label: t }))}
+                        selected={selectedCompares}
+                        full={selectedCompares.length >= MAX_COMPARISONS}
+                        onToggle={toggleCompare}
+                        colorFor={compareColor}
+                      />
+                      {selectedCompares.length >= MAX_COMPARISONS && (
+                        <div style={{ fontSize: 11, color: "var(--text-secondary)", padding: "6px 12px 8px" }}>
+                          Max {MAX_COMPARISONS} — remove one to add another.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
+                {compareErrorFlag && <span style={{ fontSize: 11, color: "var(--negative)" }}>Could not load comparison data.</span>}
               </div>
-            )}
 
-            {regimeChartData && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, marginBottom: 8 }}>
+              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "16px 8px 8px" }}>
+                {rebased.dates.length > 0 ? (
+                  <LineChart
+                    height={340}
+                    dates={rebased.dates}
+                    datasets={[
+                      { dates: rebased.dates, data: rebased.levels, borderColor: "#a78bfa", borderWidth: 2, label: `${basket.name} (indexed to 100)` },
+                      ...compareRebasedList.map((c) => ({
+                        dates: c.dates,
+                        data: c.levels,
+                        borderColor: compareColor(c.ticker),
+                        borderWidth: 2,
+                        lineStyle: 2,
+                        label: compareLabel(c.ticker),
+                      })),
+                    ]}
+                    referenceLine={100}
+                  />
+                ) : (
+                  <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
+                    Not enough price history yet for this timeframe.
+                  </div>
+                )}
+
+                {/* Drawdown as a sub-panel of the same chart card, same range */}
+                {drawdown.dates.length > 0 && (
+                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 10 }}>
+                    <div style={{ display: "flex", gap: 16, alignItems: "baseline", padding: "0 8px 4px", fontSize: 12, color: "var(--text-secondary)" }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 11 }}>Drawdown</span>
+                      <span>Current <Num color={drawdown.current < 0 ? "var(--negative)" : undefined}>{pct(drawdown.current)}</Num></span>
+                      <span>Max <Num color="var(--negative)">{pct(drawdown.max)}</Num></span>
+                    </div>
+                    <LineChart
+                      height={150}
+                      dates={drawdown.dates}
+                      datasets={[{ dates: drawdown.dates, data: drawdown.drawdown.map((v) => v * 100), borderColor: "#f2585c", borderWidth: 2, label: "Drawdown %" }]}
+                      referenceLine={0}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {compareRebasedList
+                .filter((c) => c.dates[0] !== rebased.dates[0])
+                .map((c) => (
+                  <div key={c.ticker} style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 6 }}>
+                    {compareLabel(c.ticker)} price history starts {c.dates[0]} — rebased to its own start, not the selected range&apos;s.
+                  </div>
+                ))}
+            </>
+          )}
+
+          {/* ── Regime ── */}
+          {tab === "regime" && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)" }}>
+                  Composite of four components, equal-weighted
+                  <InfoTip text={REGIME_INFO} />
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
                   {BASKET_REGIME_PERIODS.map((p) => (
                     <Button key={p.label} variant="range-toggle" active={regimePeriod === p.label} onClick={() => setRegimePeriod(p.label)}>
                       {p.label}
                     </Button>
                   ))}
                 </div>
-                <RegimeChart
-                  dates={regimeChartData.dates}
-                  price={regimeChartData.price}
-                  overlays={regimeChartData.overlays}
-                  regimes={regimeChartData.regimes}
-                  composite={regimeChartData.composite}
-                  components={regimeChartData.components}
-                  visibleRange={regimeVisible}
-                  sectionTitles={{ composite: "Regime Score (0-100)" }}
-                />
               </div>
-            )}
-          </div>
 
-          {/* ── Drawdown (Story 1.6) ── */}
-          <div style={{ marginTop: 28 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>
-              Drawdown — {range}
-            </div>
-            <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
-              <KpiCard label="Current Drawdown" formatted={pct(drawdown.current)} valueColor={drawdown.current != null && drawdown.current < 0 ? "var(--negative)" : undefined} small />
-              <KpiCard label="Max Drawdown" formatted={pct(drawdown.max)} valueColor="var(--negative)" small />
-            </div>
-            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "16px 8px 8px" }}>
-              {drawdown.dates.length > 0 ? (
-                <LineChart
-                  dates={drawdown.dates}
-                  datasets={[{ dates: drawdown.dates, data: drawdown.drawdown.map((v) => v * 100), borderColor: "#f2585c", borderWidth: 2, label: "Drawdown %" }]}
-                  referenceLine={0}
-                />
+              {regimeLoading ? (
+                <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "24px 0", textAlign: "center" }}>Loading regime…</div>
               ) : (
-                <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-                  Not enough price history yet.
-                </div>
+                <>
+                  <RegimeCards regime={regime} regimeCfg={regimeCfg} currentRegimeInfo={currentRegimeInfo} />
+                  <LiveOptionsLine regime={regime} />
+                  {regimeChartData && (
+                    <div style={{ marginTop: 16 }}>
+                      <RegimeChart
+                        dates={regimeChartData.dates}
+                        price={regimeChartData.price}
+                        overlays={regimeChartData.overlays}
+                        regimes={regimeChartData.regimes}
+                        composite={regimeChartData.composite}
+                        components={regimeChartData.components}
+                        visibleRange={regimeVisible}
+                        sectionTitles={{ composite: "Regime Score (0-100)" }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
-            </div>
-          </div>
+            </>
+          )}
 
-          {holdingsBreakdown.length > 0 && (
-            <div style={{ marginTop: 28 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>
-                Holdings — {range} performance &amp; contribution
-              </div>
-              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
-                Weight is the Basket&apos;s target allocation. Performance and Contribution assume a fresh rebalance to that target weight at the start of the selected range — matching the chart above, which is indexed to 100 there too — so contributions sum to the Basket&apos;s own return for this window. &quot;Max&quot; reflects the Basket&apos;s true history since inception, since it never actually rebalances on its own.
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      <th style={thStyle}>Ticker</th>
-                      <th style={thStyle}>Weight</th>
-                      <th style={thStyle}>Performance ({range})</th>
-                      <th style={thStyle}>Contribution ({range})</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {holdingsBreakdown.map((h, i) => (
-                      <tr key={h.ticker} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
-                        <td style={{ ...tdStyle, fontWeight: 600, color: "var(--text-primary)" }}>{h.ticker}</td>
-                        <td style={tdStyle}>{(h.targetWeight * 100).toFixed(1)}%</td>
-                        <td style={{ ...tdStyle, color: h.performance == null ? "var(--text-secondary)" : h.performance >= 0 ? "var(--positive)" : "var(--negative)" }}>
-                          {pct(h.performance)}
-                        </td>
-                        <td style={{ ...tdStyle, color: h.contribution == null ? "var(--text-secondary)" : h.contribution >= 0 ? "var(--positive)" : "var(--negative)" }}>
-                          {pct(h.contribution)}
-                        </td>
+          {/* ── Holdings ── */}
+          {tab === "holdings" && (
+            holdingsBreakdown.length > 0 ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)", marginBottom: 10 }}>
+                  Performance &amp; contribution over {range} · click a row to add it to the Performance chart
+                  <InfoTip text={HOLDINGS_INFO} />
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                        <th style={{ ...thStyle, width: 28 }} />
+                        <th style={thStyle}>Ticker</th>
+                        <th style={{ ...thStyle, width: "30%" }}>Weight</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Performance</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Contribution</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const maxW = Math.max(...holdingsBreakdown.map((h) => h.targetWeight));
+                        return holdingsBreakdown.map((h) => {
+                          const compared = selectedCompares.includes(h.ticker);
+                          return (
+                            <tr
+                              key={h.ticker}
+                              onClick={() => toggleCompare(h.ticker)}
+                              title={compared ? "Remove from Performance chart" : "Add to Performance chart"}
+                              style={{ cursor: "pointer", background: compared ? "rgba(255,255,255,0.03)" : "transparent" }}
+                            >
+                              <td style={tdStyle}>
+                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: compared ? compareColor(h.ticker) : "transparent", border: compared ? "none" : "1px solid var(--border)" }} />
+                              </td>
+                              <td style={{ ...tdStyle, fontWeight: 600, color: "var(--text-primary)" }}>{h.ticker}</td>
+                              <td style={tdStyle}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ flex: 1, maxWidth: 160, height: 6, background: "var(--bg-elevated)" }}>
+                                    <div style={{ width: `${(h.targetWeight / maxW) * 100}%`, height: "100%", background: "#a78bfa" }} />
+                                  </div>
+                                  <span style={{ fontFamily: "var(--font-family-mono)", minWidth: 48 }}>{(h.targetWeight * 100).toFixed(1)}%</span>
+                                </div>
+                              </td>
+                              <td style={{ ...tdStyle, ...numCell, color: changeColor(h.performance) ?? "var(--text-secondary)" }}>{pct(h.performance)}</td>
+                              <td style={{ ...tdStyle, ...numCell, color: changeColor(h.contribution) ?? "var(--text-secondary)" }}>{pct(h.contribution)}</td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
+                Not enough price history yet for this timeframe.
               </div>
-            </div>
+            )
           )}
         </>
       )}
@@ -672,5 +715,178 @@ export default function BasketDetailPage() {
   );
 }
 
+// ── Small pieces ──────────────────────────────────────────────────────────────
+
+const REGIME_INFO =
+  "Composite of BMSB, realized volatility, breadth and relative strength vs SPY, equal-weighted and 2-week smoothed. " +
+  "Realized Vol is scored against its own trailing 1-year range, so it needs about a year of history before it produces a value — " +
+  "on a younger Basket its line only covers the most recent part; that's expected, not missing data. " +
+  "Basket VIX and IV/RV are live options-market snapshots, separate from the composite, and only available while option quotes are trading.";
+
+const HOLDINGS_INFO =
+  "Weight is the Basket's target allocation. Performance and Contribution assume a fresh rebalance to that target weight at the start " +
+  "of the selected range — matching the Performance chart, which is indexed to 100 there too — so contributions sum to the Basket's own " +
+  "return for the window. \"Max\" reflects the Basket's true history since inception, since it never rebalances on its own.";
+
+function useClickOutside(ref, active, onOutside) {
+  useEffect(() => {
+    if (!active) return;
+    function handle(e) {
+      if (ref.current && !ref.current.contains(e.target)) onOutside();
+    }
+    function handleKey(e) {
+      if (e.key === "Escape") onOutside();
+    }
+    document.addEventListener("mousedown", handle);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handle);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [ref, active, onOutside]);
+}
+
+function InfoTip({ text }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 16, height: 16, borderRadius: "50%", border: "1px solid var(--border)",
+        fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", cursor: "help", flexShrink: 0,
+      }}
+    >
+      i
+    </span>
+  );
+}
+
+function MetaItem({ children }) {
+  return <span style={{ whiteSpace: "nowrap" }}>{children}</span>;
+}
+
+function Dot() {
+  return <span style={{ color: "var(--border)" }}>·</span>;
+}
+
+function Muted({ children }) {
+  return <span style={{ color: "var(--text-disabled)" }}>{children}</span>;
+}
+
+function Num({ children, color }) {
+  return <span style={{ fontFamily: "var(--font-family-mono)", fontWeight: 600, color: color ?? "var(--text-primary)" }}>{children}</span>;
+}
+
+function CompareGroup({ title, items, selected, full, onToggle, colorFor }) {
+  if (!items.length) return null;
+  return (
+    <div style={{ padding: "6px 0" }}>
+      <div style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "4px 12px" }}>
+        {title}
+      </div>
+      {items.map((it) => {
+        const on = selected.includes(it.ticker);
+        const disabled = !on && full;
+        return (
+          <button
+            key={it.ticker}
+            type="button"
+            disabled={disabled}
+            onClick={() => onToggle(it.ticker)}
+            style={{ ...menuItemStyle, opacity: disabled ? 0.4 : 1, cursor: disabled ? "default" : "pointer" }}
+          >
+            <span style={{
+              width: 12, height: 12, flexShrink: 0, border: "1px solid var(--border)",
+              background: on ? colorFor(it.ticker) : "transparent",
+            }} />
+            <span style={{ color: on ? "var(--text-primary)" : "var(--text-secondary)" }}>{it.label}</span>
+            {it.label !== it.ticker && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-disabled)" }}>{it.ticker}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function RegimeCards({ regime, regimeCfg, currentRegimeInfo }) {
+  const last = (arr) => (arr?.length ? arr[arr.length - 1] : null);
+  const bmsbScore = last(regime?.components?.bmsb);
+  const bmsb = bmsbLabel(last(regime?.prices), last(regime?.ema21), last(regime?.sma20));
+  const vol = last(regime?.components?.vol);
+  const volBucket = scoreToRegime(vol, COMPONENT_THRESHOLDS);
+  const volCfg = volBucket ? REGIME_CONFIG[volBucket] : null;
+  const breadthPct = last(regime?.breadth_pct);
+  const relStrength = last(regime?.components?.relative_strength);
+  const relBucket = scoreToRegime(relStrength, COMPONENT_THRESHOLDS);
+  const relCfg = relBucket ? REGIME_CONFIG[relBucket] : null;
+
+  return (
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      {regimeCfg && (
+        <KpiCard
+          label="Regime"
+          formatted={regimeCfg.label}
+          valueColor={regimeCfg.color}
+          small
+          caption={`${currentRegimeInfo.periods}d · score ${lastNonNull(regime?.score01)?.toFixed(0)}`}
+        />
+      )}
+      <KpiCard label="BMSB" formatted={bmsb.text} valueColor={bmsb.color} small caption={bmsbScore != null ? `score ${bmsbScore.toFixed(2)}` : undefined} />
+      <KpiCard label="Vol (realized)" formatted={volCfg?.label ?? "—"} valueColor={volCfg?.color ?? "var(--text-secondary)"} small caption={vol != null ? `score ${vol.toFixed(2)}` : undefined} />
+      <KpiCard label="Breadth" formatted={breadthPct != null ? `${(breadthPct * 100).toFixed(0)}%` : "—"} small caption="% > own 50D SMA" />
+      <KpiCard label="Relative Strength" formatted={relCfg?.label ?? "—"} valueColor={relCfg?.color ?? "var(--text-secondary)"} small caption={relStrength != null ? `score ${relStrength.toFixed(2)}` : undefined} />
+    </div>
+  );
+}
+
+// Live-only options snapshot — not part of the composite (no historical implied-vol source
+// exists to score or chart it, see basket_regime.py), so it's a single line, not more cards.
+function LiveOptionsLine({ regime }) {
+  const vix = regime?.basket_vix;
+  const ratio = regime?.iv_rv_ratio;
+  const ratioText =
+    ratio == null
+      ? null
+      : ratio > 1
+      ? `options price ${((ratio - 1) * 100).toFixed(0)}% more vol than realized`
+      : ratio < 1
+      ? `options price ${((1 - ratio) * 100).toFixed(0)}% less vol than realized`
+      : "in line with realized vol";
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline", marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}>
+      <span style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>Live options</span>
+      {vix == null && ratio == null ? (
+        <span>no live quotes right now</span>
+      ) : (
+        <>
+          <span>Basket VIX <Num>{vix != null ? `${(vix * 100).toFixed(1)}%` : "—"}</Num> <Muted>30D implied</Muted></span>
+          <Dot />
+          <span>IV/RV <Num>{ratio != null ? `${ratio.toFixed(2)}x` : "—"}</Num>{ratioText && <Muted> — {ratioText}</Muted>}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+const popoverStyle = {
+  position: "absolute", top: "calc(100% + 4px)", zIndex: 20,
+  background: "var(--bg-elevated)", border: "1px solid var(--border)",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: "4px 0",
+};
+const menuItemStyle = {
+  display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 12px",
+  background: "transparent", border: "none", textAlign: "left", cursor: "pointer",
+  fontFamily: "var(--font-family-sans)", fontSize: 13, color: "var(--text-primary)",
+};
+const chipStyle = {
+  display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 4px 3px 10px",
+  border: "1px solid var(--border)", borderRadius: "var(--radius-full)", fontSize: 12, color: "var(--text-primary)",
+};
+const chipCloseStyle = {
+  background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer",
+  fontSize: 14, lineHeight: 1, padding: "0 4px",
+};
 const thStyle = { fontSize: 11, color: "var(--text-secondary)", padding: "6px 8px", textAlign: "left", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" };
 const tdStyle = { padding: "8px", borderTop: "1px solid var(--border)" };
+const numCell = { textAlign: "right", fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums" };

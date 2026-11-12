@@ -257,7 +257,23 @@ def _last_or_none(vals: list) -> float | None:
     return vals[-1] if vals else None
 
 
-def compute_and_persist_all_basket_regimes(db: Session) -> int:
+def persist_basket_regime_in_background(basket_id: int) -> None:
+    """Computes and stores one Basket's regime right after it's created or edited, so the
+    overview card shows a score immediately instead of only after the nightly job. Runs as a
+    FastAPI background task, after the response — so it opens its own DB session (the
+    request's session is closed by then) and never raises."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        compute_and_persist_all_basket_regimes(db, only_basket_id=basket_id)
+    except Exception:
+        log.warning("Regime persist after save failed for basket_id=%s", basket_id, exc_info=True)
+    finally:
+        db.close()
+
+
+def compute_and_persist_all_basket_regimes(db: Session, only_basket_id: int | None = None) -> int:
     """
     The basket_regime_daily job (scheduler.py, AD-4): computes today's regime for every real
     Basket (HBM's synthetic entry has its own separate regime concept — out of scope here)
@@ -269,6 +285,8 @@ def compute_and_persist_all_basket_regimes(db: Session) -> int:
     convention. Returns the number of rows written.
     """
     baskets = basket_repo.list_all_baskets(db)  # every Basket regardless of owner — an internal batch job, not a per-user request
+    if only_basket_id is not None:
+        baskets = [b for b in baskets if b.id == only_basket_id]
     if not baskets:
         return 0
 

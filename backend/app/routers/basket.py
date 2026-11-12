@@ -5,7 +5,7 @@ in app.services.basket, persistence in app.repositories.basket (AD-1).
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -181,6 +181,7 @@ def get_basket_regime(
 @router.post("", response_model=BasketOut, status_code=201)
 def create_basket(
     payload: BasketCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -199,6 +200,8 @@ def create_basket(
     except BasketValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Score now rather than at the nightly job, so the overview card isn't missing its regime
+    background_tasks.add_task(basket_regime_service.persist_basket_regime_in_background, basket.id)
     return basket_service.get_basket_detail(db, basket.id, user_id=current_user.id)
 
 
@@ -206,6 +209,7 @@ def create_basket(
 def update_basket(
     basket_id: int,
     payload: BasketCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -232,7 +236,9 @@ def update_basket(
     if basket is None:
         raise HTTPException(status_code=404, detail="Basket not found.")
 
-    detail = basket_service.get_basket_detail(db, basket_id, user_id=current_user.id)
+    # New constituents → today's persisted score is stale; re-score now, not at the nightly job
+    background_tasks.add_task(basket_regime_service.persist_basket_regime_in_background, basket_id)
+    detail =basket_service.get_basket_detail(db, basket_id, user_id=current_user.id)
     return detail
 
 
