@@ -661,3 +661,99 @@ def _compute_regime_scaled_returns(
             result[mask] += daily_returns.loc[mask, ticker] * pos["weight"] * sign * k
 
     return result
+
+
+# ── Portfolio overview cards ─────────────────────────────────────────────────────
+
+_SUMMARY_TTL_S = 15 * 60
+_summary_price_cache: dict[tuple, tuple[float, pd.DataFrame]] = {}
+SPARK_DAYS = 63  # ~3 months, same window as the Basket overview sparkline
+
+
+def _summary_prices(tickers: tuple) -> pd.DataFrame:
+    """2y daily closes for every ticker on the overview in one download (15-min cache).
+    Tolerant on purpose: unlike download_prices, a ticker without data leaves a NaN column
+    instead of failing the whole batch — only the portfolio holding it is affected."""
+    now = time.time()
+    hit = _summary_price_cache.get(tickers)
+    if hit and now - hit[0] < _SUMMARY_TTL_S:
+        return hit[1]
+    data = yf.download(tickers=list(tickers), period="2y", interval="1d", auto_adjust=True, progress=False)
+    if data.empty:
+        prices = pd.DataFrame()
+    elif isinstance(data.columns, pd.MultiIndex):
+        prices = data["Close"].copy()
+    else:
+        prices = data[["Close"]].copy()
+        prices.columns = list(tickers)
+    prices = prices.dropna(how="all")
+    _summary_price_cache[tickers] = (now, prices)
+    return prices
+
+
+def _round(v, nd=4):
+    return None if v is None or pd.isna(v) else round(float(v), nd)
+
+
+def compute_portfolio_summaries(portfolios: list) -> list[dict]:
+    """KPIs for the Portfolios overview cards, all portfolios from one price download.
+
+    Per portfolio: positions/longs/shorts, gross, net, beta and correlation vs SPY (1Y daily
+    returns, same method as compute_portfolio_analytics), 1D / YTD / 3M return of the static
+    book (3M = 63 trading days, as in the Backtester's period returns) and a ~3M sparkline of
+    the indexed value.
+    """
+    all_tickers = sorted({p["ticker"].upper() for pf in portfolios for p in pf.positions} | {"SPY"})
+    prices = _summary_prices(tuple(all_tickers)) if portfolios else pd.DataFrame()
+    year_start = pd.Timestamp(datetime.now(timezone.utc).year, 1, 1)
+
+    out = []
+    for pf in portfolios:
+        positions = pf.positions or []
+        tickers = sorted({p["ticker"].upper() for p in positions})
+        gross = sum(abs(float(p["weight"])) for p in positions)
+        net = sum(float(p["weight"]) * (1 if p["side"] == "long" else -1) for p in positions)
+        row = {
+            "id": pf.id,
+            "positions": len(positions),
+            "longs": sum(1 for p in positions if p["side"] == "long"),
+            "shorts": sum(1 for p in positions if p["side"] == "short"),
+            "gross": _round(gross), "net": _round(net),
+            "beta": None, "correlation": None,
+            "ret_1d": None, "ret_ytd": None, "ret_3m": None, "spark": [],
+            "missing": [],
+        }
+        missing = [t for t in tickers if t not in prices.columns or prices[t].isna().all()]
+        if missing or not tickers or "SPY" not in prices.columns:
+            row["missing"] = missing
+            out.append(row)
+            continue
+
+        # Same construction as the backtest: returns of this book's tickers, rows complete for all
+        returns = prices[tickers].pct_change().dropna()
+        port = sum(returns[p["ticker"].upper()] * float(p["weight"]) * (1 if p["side"] == "long" else -1) for p in positions)
+        cum = cumulative_series(port)
+        if len(cum) < 2:
+            out.append(row)
+            continue
+
+        row["ret_1d"] = _round(port.iloc[-1], 6)
+        row["ret_3m"] = _round(rolling_period_return(cum, 63), 6)
+        before_year = cum[cum.index < year_start]
+        base = before_year.iloc[-1] if len(before_year) else 0.0
+        row["ret_ytd"] = _round((1 + cum.iloc[-1]) / (1 + base) - 1, 6)
+
+        spark = (1 + cum).iloc[-(SPARK_DAYS + 1):]
+        row["spark"] = [round(float(v / spark.iloc[0]), 5) for v in spark]
+
+        # Beta / correlation vs SPY over the last year
+        spy = prices["SPY"].pct_change().reindex(returns.index)
+        last_year = returns.index[-252:]
+        r1, s1 = returns.loc[last_year], spy.loc[last_year]
+        betas = {t: _compute_beta(r1[t], s1) for t in tickers}
+        row["beta"] = _round(sum(float(p["weight"]) * betas.get(p["ticker"].upper(), 1.0) * (1 if p["side"] == "long" else -1) for p in positions))
+        aligned = pd.concat([port.loc[last_year], s1], axis=1).dropna()
+        if len(aligned) > 10:
+            row["correlation"] = _round(aligned.corr().iloc[0, 1])
+        out.append(row)
+    return out

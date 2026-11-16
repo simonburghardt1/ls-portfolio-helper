@@ -8,6 +8,7 @@ import Button from "@/app/components/Button";
 import { REGIME_CONFIG } from "@/app/components/RegimeChart";
 import { scoreToRegime } from "@/app/lib/regime";
 import Page from "@/app/components/Page";
+import Sparkline from "@/app/components/Sparkline";
 
 // Same thresholds as the Basket detail page's BASKET_REGIME_THRESHOLDS (score01 0-100 scale).
 const REGIME_THRESHOLDS = { up: 60, down: 40 };
@@ -199,23 +200,5 @@ function ScoreBar({ score, color }) {
       <div style={{ position: "absolute", left: "40%", width: "20%", top: 0, bottom: 0, background: "rgba(255,255,255,0.06)" }} />
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.max(0, Math.min(100, score))}%`, background: color }} />
     </div>
-  );
-}
-
-function Sparkline({ values, color }) {
-  const w = 240, h = 44, pad = 2;
-  const min = Math.min(...values), max = Math.max(...values);
-  const span = max - min || 1;
-  const pts = values.map((v, i) => [
-    (i / (values.length - 1)) * w,
-    pad + (1 - (v - min) / span) * (h - 2 * pad),
-  ]);
-  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const area = `${line} L${w},${h} L0,${h} Z`;
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" width="100%" height="100%" aria-hidden="true">
-      <path d={area} fill={color} opacity={0.12} />
-      <path d={line} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-    </svg>
   );
 }

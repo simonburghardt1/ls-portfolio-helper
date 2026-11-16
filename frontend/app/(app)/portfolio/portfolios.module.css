@@ -1,0 +1,33 @@
+.card {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.card:hover,
+.card:focus-visible {
+  border-color: var(--text-secondary);
+  outline: none;
+}
+
+.menuButton {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+.menuButton:hover,
+.menuButton:focus-visible {
+  border-color: var(--border);
+  color: var(--text-primary);
+  outline: none;
+}

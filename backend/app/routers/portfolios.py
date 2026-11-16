@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.models.portfolio import Portfolio
-from app.services.portfolio import resolve_and_validate_tickers, compute_portfolio_beta
+from app.services.portfolio import resolve_and_validate_tickers, compute_portfolio_beta, compute_portfolio_summaries
 from app.services.track_record import compute_volatility
 
 router = APIRouter(prefix="/api/portfolios", tags=["portfolios"])
@@ -61,6 +61,13 @@ def _owned_portfolio(db: Session, user: User, portfolio_id: int) -> Portfolio | 
 @router.get("", response_model=list[PortfolioOut])
 def list_portfolios(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return db.query(Portfolio).filter(Portfolio.user_id == user.id).order_by(Portfolio.updated_at.desc()).all()
+
+
+@router.get("/summary")
+def portfolio_summaries(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Overview-card KPIs for all of the user's portfolios (one price download for all)."""
+    portfolios = db.query(Portfolio).filter(Portfolio.user_id == user.id).all()
+    return compute_portfolio_summaries(portfolios)
 
 
 def _resolve_positions(positions: list[PositionSchema], disambiguations: dict[str, str]) -> list[dict]:

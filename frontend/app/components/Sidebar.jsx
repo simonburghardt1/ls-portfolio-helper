@@ -68,8 +68,7 @@ const NAV = [
       {
         label: "Portfolio",
         items: [
-          { label: "Portfolio Overview",       href: "/portfolio/overview" },
-          { label: "Portfolio Construction",   href: "/portfolio" },
+          { label: "Portfolios",               href: "/portfolio" },
           { label: "Distribution of Returns",  href: "/portfolio/distribution-of-returns", soon: true },
           { label: "Backtesting",              href: "/portfolio/backtesting" },
           { label: "Volatility & Correlation", href: "/portfolio/risk/volatility" },

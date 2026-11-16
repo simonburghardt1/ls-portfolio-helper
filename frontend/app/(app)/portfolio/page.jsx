@@ -1,412 +1,179 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import Button from "@/app/components/Button";
-import PageHeader from "@/app/components/PageHeader";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/app/lib/api";
+import { fmtNum, fmtPct, signColor } from "@/app/lib/format";
+import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 import Page from "@/app/components/Page";
-import { authFetch } from "@/app/lib/api";
+import PageHeader from "@/app/components/PageHeader";
+import Button from "@/app/components/Button";
+import Popover, { MenuItem, MenuDivider } from "@/app/components/Popover";
+import StateMessage from "@/app/components/StateMessage";
+import Sparkline from "@/app/components/Sparkline";
+import styles from "./portfolios.module.css";
 
-const API = "http://localhost:8000";
+export default function PortfoliosPage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { setSelectedPortfolio } = usePortfolioSelectionStore();
 
-const EMPTY_FORM = { name: "", positions: [{ ticker: "", side: "long", weight: "" }] };
+  const { data: portfolios, isLoading, error } = useQuery({
+    queryKey: ["portfolios"],
+    queryFn: () => api.get("/api/portfolios"),
+  });
 
-export default function PortfolioManagerPage() {
-  const [portfolios,   setPortfolios]   = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  // form state — null means "new", a portfolio id means "editing"
-  const [editingId,    setEditingId]    = useState(null);
-  const [form,         setForm]         = useState(EMPTY_FORM);
-  const [saving,       setSaving]       = useState(false);
-  const [saveError,    setSaveError]    = useState(null);
-  const [disambiguations, setDisambiguations] = useState({});
+  // Returns, beta and correlation for every card from one request (prices downloaded once)
+  const { data: summaries } = useQuery({
+    queryKey: ["portfolios-summary", portfolios?.map((p) => `${p.id}:${p.updated_at}`).join(",")],
+    queryFn: () => api.get("/api/portfolios/summary"),
+    enabled: portfolios?.length > 0,
+    staleTime: 5 * 60 * 1000,
+  });
+  const summaryById = Object.fromEntries((summaries ?? []).map((s) => [s.id, s]));
 
-  const ambiguous = saveError && typeof saveError === "object" ? saveError.ambiguous : null;
-  const saveErrorMessage = typeof saveError === "string" ? saveError : null;
+  const remove = useMutation({
+    mutationFn: (id) => api.delete(`/api/portfolios/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["portfolios"] });
+      queryClient.invalidateQueries({ queryKey: ["portfolios-summary"] });
+    },
+  });
 
-  const fetchPortfolios = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await authFetch(`${API}/api/portfolios`);
-      setPortfolios(await res.json());
-    } catch {
-      setError("Could not load portfolios. Is the backend running?");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchPortfolios(); }, [fetchPortfolios]);
-
-  // ── Form helpers ─────────────────────────────────────────────────────────────
-
-  function startNew() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setSaveError(null);
-    setDisambiguations({});
-    // Scroll to form
-    document.getElementById("portfolio-form")?.scrollIntoView({ behavior: "smooth" });
+  // Every analysis page reads the shared selection, so "open in X" = select, then navigate
+  function openIn(p, href) {
+    setSelectedPortfolio(p.id, p.name);
+    router.push(href);
   }
 
-  function startEdit(portfolio) {
-    setEditingId(portfolio.id);
-    setForm({
-      name: portfolio.name,
-      positions: portfolio.positions.map(p => ({ ...p, weight: String(p.weight) })),
-    });
-    setSaveError(null);
-    setDisambiguations({});
-    document.getElementById("portfolio-form")?.scrollIntoView({ behavior: "smooth" });
+  function confirmDelete(p) {
+    if (window.confirm(`Delete portfolio "${p.name}"? This cannot be undone.`)) remove.mutate(p.id);
   }
-
-  function clearForm() {
-    setEditingId(null);
-    setForm(EMPTY_FORM);
-    setSaveError(null);
-    setDisambiguations({});
-  }
-
-  function pickDisambiguation(ticker, choice) {
-    setDisambiguations(d => ({ ...d, [ticker]: choice }));
-  }
-
-  function setFormName(name) {
-    setForm(f => ({ ...f, name }));
-  }
-
-  function updatePosition(index, field, value) {
-    setForm(f => {
-      const positions = [...f.positions];
-      positions[index] = { ...positions[index], [field]: value };
-      return { ...f, positions };
-    });
-  }
-
-  function addPosition() {
-    setForm(f => ({ ...f, positions: [...f.positions, { ticker: "", side: "long", weight: "" }] }));
-  }
-
-  function removePosition(index) {
-    setForm(f => ({ ...f, positions: f.positions.filter((_, i) => i !== index) }));
-  }
-
-  function validateForm() {
-    if (!form.name.trim()) return "Portfolio name is required.";
-    for (let i = 0; i < form.positions.length; i++) {
-      const p = form.positions[i];
-      if (!p.ticker.trim())           return `Row ${i + 1}: ticker is required.`;
-      if (!p.weight || isNaN(Number(p.weight))) return `Row ${i + 1}: weight must be a number.`;
-      if (!["long", "short"].includes(p.side))  return `Row ${i + 1}: side must be long or short.`;
-    }
-    return null;
-  }
-
-  async function savePortfolio() {
-    const validationError = validateForm();
-    if (validationError) { setSaveError(validationError); return; }
-
-    setSaving(true);
-    setSaveError(null);
-    const body = {
-      name: form.name.trim(),
-      positions: form.positions.map(p => ({
-        ticker: p.ticker.trim().toUpperCase(),
-        side: p.side,
-        weight: Number(p.weight),
-      })),
-      disambiguations,
-    };
-
-    try {
-      const url = editingId ? `${API}/api/portfolios/${editingId}` : `${API}/api/portfolios`;
-      const method = editingId ? "PUT" : "POST";
-      const res = await authFetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        // A 409 with a structured `detail.ambiguous` means a ticker matched both a real
-        // stock and a real cryptocurrency — keep the object so the picker below can render,
-        // instead of collapsing it to a plain string like every other error here.
-        setSaveError(res.status === 409 && err.detail?.ambiguous ? err.detail : (err.detail || "Save failed."));
-        return;
-      }
-      clearForm();
-      await fetchPortfolios();
-    } catch {
-      setSaveError("Network error. Is the backend running?");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deletePortfolio(id, name) {
-    if (!confirm(`Delete portfolio "${name}"?`)) return;
-    await authFetch(`${API}/api/portfolios/${id}`, { method: "DELETE" });
-    if (editingId === id) clearForm();
-    await fetchPortfolios();
-  }
-
-  // ── Summary helpers ───────────────────────────────────────────────────────────
-
-  function portfolioSummary(positions) {
-    const longs  = positions.filter(p => p.side === "long").length;
-    const shorts = positions.filter(p => p.side === "short").length;
-    const gross  = positions.reduce((s, p) => s + Math.abs(Number(p.weight) || 0), 0);
-    return { longs, shorts, gross };
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <Page>
+      <PageHeader
+        title="Portfolios"
+        subtitle="Saved long/short portfolios. Click one to backtest it."
+        actions={<Link href="/portfolio/new"><Button variant="primary">+ New portfolio</Button></Link>}
+      />
 
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
-        <PageHeader
-          title="Portfolios"
-          subtitle="Create and manage named portfolios. Load them into the backtester."
-          style={{ marginBottom: 0 }}
-        />
-        <button onClick={startNew} style={primaryBtn}>+ New Portfolio</button>
-      </div>
+      {isLoading && <StateMessage kind="loading" />}
+      {error && <StateMessage kind="error">{error.message}</StateMessage>}
+      {remove.isError && <StateMessage kind="error">{remove.error?.message || "Could not delete the portfolio."}</StateMessage>}
+      {portfolios && portfolios.length === 0 && <StateMessage>No portfolios yet. Use + New portfolio to create one.</StateMessage>}
 
-      {/* ── Saved portfolios ──────────────────────────────────────────────────── */}
-      {loading && (
-        <div style={{ color: "#4b5563", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Loading…</div>
-      )}
-      {error && (
-        <div style={{ background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#fca5a5" }}>
-          {error}
+      {portfolios?.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {portfolios.map((p) => (
+            <PortfolioCard
+              key={p.id}
+              portfolio={p}
+              summary={summaryById[p.id]}
+              loadingSummary={!summaries}
+              onOpen={() => openIn(p, "/portfolio/backtesting")}
+              onEdit={() => router.push(`/portfolio/${p.id}/edit`)}
+              onCopy={() => router.push(`/portfolio/new?copyFrom=${p.id}`)}
+              onVolatility={() => openIn(p, "/portfolio/risk/volatility")}
+              onBeta={() => openIn(p, "/portfolio/risk/beta")}
+              onDelete={() => confirmDelete(p)}
+            />
+          ))}
         </div>
       )}
-
-      {!loading && portfolios.length === 0 && !error && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "40px 24px", textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 14, color: "#4b5563" }}>No portfolios yet.</div>
-          <div style={{ fontSize: 12, color: "#374151", marginTop: 6 }}>Use the form below to create your first portfolio.</div>
-        </div>
-      )}
-
-      {portfolios.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, marginBottom: 32 }}>
-          {portfolios.map(p => {
-            const { longs, shorts, gross } = portfolioSummary(p.positions);
-            const isEditing = editingId === p.id;
-            return (
-              <div key={p.id} style={{
-                background: "var(--bg-surface)",
-                border: `1px solid ${isEditing ? "#2d5a8e" : "var(--border)"}`,
-                borderRadius: "var(--radius-none)",
-                padding: "18px 20px",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "#f9fafb" }}>{p.name}</div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => startEdit(p)} style={iconBtn("#1e3a5f", "#93c5fd")}>Edit</button>
-                    <button onClick={() => deletePortfolio(p.id, p.name)} style={iconBtn("#3f1d1d", "#fca5a5")}>Delete</button>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
-                  <Stat label="Positions" value={p.positions.length} />
-                  <Stat label="Longs"     value={longs}   color="#86efac" />
-                  <Stat label="Shorts"    value={shorts}  color="#fca5a5" />
-                  <Stat label="Gross"     value={`${(gross * 100).toFixed(0)}%`} />
-                </div>
-
-                <div style={{ fontSize: 11, color: "#374151", marginBottom: 14 }}>
-                  Updated {new Date(p.updated_at).toLocaleDateString()}
-                </div>
-
-                <div style={{ display: "flex", gap: 8 }}>
-                  <Link href="/portfolio/backtesting" style={{
-                    fontSize: 12, color: "#60a5fa", textDecoration: "none",
-                    padding: "5px 12px", border: "1px solid #1e3a5f", borderRadius: 5,
-                  }}>
-                    Open in Backtester →
-                  </Link>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Create / Edit Form ────────────────────────────────────────────────── */}
-      <div
-        id="portfolio-form"
-        style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "24px 28px" }}
-      >
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#3b4c6b", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 18 }}>
-          {editingId ? "Edit Portfolio" : "New Portfolio"}
-        </div>
-
-        {/* Name */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 6 }}>Portfolio Name</label>
-          <input
-            value={form.name}
-            onChange={e => setFormName(e.target.value)}
-            placeholder="e.g. Long/Short Q1"
-            style={{
-              background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-              padding: "8px 12px", fontSize: 14, color: "#e5e7eb", outline: "none", width: 280,
-            }}
-          />
-        </div>
-
-        {/* Positions table */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 8 }}>Positions</label>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-            <thead>
-              <tr style={{ textAlign: "left" }}>
-                <th style={{ ...thStyle, width: "40%" }}>Ticker</th>
-                <th style={{ ...thStyle, width: "20%" }}>Side</th>
-                <th style={{ ...thStyle, width: "25%" }}>Weight</th>
-                <th style={{ ...thStyle, width: "15%" }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {form.positions.map((pos, i) => (
-                <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
-                  <td style={tdStyle}>
-                    <input
-                      value={pos.ticker}
-                      onChange={e => updatePosition(i, "ticker", e.target.value.toUpperCase())}
-                      placeholder="AAPL"
-                      style={cellInput}
-                    />
-                  </td>
-                  <td style={tdStyle}>
-                    <select
-                      value={pos.side}
-                      onChange={e => updatePosition(i, "side", e.target.value)}
-                      style={cellInput}
-                    >
-                      <option value="long">Long</option>
-                      <option value="short">Short</option>
-                    </select>
-                  </td>
-                  <td style={tdStyle}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <input
-                        type="number" step="0.01" min="0" max="1"
-                        value={pos.weight}
-                        onChange={e => updatePosition(i, "weight", e.target.value)}
-                        placeholder="0.10"
-                        style={{ ...cellInput, width: "70px" }}
-                      />
-                      <span style={{ fontSize: 11, color: "#4b5563" }}>
-                        {pos.weight && !isNaN(Number(pos.weight)) ? `${(Number(pos.weight) * 100).toFixed(0)}%` : ""}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={tdStyle}>
-                    {form.positions.length > 1 && (
-                      <button
-                        onClick={() => removePosition(i)}
-                        style={{ background: "none", border: "none", color: "#4b5563", cursor: "pointer", fontSize: 16, padding: "2px 6px" }}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <Button variant="secondary" onClick={addPosition} style={{ marginTop: 10, fontSize: 12 }}>
-            + Add Position
-          </Button>
-        </div>
-
-        {/* Weight sum hint */}
-        {(() => {
-          const total = form.positions.reduce((s, p) => s + (Number(p.weight) || 0), 0);
-          const pct = (total * 100).toFixed(0);
-          const ok = Math.abs(total - 1) < 0.01;
-          return total > 0 ? (
-            <div style={{ fontSize: 12, color: ok ? "#86efac" : "#f59e0b", marginBottom: 14 }}>
-              Total weight: {pct}% {ok ? "✓" : "(weights should sum to 100%)"}
-            </div>
-          ) : null;
-        })()}
-
-        {saveErrorMessage && (
-          <div style={{ fontSize: 13, color: "#fca5a5", background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "8px 12px", marginBottom: 14 }}>
-            {saveErrorMessage}
-          </div>
-        )}
-
-        {ambiguous && Object.keys(ambiguous).length > 0 && (
-          <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            {Object.entries(ambiguous).map(([ticker, { stock, crypto }]) => (
-              <div key={ticker} style={{ background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "10px 12px" }}>
-                <div style={{ fontSize: 13, color: "#e5e7eb", marginBottom: 8 }}>
-                  <strong>{ticker}</strong> matches both a stock and a cryptocurrency — which did you mean?
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    onClick={() => pickDisambiguation(ticker, "stock")}
-                    style={iconBtn(disambiguations[ticker] === "stock" ? "#1e3a5f" : "#1f2937", disambiguations[ticker] === "stock" ? "#93c5fd" : "#9ca3af")}
-                  >
-                    {stock.name} (Stock)
-                  </button>
-                  <button
-                    onClick={() => pickDisambiguation(ticker, "crypto")}
-                    style={iconBtn(disambiguations[ticker] === "crypto" ? "#1e3a5f" : "#1f2937", disambiguations[ticker] === "crypto" ? "#93c5fd" : "#9ca3af")}
-                  >
-                    {crypto.name} (Crypto)
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={savePortfolio} disabled={saving} style={primaryBtn}>
-            {saving ? "Saving…" : editingId ? "Save Changes" : "Save Portfolio"}
-          </button>
-          <Button variant="secondary" onClick={clearForm}>Clear</Button>
-        </div>
-      </div>
     </Page>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+function PortfolioCard({ portfolio: p, summary: s, loadingSummary, onOpen, onEdit, onCopy, onVolatility, onBeta, onDelete }) {
+  const longs = p.positions.filter((x) => x.side === "long").length;
+  const net = Math.round(p.positions.reduce((t, x) => t + (x.side === "short" ? -1 : 1) * (Number(x.weight) || 0), 0) * 1e4) / 1e4; // to 0.01%: stored weights carry rounding noise
+  const failed = s?.missing?.length > 0;
 
-function Stat({ label, value, color = "#e5e7eb" }) {
   return (
-    <div>
-      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, color }}>{value}</div>
+    <div
+      className={styles.card}
+      role="link"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === "Enter") onOpen(); }}
+      title="Open in the Backtester"
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <div title={p.name} style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {p.name}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+            {p.positions.length} positions · {longs} L / {p.positions.length - longs} S
+          </div>
+        </div>
+        {/* stopPropagation: the menu must not also open the card */}
+        <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <Popover
+            align="right"
+            width={200}
+            trigger={(toggle) => (
+              <button type="button" className={styles.menuButton} onClick={toggle} aria-label={`More actions for ${p.name}`} title="More actions">⋯</button>
+            )}
+          >
+            {(close) => (
+              <>
+                <MenuItem onClick={() => { close(); onEdit(); }}>Edit</MenuItem>
+                <MenuItem onClick={() => { close(); onCopy(); }}>Copy portfolio</MenuItem>
+                <MenuDivider />
+                <MenuItem onClick={() => { close(); onVolatility(); }}>Volatility &amp; correlation</MenuItem>
+                <MenuItem onClick={() => { close(); onBeta(); }}>Beta</MenuItem>
+                <MenuDivider />
+                <MenuItem danger onClick={() => { close(); onDelete(); }}>Delete portfolio</MenuItem>
+              </>
+            )}
+          </Popover>
+        </div>
+      </div>
+
+      {/* Returns of the book as it stands today */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+        <Ret value={s?.ret_1d} label="1D" size={22} />
+        <Ret value={s?.ret_ytd} label="YTD" size={13} />
+      </div>
+
+      <div style={{ height: 44 }}>
+        {s?.spark?.length > 1 ? (
+          <Sparkline values={s.spark} color={s.ret_3m >= 0 ? "var(--positive)" : "var(--negative)"} />
+        ) : failed ? (
+          <div style={{ fontSize: 12, color: "var(--text-disabled)" }}>No price data for {s.missing.join(", ")}</div>
+        ) : (
+          <div style={{ height: "100%", background: "var(--bg-surface)", opacity: loadingSummary ? 0.5 : 0.3 }} />
+        )}
+      </div>
+
+      <div style={{ marginTop: "auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+        <Kpi label="Beta" value={fmtNum(s?.beta)} />
+        <Kpi label="Corr" value={fmtNum(s?.correlation)} />
+        <Kpi label="Net" value={fmtPct(net, 0)} color={signColor(Math.round(net * 100) / 100)} />
+      </div>
     </div>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────────
-
-const primaryBtn = {
-  background: "#1e3a5f", border: "1px solid #2d5a8e", borderRadius: 6,
-  padding: "8px 18px", fontSize: 13, color: "#93c5fd", cursor: "pointer", fontWeight: 600,
-};
-function iconBtn(bg, color) {
-  return {
-    background: bg, border: "none", borderRadius: 5,
-    padding: "4px 10px", fontSize: 11, color, cursor: "pointer", fontWeight: 600,
-  };
+function Ret({ value, label, size }) {
+  return (
+    <div>
+      <span style={{ fontFamily: "var(--font-family-mono)", fontSize: size, fontWeight: 600, color: value != null ? signColor(value) : "var(--text-disabled)", fontVariantNumeric: "tabular-nums" }}>
+        {value != null ? fmtPct(value) : "—"}
+      </span>
+      <span style={{ fontSize: 11, color: "var(--text-secondary)", marginLeft: 4 }}>{label}</span>
+    </div>
+  );
 }
-const thStyle  = { fontSize: 11, color: "#4b5563", padding: "6px 8px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" };
-const tdStyle  = { padding: "6px 8px" };
-const cellInput = {
-  width: "100%", background: "#111827", border: "1px solid var(--border)",
-  borderRadius: "var(--radius-none)", padding: "6px 10px", fontSize: 13, color: "#e5e7eb", outline: "none",
-};
+
+function Kpi({ label, value, color = "var(--text-primary)" }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, letterSpacing: "0.06em", color: "var(--text-disabled)" }}>{label.toUpperCase()}</div>
+      <div style={{ fontFamily: "var(--font-family-mono)", fontSize: 13, color, marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
