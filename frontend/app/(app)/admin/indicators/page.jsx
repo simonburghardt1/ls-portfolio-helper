@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -106,7 +107,7 @@ export default function IndicatorsAdminPage() {
 
   async function loadStatus(ind) {
     try {
-      const res  = await fetch(ind.statusUrl);
+      const res  = await authFetch(ind.statusUrl);
       const json = await res.json();
       setStatuses(prev => ({ ...prev, [ind.key]: json }));
     } catch {
@@ -119,7 +120,7 @@ export default function IndicatorsAdminPage() {
     setCompareResult(null);
     try {
       const toNum = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, parseFloat(v) || 0]));
-      const res = await fetch(`${API}/api/market/regime/compare`, {
+      const res = await authFetch(`${API}/api/market/regime/compare`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config_a: toNum(compareWeights.a), config_b: toNum(compareWeights.b) }),
@@ -137,7 +138,7 @@ export default function IndicatorsAdminPage() {
     setFetching(prev => ({ ...prev, [ind.key]: true }));
     setResults(prev => ({ ...prev, [ind.key]: null }));
     try {
-      const res  = await fetch(ind.refreshUrl, { method: "POST" });
+      const res  = await authFetch(ind.refreshUrl, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail ?? `HTTP ${res.status}`);

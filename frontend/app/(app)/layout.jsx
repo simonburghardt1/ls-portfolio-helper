@@ -1,13 +1,24 @@
 "use client";
 
+import { useEffect } from "react";
 import Sidebar from "@/app/components/Sidebar";
 import { useRequireAuth } from "@/app/hooks/useRequireAuth";
+import { useAuthStore } from "@/app/store/authStore";
+import { api } from "@/app/lib/api";
 
 export default function AppLayout({ children }) {
-  const { isAuthenticated, hasHydrated } = useRequireAuth();
+  const { token, hasHydrated, allowed } = useRequireAuth();
+  const setAuth = useAuthStore((s) => s.setAuth);
+
+  // Refresh the stored user once per load, so role changes (is_admin) reach an existing
+  // session without signing out and in again. A stale/invalid token is cleared by api.get.
+  useEffect(() => {
+    if (!hasHydrated || !token) return;
+    api.get("/api/auth/me").then((me) => setAuth(token, me)).catch(() => {});
+  }, [hasHydrated, token, setAuth]);
 
   if (!hasHydrated) return null;
-  if (!isAuthenticated) return null;
+  if (!allowed) return null;
 
   return (
     <div

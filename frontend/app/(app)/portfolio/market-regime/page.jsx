@@ -7,6 +7,7 @@ import KpiCard from "@/app/components/KpiCard";
 import RegimeChart, { REGIME_CONFIG, REGIME_COLORS } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -108,7 +109,7 @@ export default function MarketRegimePage() {
   );
 
   useEffect(() => {
-    fetch(`${API}/api/market/regime`)
+    authFetch(`${API}/api/market/regime`)
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(setData)
       .catch((e) => setError(e.message))

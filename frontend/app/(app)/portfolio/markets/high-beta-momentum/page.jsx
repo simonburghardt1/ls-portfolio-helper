@@ -6,6 +6,7 @@ import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -71,12 +72,12 @@ export default function HighBetaMomentumPage() {
   const [holdingsLoading, setHoldingsLoading] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/high-beta-momentum/index-series`)
+    authFetch(`${API}/api/high-beta-momentum/index-series`)
       .then((r) => r.json())
       .then((d) => { setSeries(d); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
 
-    fetch(`${API}/api/high-beta-momentum/rebalance-dates`)
+    authFetch(`${API}/api/high-beta-momentum/rebalance-dates`)
       .then((r) => r.json())
       .then((d) => {
         const dates = d.dates || [];
@@ -89,7 +90,7 @@ export default function HighBetaMomentumPage() {
   useEffect(() => {
     if (!selectedDate) return;
     setHoldingsLoading(true);
-    fetch(`${API}/api/high-beta-momentum/holdings?date=${selectedDate}`)
+    authFetch(`${API}/api/high-beta-momentum/holdings?date=${selectedDate}`)
       .then((r) => r.json())
       .then((d) => { setHoldings(d); setHoldingsLoading(false); })
       .catch(() => setHoldingsLoading(false));

@@ -5,6 +5,7 @@ import Link from "next/link";
 import Button from "@/app/components/Button";
 import PageHeader from "@/app/components/PageHeader";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -27,7 +28,7 @@ export default function PortfolioManagerPage() {
   const fetchPortfolios = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/portfolios`);
+      const res = await authFetch(`${API}/api/portfolios`);
       setPortfolios(await res.json());
     } catch {
       setError("Could not load portfolios. Is the backend running?");
@@ -121,7 +122,7 @@ export default function PortfolioManagerPage() {
     try {
       const url = editingId ? `${API}/api/portfolios/${editingId}` : `${API}/api/portfolios`;
       const method = editingId ? "PUT" : "POST";
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -145,7 +146,7 @@ export default function PortfolioManagerPage() {
 
   async function deletePortfolio(id, name) {
     if (!confirm(`Delete portfolio "${name}"?`)) return;
-    await fetch(`${API}/api/portfolios/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/portfolios/${id}`, { method: "DELETE" });
     if (editingId === id) clearForm();
     await fetchPortfolios();
   }

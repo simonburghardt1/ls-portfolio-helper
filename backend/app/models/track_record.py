@@ -1,7 +1,7 @@
 import datetime
 from datetime import timezone
 
-from sqlalchemy import Date, DateTime, Float, Index, Integer, String
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -12,6 +12,7 @@ class LivePosition(Base):
     __tablename__ = "live_positions"
 
     id:           Mapped[int]                  = mapped_column(Integer,              primary_key=True, autoincrement=True)
+    user_id:      Mapped[int]                  = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     ticker:       Mapped[str]                  = mapped_column(String(20),           index=True)
     company_name: Mapped[str | None]           = mapped_column(String(200),          nullable=True)
     entry_date:   Mapped[datetime.date]        = mapped_column(Date)
@@ -30,6 +31,7 @@ class RealizedTrade(Base):
     __tablename__ = "realized_trades"
 
     id:              Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
+    user_id:      Mapped[int]                  = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     ticker:          Mapped[str]               = mapped_column(String(20),           index=True)
     company_name:    Mapped[str | None]        = mapped_column(String(200),          nullable=True)
     side:            Mapped[str]               = mapped_column(String(10))           # "long" | "short"
@@ -48,13 +50,16 @@ class RealizedTrade(Base):
 class CashPosition(Base):
     """Foreign-currency cash balance, updated on each IBKR import."""
     __tablename__ = "cash_positions"
-    # Plain index next to the unique constraint — both exist in the DB (migration c4d5e6f7a8b9).
-    # Declared via Index, not index=True: combined with unique=True that would turn the
-    # unique constraint into a unique index and drift the other way.
-    __table_args__ = (Index("ix_cash_positions_currency", "currency"),)
+    # Plain index on currency (migration c4d5e6f7a8b9) plus uniqueness per owner
+    # (migration a7b8c9d0e1f2 — a currency appears once per user, not once globally).
+    __table_args__ = (
+        Index("ix_cash_positions_currency", "currency"),
+        UniqueConstraint("user_id", "currency", name="uq_cash_positions_user_currency"),
+    )
 
     id:             Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
-    currency:       Mapped[str]               = mapped_column(String(10),           unique=True)
+    user_id:      Mapped[int]                  = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    currency:       Mapped[str]               = mapped_column(String(10))
     amount:         Mapped[float]             = mapped_column(Float)
     rate_at_import: Mapped[float | None]      = mapped_column(Float,                nullable=True)  # EUR per 1 unit
     updated_at:     Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
@@ -63,10 +68,14 @@ class CashPosition(Base):
 class EquityEntry(Base):
     """Weekly/periodic equity curve data point."""
     __tablename__ = "equity_entries"
-    __table_args__ = (Index("ix_equity_entries_date", "date"),)  # see CashPosition
+    __table_args__ = (
+        Index("ix_equity_entries_date", "date"),
+        UniqueConstraint("user_id", "date", name="uq_equity_entries_user_date"),
+    )
 
     id:              Mapped[int]               = mapped_column(Integer,              primary_key=True, autoincrement=True)
-    date:            Mapped[datetime.date]     = mapped_column(Date,                 unique=True)
+    user_id:      Mapped[int]                  = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    date:            Mapped[datetime.date]     = mapped_column(Date)
     unrealized_pnl:  Mapped[float]             = mapped_column(Float,                default=0.0)
     fees:            Mapped[float]             = mapped_column(Float,                default=0.0)
     deposit:         Mapped[float]             = mapped_column(Float,                default=0.0)

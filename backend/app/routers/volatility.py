@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.services.auth import get_current_user
-from app.services.asset_price_provider import ASSET_TYPES
+from app.services.auth import get_optional_user
+from app.services.asset_price_provider import ASSET_TYPES, ensure_asset_access
 from app.services.volatility import compute_atr_series, compute_return_distribution, WINDOW_WEEKS
 
 router = APIRouter(prefix="/api/volatility", tags=["volatility"])
@@ -93,10 +93,11 @@ def get_atr(
     asset_type: str,
     asset_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     if asset_type not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=f"asset_type must be one of {ASSET_TYPES}")
+    ensure_asset_access(db, asset_type, asset_id, current_user)
     return compute_atr_series(db, asset_type, asset_id)
 
 
@@ -106,10 +107,11 @@ def get_distribution(
     asset_id: str,
     window: str = "1y",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     if asset_type not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=f"asset_type must be one of {ASSET_TYPES}")
     if window not in WINDOW_WEEKS:
         raise HTTPException(status_code=400, detail=f"window must be one of {list(WINDOW_WEEKS)}")
+    ensure_asset_access(db, asset_type, asset_id, current_user)
     return compute_return_distribution(db, asset_type, asset_id, window)

@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.models.portfolio import Portfolio
 from app.services.portfolio import resolve_and_validate_tickers, compute_portfolio_beta
 from app.services.track_record import compute_volatility
@@ -49,10 +51,16 @@ class PortfolioOut(BaseModel):
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+# Every portfolio belongs to one user; another user's id answers 404 like a missing one.
+
+def _owned_portfolio(db: Session, user: User, portfolio_id: int) -> Portfolio | None:
+    p = db.get(Portfolio, portfolio_id)
+    return p if p is not None and p.user_id == user.id else None
+
 
 @router.get("", response_model=list[PortfolioOut])
-def list_portfolios(db: Session = Depends(get_db)):
-    return db.query(Portfolio).order_by(Portfolio.updated_at.desc()).all()
+def list_portfolios(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return db.query(Portfolio).filter(Portfolio.user_id == user.id).order_by(Portfolio.updated_at.desc()).all()
 
 
 def _resolve_positions(positions: list[PositionSchema], disambiguations: dict[str, str]) -> list[dict]:
@@ -78,11 +86,11 @@ def _resolve_positions(positions: list[PositionSchema], disambiguations: dict[st
 
 
 @router.post("", response_model=PortfolioOut, status_code=201)
-def create_portfolio(payload: PortfolioCreate, db: Session = Depends(get_db)):
-    if db.query(Portfolio).filter_by(name=payload.name).first():
+def create_portfolio(payload: PortfolioCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if db.query(Portfolio).filter_by(user_id=user.id, name=payload.name).first():
         raise HTTPException(status_code=409, detail=f"Portfolio '{payload.name}' already exists.")
     positions = _resolve_positions(payload.positions, payload.disambiguations)
-    portfolio = Portfolio(name=payload.name, positions=positions)
+    portfolio = Portfolio(user_id=user.id, name=payload.name, positions=positions)
     db.add(portfolio)
     db.commit()
     db.refresh(portfolio)
@@ -90,13 +98,13 @@ def create_portfolio(payload: PortfolioCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{portfolio_id}", response_model=PortfolioOut)
-def update_portfolio(portfolio_id: int, payload: PortfolioUpdate, db: Session = Depends(get_db)):
-    portfolio = db.get(Portfolio, portfolio_id)
+def update_portfolio(portfolio_id: int, payload: PortfolioUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    portfolio = _owned_portfolio(db, user, portfolio_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found.")
     # Check name uniqueness if the name changed
     if payload.name != portfolio.name:
-        if db.query(Portfolio).filter_by(name=payload.name).first():
+        if db.query(Portfolio).filter_by(user_id=user.id, name=payload.name).first():
             raise HTTPException(status_code=409, detail=f"Portfolio '{payload.name}' already exists.")
     positions = _resolve_positions(payload.positions, payload.disambiguations)
     portfolio.name = payload.name
@@ -108,8 +116,8 @@ def update_portfolio(portfolio_id: int, payload: PortfolioUpdate, db: Session = 
 
 
 @router.delete("/{portfolio_id}", status_code=204)
-def delete_portfolio(portfolio_id: int, db: Session = Depends(get_db)):
-    portfolio = db.get(Portfolio, portfolio_id)
+def delete_portfolio(portfolio_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    portfolio = _owned_portfolio(db, user, portfolio_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found.")
     db.delete(portfolio)
@@ -153,9 +161,9 @@ def portfolio_beta_lookup(ticker: str):
 
 
 @router.get("/{portfolio_id}/beta", response_model=PortfolioBetaOut)
-def portfolio_beta(portfolio_id: int, db: Session = Depends(get_db)):
+def portfolio_beta(portfolio_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Per-position beta (1Y, weekly returns, vs ^GSPC) plus long/short/net totals."""
-    portfolio = db.get(Portfolio, portfolio_id)
+    portfolio = _owned_portfolio(db, user, portfolio_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found.")
     if not portfolio.positions:
@@ -164,9 +172,9 @@ def portfolio_beta(portfolio_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{portfolio_id}/volatility")
-async def portfolio_volatility(portfolio_id: int, weeks: int = 52, db: Session = Depends(get_db)):
+async def portfolio_volatility(portfolio_id: int, weeks: int = 52, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Variance-covariance + correlation matrices for a saved portfolio."""
-    portfolio = db.get(Portfolio, portfolio_id)
+    portfolio = _owned_portfolio(db, user, portfolio_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found.")
 

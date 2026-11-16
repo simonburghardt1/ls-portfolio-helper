@@ -5,6 +5,7 @@ import LineChart from "@/app/components/LineChart";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -84,7 +85,7 @@ export default function CommodityPricesPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch(`${API}/api/commodities/list`)
+    authFetch(`${API}/api/commodities/list`)
       .then((r) => r.json())
       .then((d) => {
         setList(d);
@@ -98,7 +99,7 @@ export default function CommodityPricesPage() {
     if (!commodity) return;
     setLoading(true);
     setSeries(null);
-    fetch(`${API}/api/commodities/prices?commodity=${commodity}`)
+    authFetch(`${API}/api/commodities/prices?commodity=${commodity}`)
       .then((r) => r.json())
       .then((d) => { setSeries(d); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });

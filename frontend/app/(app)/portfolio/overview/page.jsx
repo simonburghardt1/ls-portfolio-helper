@@ -6,6 +6,7 @@ import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -24,7 +25,7 @@ export default function PortfolioOverviewPage() {
   const [volLoading, setVolLoading] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/portfolios`)
+    authFetch(`${API}/api/portfolios`)
       .then(r => r.json())
       .then(setPortfolios)
       .catch(() => {})
@@ -37,7 +38,7 @@ export default function PortfolioOverviewPage() {
     if (!selected) { setVol(null); return; }
     setVolLoading(true);
     setVol(null);
-    fetch(`${API}/api/portfolios/${selected.id}/volatility`)
+    authFetch(`${API}/api/portfolios/${selected.id}/volatility`)
       .then(r => r.json())
       .then(d => setVol(d.error ? null : d))
       .catch(() => setVol(null))

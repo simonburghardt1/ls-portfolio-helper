@@ -6,6 +6,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -162,7 +163,7 @@ function ComponentsTab() {
 
   function load() {
     setLoading(true);
-    fetch(`${API}/api/nfib/components`)
+    authFetch(`${API}/api/nfib/components`)
       .then((r) => r.json())
       .then((d) => {
         const s = d.series ?? {};
@@ -180,7 +181,7 @@ function ComponentsTab() {
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      const res = await fetch(`${API}/api/nfib/refresh`, { method: "POST" });
+      const res = await authFetch(`${API}/api/nfib/refresh`, { method: "POST" });
       if (!res.ok) throw new Error("Refresh failed");
       load();
     } catch (e) {
@@ -345,7 +346,7 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
 
   function load() {
     setLoading(true);
-    fetch(indexUrl)
+    authFetch(indexUrl)
       .then((r) => r.json())
       .then((d) => {
         const s = d.series ?? {};
@@ -363,7 +364,7 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
     if (!selected) return;
     setCompLoading(true);
     setCompError(null);
-    fetch(componentsUrl(selected))
+    authFetch(componentsUrl(selected))
       .then((r) => r.json())
       .then((d) => {
         const s = d.series ?? {};
@@ -377,7 +378,7 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
   async function handleRefresh() {
     setRefreshing(true);
     try {
-      const res = await fetch(refreshUrl, { method: "POST" });
+      const res = await authFetch(refreshUrl, { method: "POST" });
       if (!res.ok) throw new Error("Refresh failed");
       load();
     } catch (e) {

@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 import yfinance as yf
 
 from app.db.session import get_db
+from app.models.user import User
+from app.services.auth import get_current_user
 from app.models.track_record import CashPosition, EquityEntry, LivePosition, RealizedTrade
 from app.services.track_record import (
     compute_equity_stats,
@@ -69,6 +71,12 @@ class CapitalIn(BaseModel):
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
 
+
+def _owned(db: Session, model, user: User, row_id: int):
+    """Row by id, but only if it belongs to the user (None otherwise → callers return 404)."""
+    row = db.get(model, row_id)
+    return row if row is not None and row.user_id == user.id else None
+
 def _pos_to_dict(pos: LivePosition, current_price: float | None) -> dict:
     metrics = compute_position_metrics(pos, current_price)
     return {
@@ -118,8 +126,8 @@ async def ticker_info(ticker: str):
 # ─── Live Positions ───────────────────────────────────────────────────────────
 
 @router.get("/positions")
-async def list_positions(db: Session = Depends(get_db)):
-    positions = db.query(LivePosition).order_by(LivePosition.entry_date.asc(), LivePosition.id.asc()).all()
+async def list_positions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    positions = db.query(LivePosition).filter(LivePosition.user_id == user.id).order_by(LivePosition.entry_date.asc(), LivePosition.id.asc()).all()
     if not positions:
         return []
     tickers = list({p.ticker.upper() for p in positions})
@@ -128,9 +136,9 @@ async def list_positions(db: Session = Depends(get_db)):
 
 
 @router.get("/positions/volatility")
-async def positions_volatility(weeks: int = 52, db: Session = Depends(get_db)):
+async def positions_volatility(weeks: int = 52, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Variance-covariance + correlation matrices for current live positions."""
-    positions = db.query(LivePosition).all()
+    positions = db.query(LivePosition).filter(LivePosition.user_id == user.id).all()
     stock_pos = [p for p in positions if " " not in p.ticker]
     if not stock_pos:
         return {"error": "No stock positions found", "tickers": []}
@@ -151,11 +159,12 @@ async def positions_volatility(weeks: int = 52, db: Session = Depends(get_db)):
 
 
 @router.post("/positions")
-async def create_position(payload: PositionIn, db: Session = Depends(get_db)):
+async def create_position(payload: PositionIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ticker = payload.ticker.upper()
     info   = await fetch_ticker_info(ticker)
     now    = datetime.datetime.now(timezone.utc)
     pos = LivePosition(
+        user_id=user.id,
         ticker       = ticker,
         company_name = payload.company_name or info.get("company_name"),
         entry_date   = datetime.date.fromisoformat(payload.entry_date),
@@ -176,8 +185,8 @@ async def create_position(payload: PositionIn, db: Session = Depends(get_db)):
 
 
 @router.put("/positions/{pos_id}")
-async def update_position(pos_id: int, payload: PositionIn, db: Session = Depends(get_db)):
-    pos = db.get(LivePosition, pos_id)
+async def update_position(pos_id: int, payload: PositionIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    pos = _owned(db, LivePosition, user, pos_id)
     if not pos:
         raise HTTPException(status_code=404, detail="Position not found")
     ticker = payload.ticker.upper()
@@ -198,8 +207,8 @@ async def update_position(pos_id: int, payload: PositionIn, db: Session = Depend
 
 
 @router.delete("/positions/{pos_id}", status_code=204)
-def delete_position(pos_id: int, db: Session = Depends(get_db)):
-    pos = db.get(LivePosition, pos_id)
+def delete_position(pos_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    pos = _owned(db, LivePosition, user, pos_id)
     if not pos:
         raise HTTPException(status_code=404, detail="Position not found")
     db.delete(pos)
@@ -209,23 +218,24 @@ def delete_position(pos_id: int, db: Session = Depends(get_db)):
 # ─── Realized Trades ─────────────────────────────────────────────────────────
 
 @router.get("/trades")
-def list_trades(db: Session = Depends(get_db)):
-    trades = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.desc(), RealizedTrade.id.desc()).all()
+def list_trades(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    trades = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).order_by(RealizedTrade.exit_date.desc(), RealizedTrade.id.desc()).all()
     return [_trade_to_dict(t) for t in trades]
 
 
 @router.get("/trades/stats")
-def trade_stats(db: Session = Depends(get_db)):
-    trades = db.query(RealizedTrade).all()
+def trade_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    trades = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).all()
     return compute_trade_stats(trades)
 
 
 @router.post("/trades")
-def create_trade(payload: TradeIn, db: Session = Depends(get_db)):
+def create_trade(payload: TradeIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     pnl_dollar, pnl_pct = compute_trade_pnl(
         payload.side, payload.shares, payload.avg_entry_price, payload.avg_exit_price
     )
     trade = RealizedTrade(
+        user_id=user.id,
         ticker          = payload.ticker.upper(),
         company_name    = payload.company_name,
         side            = payload.side,
@@ -247,8 +257,8 @@ def create_trade(payload: TradeIn, db: Session = Depends(get_db)):
 
 
 @router.put("/trades/{trade_id}")
-def update_trade(trade_id: int, payload: TradeIn, db: Session = Depends(get_db)):
-    trade = db.get(RealizedTrade, trade_id)
+def update_trade(trade_id: int, payload: TradeIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    trade = _owned(db, RealizedTrade, user, trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
 
@@ -285,8 +295,8 @@ def update_trade(trade_id: int, payload: TradeIn, db: Session = Depends(get_db))
 
 
 @router.delete("/trades/{trade_id}", status_code=204)
-def delete_trade(trade_id: int, db: Session = Depends(get_db)):
-    trade = db.get(RealizedTrade, trade_id)
+def delete_trade(trade_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    trade = _owned(db, RealizedTrade, user, trade_id)
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
     db.delete(trade)
@@ -366,19 +376,19 @@ def _build_equity_rows(entries: list[EquityEntry], trades: list[RealizedTrade]) 
 
 
 @router.get("/equity")
-def list_equity(db: Session = Depends(get_db)):
-    entries = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
-    trades  = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
+def list_equity(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    entries = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).order_by(EquityEntry.date.asc()).all()
+    trades  = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).order_by(RealizedTrade.exit_date.asc()).all()
     return _build_equity_rows(entries, trades)
 
 
 @router.get("/equity/stats")
-def equity_stats(db: Session = Depends(get_db)):
+def equity_stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Compute % return stats from weekly PnL normalized by cumulative capital."""
     from collections import defaultdict
 
-    trades  = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
-    entries = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
+    trades  = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).order_by(RealizedTrade.exit_date.asc()).all()
+    entries = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).order_by(EquityEntry.date.asc()).all()
 
     weekly_pnl: dict[datetime.date, float] = defaultdict(float)
     for t in trades:
@@ -419,13 +429,14 @@ def equity_stats(db: Session = Depends(get_db)):
 
 
 @router.post("/equity/deposit")
-def add_deposit(payload: CapitalIn, db: Session = Depends(get_db)):
+def add_deposit(payload: CapitalIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     d = datetime.date.fromisoformat(payload.date)
-    entry = db.query(EquityEntry).filter(EquityEntry.date == d).first()
+    entry = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).filter(EquityEntry.date == d).first()
     if entry:
         entry.deposit = (entry.deposit or 0.0) + payload.amount
     else:
         entry = EquityEntry(
+            user_id=user.id,
             date=d, deposit=payload.amount, withdrawal=0.0,
             unrealized_pnl=0.0, fees=0.0, portfolio_value=0.0,
             created_at=datetime.datetime.now(timezone.utc),
@@ -436,13 +447,14 @@ def add_deposit(payload: CapitalIn, db: Session = Depends(get_db)):
 
 
 @router.post("/equity/withdraw")
-def add_withdrawal(payload: CapitalIn, db: Session = Depends(get_db)):
+def add_withdrawal(payload: CapitalIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     d = datetime.date.fromisoformat(payload.date)
-    entry = db.query(EquityEntry).filter(EquityEntry.date == d).first()
+    entry = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).filter(EquityEntry.date == d).first()
     if entry:
         entry.withdrawal = (entry.withdrawal or 0.0) + payload.amount
     else:
         entry = EquityEntry(
+            user_id=user.id,
             date=d, withdrawal=payload.amount, deposit=0.0,
             unrealized_pnl=0.0, fees=0.0, portfolio_value=0.0,
             created_at=datetime.datetime.now(timezone.utc),
@@ -453,12 +465,12 @@ def add_withdrawal(payload: CapitalIn, db: Session = Depends(get_db)):
 
 
 @router.get("/equity/performance")
-async def equity_performance(db: Session = Depends(get_db)):
+async def equity_performance(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Weekly cumulative PnL from realized trades + current unrealized, with no gaps."""
-    trades        = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
-    positions     = db.query(LivePosition).all()
-    entries       = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
-    cash_positions = db.query(CashPosition).all()
+    trades        = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).order_by(RealizedTrade.exit_date.asc()).all()
+    positions     = db.query(LivePosition).filter(LivePosition.user_id == user.id).all()
+    entries       = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).order_by(EquityEntry.date.asc()).all()
+    cash_positions = db.query(CashPosition).filter(CashPosition.user_id == user.id).all()
 
     from collections import defaultdict
 
@@ -639,10 +651,10 @@ async def equity_performance(db: Session = Depends(get_db)):
 
 
 @router.get("/equity/spy")
-def equity_spy(db: Session = Depends(get_db)):
+def equity_spy(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Return SPY prices indexed to 100 from the first trade/equity-entry date."""
-    trade_min = db.query(func.min(RealizedTrade.exit_date)).scalar()
-    entry_min = db.query(func.min(EquityEntry.date)).scalar()
+    trade_min = db.query(func.min(RealizedTrade.exit_date)).filter(RealizedTrade.user_id == user.id).scalar()
+    entry_min = db.query(func.min(EquityEntry.date)).filter(EquityEntry.user_id == user.id).scalar()
     candidates = [d for d in [trade_min, entry_min] if d]
     first = min(candidates) if candidates else None
     if not first:
@@ -664,8 +676,9 @@ def equity_spy(db: Session = Depends(get_db)):
 
 
 @router.post("/equity")
-def create_equity(payload: EquityIn, db: Session = Depends(get_db)):
+def create_equity(payload: EquityIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     entry = EquityEntry(
+        user_id=user.id,
         date            = datetime.date.fromisoformat(payload.date),
         unrealized_pnl  = payload.unrealized_pnl,
         fees            = payload.fees,
@@ -677,14 +690,14 @@ def create_equity(payload: EquityIn, db: Session = Depends(get_db)):
     db.add(entry)
     db.commit()
     db.refresh(entry)
-    trades = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
+    trades = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).order_by(RealizedTrade.exit_date.asc()).all()
     rows = _build_equity_rows([entry], trades)
     return rows[0] if rows else {}
 
 
 @router.put("/equity/{entry_id}")
-def update_equity(entry_id: int, payload: EquityIn, db: Session = Depends(get_db)):
-    entry = db.get(EquityEntry, entry_id)
+def update_equity(entry_id: int, payload: EquityIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    entry = _owned(db, EquityEntry, user, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Equity entry not found")
     entry.date            = datetime.date.fromisoformat(payload.date)
@@ -696,14 +709,14 @@ def update_equity(entry_id: int, payload: EquityIn, db: Session = Depends(get_db
     db.commit()
     db.refresh(entry)
     # Return full list so front-end can recompute cumulative columns
-    all_entries = db.query(EquityEntry).order_by(EquityEntry.date.asc()).all()
-    trades      = db.query(RealizedTrade).order_by(RealizedTrade.exit_date.asc()).all()
+    all_entries = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).order_by(EquityEntry.date.asc()).all()
+    trades      = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).order_by(RealizedTrade.exit_date.asc()).all()
     return _build_equity_rows(all_entries, trades)
 
 
 @router.delete("/equity/{entry_id}", status_code=204)
-def delete_equity(entry_id: int, db: Session = Depends(get_db)):
-    entry = db.get(EquityEntry, entry_id)
+def delete_equity(entry_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    entry = _owned(db, EquityEntry, user, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Equity entry not found")
     db.delete(entry)
@@ -717,9 +730,9 @@ class CashIn(BaseModel):
 
 
 @router.get("/cash-positions")
-async def list_cash_positions(db: Session = Depends(get_db)):
+async def list_cash_positions(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Return all cash positions with live FX rates and EUR equivalent."""
-    positions = db.query(CashPosition).order_by(CashPosition.currency.asc()).all()
+    positions = db.query(CashPosition).filter(CashPosition.user_id == user.id).order_by(CashPosition.currency.asc()).all()
     result = []
     for pos in positions:
         live_rate = await fetch_fx_rate(pos.currency)
@@ -741,26 +754,26 @@ async def list_cash_positions(db: Session = Depends(get_db)):
 
 
 @router.put("/cash-positions/{currency}")
-async def upsert_cash_position(currency: str, payload: CashIn, db: Session = Depends(get_db)):
+async def upsert_cash_position(currency: str, payload: CashIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Manually create or update a cash position by currency code."""
     ccy      = currency.upper()
     live_rate = await fetch_fx_rate(ccy)
     now       = datetime.datetime.now(timezone.utc)
-    existing  = db.query(CashPosition).filter(CashPosition.currency == ccy).first()
+    existing  = db.query(CashPosition).filter(CashPosition.user_id == user.id).filter(CashPosition.currency == ccy).first()
     if existing:
         existing.amount         = payload.amount
         existing.rate_at_import = live_rate
         existing.updated_at     = now
     else:
-        db.add(CashPosition(currency=ccy, amount=payload.amount,
+        db.add(CashPosition(user_id=user.id, currency=ccy, amount=payload.amount,
                             rate_at_import=live_rate, updated_at=now))
     db.commit()
     return {"currency": ccy, "amount": payload.amount, "rate_at_import": live_rate}
 
 
 @router.delete("/cash-positions/{currency}", status_code=204)
-def delete_cash_position(currency: str, db: Session = Depends(get_db)):
-    pos = db.query(CashPosition).filter(CashPosition.currency == currency.upper()).first()
+def delete_cash_position(currency: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    pos = db.query(CashPosition).filter(CashPosition.user_id == user.id).filter(CashPosition.currency == currency.upper()).first()
     if pos:
         db.delete(pos)
         db.commit()
@@ -776,12 +789,12 @@ class IbkrImportIn(BaseModel):
 
 
 @router.delete("/clear-all", status_code=200)
-def clear_all(db: Session = Depends(get_db)):
+def clear_all(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Delete all realized trades, live positions, equity entries, and cash positions."""
-    trades    = db.query(RealizedTrade).delete()
-    positions = db.query(LivePosition).delete()
-    entries   = db.query(EquityEntry).delete()
-    cash      = db.query(CashPosition).delete()
+    trades    = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).delete()
+    positions = db.query(LivePosition).filter(LivePosition.user_id == user.id).delete()
+    entries   = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).delete()
+    cash      = db.query(CashPosition).filter(CashPosition.user_id == user.id).delete()
     db.commit()
     return {"deleted_trades": trades, "deleted_positions": positions,
             "deleted_equity_entries": entries, "deleted_cash_positions": cash}
@@ -794,7 +807,7 @@ def ibkr_preview(payload: IbkrImportIn):
 
 
 @router.post("/ibkr/confirm")
-async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
+async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Parse IBKR CSV and save trades / positions / equity entry to DB."""
     parsed = parse_ibkr_csv(payload.csv_text)
 
@@ -824,7 +837,7 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
         exit_d  = datetime.date.fromisoformat(t["exit_date"])
         shares  = t["shares"]
 
-        dup = db.query(RealizedTrade).filter(
+        dup = db.query(RealizedTrade).filter(RealizedTrade.user_id == user.id).filter(
             RealizedTrade.ticker     == t["ticker"].upper(),
             RealizedTrade.entry_date == entry_d,
             RealizedTrade.exit_date  == exit_d,
@@ -840,6 +853,7 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
         pnl_pct    = round(t.get("pnl_pct", 0.0), 2)
 
         trade = RealizedTrade(
+            user_id=user.id,
             ticker          = t["ticker"].upper(),
             company_name    = name_map.get(t["ticker"].upper()),
             side            = t["side"],
@@ -860,7 +874,7 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
     # ── Open positions ───────────────────────────────────────────────────────
     for p in parsed.get("open_positions", []):
         entry_d = datetime.date.fromisoformat(p["entry_date"])
-        dup = db.query(LivePosition).filter(
+        dup = db.query(LivePosition).filter(LivePosition.user_id == user.id).filter(
             LivePosition.ticker     == p["ticker"].upper(),
             LivePosition.entry_date == entry_d,
             LivePosition.side       == p["side"],
@@ -869,6 +883,7 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
             continue
 
         pos = LivePosition(
+            user_id=user.id,
             ticker       = p["ticker"].upper(),
             company_name = name_map.get(p["ticker"].upper()),
             entry_date   = entry_d,
@@ -885,13 +900,14 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
     eq = parsed.get("equity_entry")
     if eq:
         eq_date = datetime.date.fromisoformat(eq["date"])
-        existing = db.query(EquityEntry).filter(EquityEntry.date == eq_date).first()
+        existing = db.query(EquityEntry).filter(EquityEntry.user_id == user.id).filter(EquityEntry.date == eq_date).first()
         if existing:
             existing.portfolio_value = eq["portfolio_value"]
             existing.fees            = eq["fees"]
             existing.unrealized_pnl  = eq["unrealized_pnl"]
         else:
             db.add(EquityEntry(
+                user_id=user.id,
                 date           = eq_date,
                 portfolio_value= eq["portfolio_value"],
                 fees           = eq["fees"],
@@ -913,7 +929,7 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
     # Delete any cash positions not present in this import — removes stale
     # records (e.g. a currency that was previously parsed incorrectly).
     if cash_by_ccy:
-        db.query(CashPosition).filter(
+        db.query(CashPosition).filter(CashPosition.user_id == user.id).filter(
             CashPosition.currency.notin_(list(cash_by_ccy.keys()))
         ).delete(synchronize_session=False)
 
@@ -925,13 +941,13 @@ async def ibkr_confirm(payload: IbkrImportIn, db: Session = Depends(get_db)):
         # Fall back to live rate only for base currency (EUR) which has no entry.
         cost_basis_rate = ibkr_rate if ibkr_rate is not None else await fetch_fx_rate(ccy)
         now = datetime.datetime.now(timezone.utc)
-        existing_cp = db.query(CashPosition).filter(CashPosition.currency == ccy).first()
+        existing_cp = db.query(CashPosition).filter(CashPosition.user_id == user.id).filter(CashPosition.currency == ccy).first()
         if existing_cp:
             existing_cp.amount         = amt
             existing_cp.rate_at_import = cost_basis_rate
             existing_cp.updated_at     = now
         else:
-            db.add(CashPosition(currency=ccy, amount=amt,
+            db.add(CashPosition(user_id=user.id, currency=ccy, amount=amt,
                                 rate_at_import=cost_basis_rate, updated_at=now))
         cash_imported += 1
 

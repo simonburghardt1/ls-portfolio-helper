@@ -48,6 +48,25 @@ async function request(path, options = {}) {
   return res.json();
 }
 
+/**
+ * Drop-in replacement for window.fetch for calls to our backend: same arguments, same Response
+ * back (callers keep their own res.ok / res.json() handling), plus the Bearer token. Never sets
+ * Content-Type, so FormData uploads keep working. A 401 clears the stale token and sends the
+ * user to /login, like `request` does — every backend route except /api/auth and /health
+ * requires a login (backend main.py).
+ */
+export async function authFetch(input, init = {}) {
+  const token = getToken();
+  const headers = new Headers(init.headers || {});
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401 && typeof window !== "undefined") {
+    try { localStorage.removeItem("auth"); } catch {}
+    window.location.href = "/login?expired=1";
+  }
+  return res;
+}
+
 export const api = {
   get: (path) => request(path),
   post: (path, body) => request(path, { method: "POST", body: JSON.stringify(body) }),

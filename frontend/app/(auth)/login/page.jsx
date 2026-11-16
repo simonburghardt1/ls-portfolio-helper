@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [next, setNext] = useState("/");
 
   // Plain window.location (not next/navigation's useSearchParams) so this page
   // doesn't need a Suspense boundary just to read one query flag. Read it in an
@@ -20,9 +21,13 @@ export default function LoginPage() {
   // render diverges from the server-rendered (window-less) markup and trips a
   // hydration mismatch.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("expired")) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("expired")) {
       setError("Your session has expired. Please sign in again.");
     }
+    // Return to the page that sent us here — internal paths only (no open redirect)
+    const n = params.get("next");
+    if (n && n.startsWith("/") && !n.startsWith("//")) setNext(n);
   }, []);
 
   async function handleSubmit(e) {
@@ -35,7 +40,7 @@ export default function LoginPage() {
         headers: { Authorization: `Bearer ${access_token}` },
       }).then((r) => r.json());
       setAuth(access_token, me);
-      router.push("/");
+      router.push(next);
     } catch (err) {
       setError(err.message);
     } finally {

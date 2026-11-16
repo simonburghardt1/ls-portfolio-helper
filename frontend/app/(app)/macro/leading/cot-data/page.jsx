@@ -11,6 +11,7 @@ import {
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -108,8 +109,8 @@ export default function CotDataPage() {
     async function load() {
       try {
         const [ovRes, conRes] = await Promise.all([
-          fetch(`${API}/api/cot/overview`),
-          fetch(`${API}/api/cot/contracts`),
+          authFetch(`${API}/api/cot/overview`),
+          authFetch(`${API}/api/cot/contracts`),
         ]);
         setOverview(await ovRes.json());
         setContracts(await conRes.json());
@@ -128,7 +129,7 @@ export default function CotDataPage() {
       setLoadingSer(true);
       setSeries(null);
       try {
-        const res = await fetch(`${API}/api/cot/series/${selected}`);
+        const res = await authFetch(`${API}/api/cot/series/${selected}`);
         setSeries(await res.json());
       } catch (e) {
         setError(e.message);
@@ -144,7 +145,7 @@ export default function CotDataPage() {
     setPriceData(null);
     if (!showPrice) return;
     setLoadingPx(true);
-    fetch(`${API}/api/cot/price/${selected}`)
+    authFetch(`${API}/api/cot/price/${selected}`)
       .then(r => r.json())
       .then(d => setPriceData(d))
       .catch(() => {})

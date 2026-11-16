@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -14,7 +15,7 @@ export default function HighBetaMomentumAdminPage() {
   const pollRef = useRef(null);
 
   function loadStatus() {
-    return fetch(`${API}/api/high-beta-momentum/status`)
+    return authFetch(`${API}/api/high-beta-momentum/status`)
       .then((r) => r.json())
       .then((d) => {
         setStatus(d);
@@ -40,7 +41,7 @@ export default function HighBetaMomentumAdminPage() {
   async function handleBuild() {
     setMessage(null);
     try {
-      const res = await fetch(`${API}/api/high-beta-momentum/build`, { method: "POST" });
+      const res = await authFetch(`${API}/api/high-beta-momentum/build`, { method: "POST" });
       if (res.status === 409) {
         setMessage({ ok: false, text: "A build is already running." });
         return;
@@ -56,7 +57,7 @@ export default function HighBetaMomentumAdminPage() {
     setRefreshing(true);
     setMessage(null);
     try {
-      const res = await fetch(`${API}/api/high-beta-momentum/refresh`, { method: "POST" });
+      const res = await authFetch(`${API}/api/high-beta-momentum/refresh`, { method: "POST" });
       const data = await res.json();
       setStatus(data);
       setMessage({ ok: true, text: "Incremental refresh complete." });

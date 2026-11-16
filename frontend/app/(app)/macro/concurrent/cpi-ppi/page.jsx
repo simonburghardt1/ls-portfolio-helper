@@ -10,6 +10,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -575,9 +576,9 @@ export default function CpiPpiPage() {
   const [error,      setError]      = useState(null);
   useEffect(() => {
     Promise.all([
-      fetch(`${API}/api/cpi-ppi/series`).then((r) => r.json()),
-      fetch(`${API}/api/cpi-ppi/components`).then((r) => r.json()),
-      fetch(`${API}/api/cpi-ppi/insights`).then((r) => r.json()),
+      authFetch(`${API}/api/cpi-ppi/series`).then((r) => r.json()),
+      authFetch(`${API}/api/cpi-ppi/components`).then((r) => r.json()),
+      authFetch(`${API}/api/cpi-ppi/insights`).then((r) => r.json()),
     ])
       .then(([s, c, ins]) => {
         setSeries(s.series ?? {});

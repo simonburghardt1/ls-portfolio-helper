@@ -3,6 +3,7 @@
 import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 export default function IsmAdminPage() {
   const [text, setText] = useState("");
@@ -15,7 +16,7 @@ export default function IsmAdminPage() {
     setFetchLoading(true);
     setFetchStatus(null);
     try {
-      const res = await fetch("http://localhost:8000/api/ism/manufacturing/fetch-latest", { method: "POST" });
+      const res = await authFetch("http://localhost:8000/api/ism/manufacturing/fetch-latest", { method: "POST" });
       const data = await res.json();
       if (data.status === "ok") {
         setFetchStatus({ ok: true, message: `${data.message} (${data.components_found} components)` });
@@ -40,7 +41,7 @@ export default function IsmAdminPage() {
     setResults(null);
 
     try {
-      const res = await fetch("http://localhost:8000/api/ism/manufacturing/load-urls", {
+      const res = await authFetch("http://localhost:8000/api/ism/manufacturing/load-urls", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls }),

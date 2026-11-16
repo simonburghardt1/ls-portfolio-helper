@@ -6,6 +6,7 @@ import LineChart from "@/app/components/LineChart";
 import Button from "@/app/components/Button";
 import PageHeader from "@/app/components/PageHeader";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const KPI_GROUPS = ["Yields", "Inflation", "Employment"];
 
@@ -26,13 +27,13 @@ export default function DashboardPage() {
   const [visibleRange, setVisibleRange] = useState(() => getVisibleRange("5Y"));
 
   async function loadKpis() {
-    const res = await fetch("http://localhost:8000/api/macro/kpis");
+    const res = await authFetch("http://localhost:8000/api/macro/kpis");
     const data = await res.json();
     setKpis(data.kpis || []);
   }
 
   async function loadSeries(seriesId) {
-    const res = await fetch(`http://localhost:8000/api/macro/series/${seriesId}?range=MAX`);
+    const res = await authFetch(`http://localhost:8000/api/macro/series/${seriesId}?range=MAX`);
     const data = await res.json();
     setChartSeries(data);
   }

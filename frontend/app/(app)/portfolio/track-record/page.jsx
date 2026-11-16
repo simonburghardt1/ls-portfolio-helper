@@ -14,6 +14,7 @@ import Button from "@/app/components/Button";
 import Badge from "@/app/components/Badge";
 import KpiCard from "@/app/components/KpiCard";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -117,8 +118,8 @@ function LivePortfolioTab() {
     setLoading(true);
     try {
       const [posRes, cashRes] = await Promise.all([
-        fetch(`${API}/api/track-record/positions`),
-        fetch(`${API}/api/track-record/cash-positions`),
+        authFetch(`${API}/api/track-record/positions`),
+        authFetch(`${API}/api/track-record/cash-positions`),
       ]);
       setRows(await posRes.json());
       if (cashRes.ok) setCashRows(await cashRes.json());
@@ -129,7 +130,7 @@ function LivePortfolioTab() {
 
   async function addPosition() {
     const today = new Date().toISOString().slice(0, 10);
-    const res = await fetch(`${API}/api/track-record/positions`, {
+    const res = await authFetch(`${API}/api/track-record/positions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticker: "NEW", entry_date: today, side: "long", shares: 0, avg_price_in: 0 }),
@@ -139,14 +140,14 @@ function LivePortfolioTab() {
   }
 
   async function deletePosition(id) {
-    await fetch(`${API}/api/track-record/positions/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/track-record/positions/${id}`, { method: "DELETE" });
     setRows(prev => prev.filter(r => r.id !== id));
   }
 
   async function savePosition(row) {
     setSaving(prev => ({ ...prev, [row.id]: true }));
     try {
-      const res = await fetch(`${API}/api/track-record/positions/${row.id}`, {
+      const res = await authFetch(`${API}/api/track-record/positions/${row.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -171,7 +172,7 @@ function LivePortfolioTab() {
   async function onTickerBlur(row) {
     if (!row.ticker || row.ticker === "NEW") return;
     try {
-      const res  = await fetch(`${API}/api/track-record/ticker-info/${encodeURIComponent(row.ticker)}`);
+      const res  = await authFetch(`${API}/api/track-record/ticker-info/${encodeURIComponent(row.ticker)}`);
       const info = await res.json();
       const updated = {
         ...row,
@@ -382,8 +383,8 @@ function RealizedPnlTab() {
     setLoading(true);
     try {
       const [tRes, sRes] = await Promise.all([
-        fetch(`${API}/api/track-record/trades`),
-        fetch(`${API}/api/track-record/trades/stats`),
+        authFetch(`${API}/api/track-record/trades`),
+        authFetch(`${API}/api/track-record/trades/stats`),
       ]);
       setTrades(await tRes.json());
       setStats(await sRes.json());
@@ -393,13 +394,13 @@ function RealizedPnlTab() {
   }
 
   async function loadStats() {
-    const res = await fetch(`${API}/api/track-record/trades/stats`);
+    const res = await authFetch(`${API}/api/track-record/trades/stats`);
     setStats(await res.json());
   }
 
   async function addTrade() {
     const today = new Date().toISOString().slice(0, 10);
-    const res = await fetch(`${API}/api/track-record/trades`, {
+    const res = await authFetch(`${API}/api/track-record/trades`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticker: "NEW", side: "long", shares: 0, avg_entry_price: 0, avg_exit_price: 0, entry_date: today, exit_date: today, win_score: 1 }),
@@ -413,7 +414,7 @@ function RealizedPnlTab() {
     const isNew = typeof row.id === "string" && row.id.startsWith("tmp");
     const method = isNew ? "POST" : "PUT";
     const url = isNew ? `${API}/api/track-record/trades` : `${API}/api/track-record/trades/${row.id}`;
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -435,7 +436,7 @@ function RealizedPnlTab() {
   }
 
   async function deleteTrade(id) {
-    await fetch(`${API}/api/track-record/trades/${id}`, { method: "DELETE" });
+    await authFetch(`${API}/api/track-record/trades/${id}`, { method: "DELETE" });
     setTrades(prev => prev.filter(r => r.id !== id));
     loadStats();
   }
@@ -448,7 +449,7 @@ function RealizedPnlTab() {
     if (!row.ticker || row.ticker === "NEW") return;
     let updatedRow = { ...row };
     try {
-      const res = await fetch(`${API}/api/track-record/ticker-info/${encodeURIComponent(row.ticker)}`);
+      const res = await authFetch(`${API}/api/track-record/ticker-info/${encodeURIComponent(row.ticker)}`);
       const info = await res.json();
       if (info.company_name && !row.company_name) {
         updatedRow = { ...row, company_name: info.company_name };
@@ -617,9 +618,9 @@ function EquityCurveTab() {
     setLoading(true);
     try {
       const [sRes, spyRes, perfRes] = await Promise.all([
-        fetch(`${API}/api/track-record/equity/stats`),
-        fetch(`${API}/api/track-record/equity/spy`),
-        fetch(`${API}/api/track-record/equity/performance`),
+        authFetch(`${API}/api/track-record/equity/stats`),
+        authFetch(`${API}/api/track-record/equity/spy`),
+        authFetch(`${API}/api/track-record/equity/performance`),
       ]);
       setStats(await sRes.json());
       setSpy(await spyRes.json());
@@ -631,8 +632,8 @@ function EquityCurveTab() {
 
   async function reloadPerf() {
     const [sRes, perfRes] = await Promise.all([
-      fetch(`${API}/api/track-record/equity/stats`),
-      fetch(`${API}/api/track-record/equity/performance`),
+      authFetch(`${API}/api/track-record/equity/stats`),
+      authFetch(`${API}/api/track-record/equity/performance`),
     ]);
     setStats(await sRes.json());
     setPerf(await perfRes.json());
@@ -641,7 +642,7 @@ function EquityCurveTab() {
   async function addCapital(type) {
     const amount = parseFloat(capAmount);
     if (!amount || amount <= 0) return;
-    await fetch(`${API}/api/track-record/equity/${type}`, {
+    await authFetch(`${API}/api/track-record/equity/${type}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date: capDate, amount }),
@@ -987,7 +988,7 @@ function IbkrImportPanel({ onImported }) {
     setLoading(true);
     try {
       const text = await file.text();
-      const res  = await fetch(`${API}/api/track-record/ibkr/preview`, {
+      const res  = await authFetch(`${API}/api/track-record/ibkr/preview`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ csv_text: text }),
@@ -1008,7 +1009,7 @@ function IbkrImportPanel({ onImported }) {
     if (!preview?._raw) return;
     setLoading(true);
     try {
-      const res  = await fetch(`${API}/api/track-record/ibkr/confirm`, {
+      const res  = await authFetch(`${API}/api/track-record/ibkr/confirm`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ csv_text: preview._raw }),
@@ -1052,7 +1053,7 @@ function IbkrImportPanel({ onImported }) {
               <span style={{ fontSize: 11, color: "#4b5563" }}>IBKR activity statement (German or English)</span>
               <button onClick={async () => {
                 if (!window.confirm("Delete ALL trades, positions, and equity entries? This cannot be undone.")) return;
-                await fetch(`${API}/api/track-record/clear-all`, { method: "DELETE" });
+                await authFetch(`${API}/api/track-record/clear-all`, { method: "DELETE" });
                 onImported();
               }} style={{ ...btnBase, background: "rgba(242,88,92,0.1)", border: "1px solid rgba(242,88,92,0.3)", color: "var(--negative)", marginLeft: "auto" }}>
                 🗑 Clear All Data

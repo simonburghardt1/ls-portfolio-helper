@@ -5,6 +5,7 @@ import LineChart from "@/app/components/LineChart";
 import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -61,7 +62,7 @@ export default function ConsumerConfidencePage() {
   const [error, setError]           = useState(null);
   const [range, setRange]           = useState("20Y");
   useEffect(() => {
-    fetch(`${API}/api/consumer-confidence/series`)
+    authFetch(`${API}/api/consumer-confidence/series`)
       .then((r) => r.json())
       .then((d) => { setSeries(d.series ?? {}); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });

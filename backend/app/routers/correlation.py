@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.services.auth import get_current_user
-from app.services.asset_price_provider import ASSET_TYPES
+from app.services.auth import get_optional_user
+from app.services.asset_price_provider import ASSET_TYPES, ensure_asset_access
 from app.services.correlation import compute_correlation
 
 router = APIRouter(prefix="/api/correlation", tags=["correlation"])
@@ -29,8 +29,10 @@ def get_correlation(
     type_b: str,
     id_b: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_user),
 ):
     if type_a not in ASSET_TYPES or type_b not in ASSET_TYPES:
         raise HTTPException(status_code=400, detail=f"asset_type must be one of {ASSET_TYPES}")
+    ensure_asset_access(db, type_a, id_a, current_user)
+    ensure_asset_access(db, type_b, id_b, current_user)
     return compute_correlation(db, type_a, id_a, type_b, id_b)

@@ -4,6 +4,7 @@ import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -65,7 +66,7 @@ export default function DataImportPage() {
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch(`${API}/api/import`, {
+      const res = await authFetch(`${API}/api/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ series_id: seriesId, csv_text: csvText }),
@@ -81,7 +82,7 @@ export default function DataImportPage() {
 
   async function handleClearCache() {
     try {
-      const res = await fetch(`${API}/api/import/clear-cache`, {
+      const res = await authFetch(`${API}/api/import/clear-cache`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ series_id: seriesId }),

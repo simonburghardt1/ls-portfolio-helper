@@ -7,6 +7,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import KpiCard from "@/app/components/KpiCard";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -61,8 +62,8 @@ export default function GdpPage() {
     setUnit("");
     setCorrelation(null);
     Promise.all([
-      fetch(`${API}/api/gdp/series?region=${region}`).then((r) => r.json()),
-      fetch(`${API}/api/gdp/market-correlation?region=${region}`).then((r) => r.json()),
+      authFetch(`${API}/api/gdp/series?region=${region}`).then((r) => r.json()),
+      authFetch(`${API}/api/gdp/market-correlation?region=${region}`).then((r) => r.json()),
     ])
       .then(([s, c]) => { setSeries(s.series); setUnit(s.unit ?? ""); setCorrelation(c); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });

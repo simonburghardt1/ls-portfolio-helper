@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.basket import BasketRegime
 from app.models.user import User
-from app.services.auth import get_current_user
+from app.services.auth import get_admin_user, get_current_user
 from app.services.basket import BasketValidationError, TickerAmbiguousError
 from app.services import basket as basket_service
 from app.services import basket_regime as basket_regime_service
@@ -116,7 +116,7 @@ def basket_regime_status(db: Session = Depends(get_db)):
 
 
 @router.post("/regime/refresh")
-def basket_regime_refresh(db: Session = Depends(get_db)):
+def basket_regime_refresh(db: Session = Depends(get_db), _admin: User = Depends(get_admin_user)):
     """Manual trigger for the basket_regime_daily job (also runs nightly via scheduler.py) —
     mirrors routers/market.py::market_regime_refresh."""
     try:

@@ -95,3 +95,19 @@ def get_price_series(
         return native.sort_index()
 
     return native.reindex(spy.index, method="nearest", tolerance=pd.Timedelta("4d"))
+
+
+def ensure_asset_access(db: Session, asset_type: str, asset_id: str, user) -> None:
+    """Gate for the public single-asset tools (Correlation, Beta, Volatility, Seasonality):
+    tickers and HBM are open to everyone; a Basket only if it is a system Basket
+    (user_id None) or owned by the requesting user. Raises 404 otherwise — same answer as a
+    Basket that doesn't exist, so ids of other users' Baskets aren't confirmed."""
+    if asset_type != "basket":
+        return
+    from fastapi import HTTPException
+    try:
+        basket = basket_repo.get_basket(db, int(asset_id))
+    except (TypeError, ValueError):
+        basket = None
+    if basket is None or (basket.user_id is not None and (user is None or basket.user_id != user.id)):
+        raise HTTPException(status_code=404, detail="Basket not found.")

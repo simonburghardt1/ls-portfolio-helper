@@ -8,6 +8,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -55,7 +56,7 @@ export default function BacktestingPage() {
   const [comparePortfolioStatus, setComparePortfolioStatus] = useState("idle");
 
   useEffect(() => {
-    fetch(`${API}/api/portfolios`)
+    authFetch(`${API}/api/portfolios`)
       .then(r => r.json())
       .then(setSavedPortfolios)
       .catch(() => {});
@@ -80,7 +81,7 @@ export default function BacktestingPage() {
   async function fetchAnalytics(positionsList) {
     setBetaStatus("loading");
     try {
-      const res = await fetch(`${API}/api/portfolio/analytics`, {
+      const res = await authFetch(`${API}/api/portfolio/analytics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ positions: cleanPositions(positionsList) }),
@@ -191,7 +192,7 @@ export default function BacktestingPage() {
     setErrors([]);
     setBetaStatus("loading");
     try {
-      const res = await fetch(`${API}/api/portfolio/beta-adjust`, {
+      const res = await authFetch(`${API}/api/portfolio/beta-adjust`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ positions: cleanPositions(positions) }),
@@ -218,7 +219,7 @@ export default function BacktestingPage() {
     setStatus("running");
     setCompareStatus("idle");
     try {
-      const res = await fetch(`${API}/api/portfolio/backtest`, {
+      const res = await authFetch(`${API}/api/portfolio/backtest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ positions: cleanPositions(positions) }),
@@ -243,7 +244,7 @@ export default function BacktestingPage() {
     if (errs.length) { setErrors(errs); return; }
     setCompareStatus("loading");
     try {
-      const res = await fetch(`${API}/api/portfolio/backtest`, {
+      const res = await authFetch(`${API}/api/portfolio/backtest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -272,7 +273,7 @@ export default function BacktestingPage() {
     if (!p) return;
     setComparePortfolioStatus("loading");
     try {
-      const res = await fetch(`${API}/api/portfolio/backtest`, {
+      const res = await authFetch(`${API}/api/portfolio/backtest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ positions: p.positions }),

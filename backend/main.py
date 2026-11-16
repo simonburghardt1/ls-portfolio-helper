@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -29,6 +29,7 @@ from app.routers.beta import router as beta_router
 from app.routers.volatility import router as volatility_router
 from app.routers.seasonality import router as seasonality_router
 from app.scheduler import create_scheduler, start_scheduler
+from app.services.auth import get_current_user, require_admin_for_writes
 
 
 @asynccontextmanager
@@ -50,31 +51,30 @@ app.add_middleware(
 )
 
 # Routers
+# Public: health check and the auth endpoints themselves (login/register/me).
 app.include_router(health_router)
-app.include_router(macro_router)
-app.include_router(portfolio_router)
 app.include_router(auth_router)
-app.include_router(ism_router)
-app.include_router(ism_services_router)
-app.include_router(consumer_confidence_router)
-app.include_router(data_import_router)
-app.include_router(building_permits_router)
-app.include_router(nfib_router)
-app.include_router(portfolios_router)
-app.include_router(market_router)
-app.include_router(cot_router)
-app.include_router(track_record_router)
-app.include_router(cpi_ppi_router)
-app.include_router(commodities_router)
-app.include_router(high_beta_momentum_router)
-app.include_router(gdp_router)
-app.include_router(debt_router)
-app.include_router(basket_router)
-app.include_router(correlation_router)
-app.include_router(beta_router)
-app.include_router(volatility_router)
-app.include_router(seasonality_router)
 
+# User data requires a login, enforced here for whole routers: Track Record, saved Portfolios
+# and the portfolio tools. Baskets check per route (system Baskets are shared, custom ones
+# belong to a user). The single-asset tools (Correlation, Beta, Volatility, Seasonality) are
+# public but gate custom Baskets via get_optional_user + ensure_asset_access.
+USER_DATA = [Depends(get_current_user)]
+for r in [track_record_router, portfolios_router, portfolio_router]:
+    app.include_router(r, dependencies=USER_DATA)
+
+# Public data: reading is open; writes (imports, refreshes, seeds, rebuilds) need an admin.
+ADMIN_WRITES = [Depends(require_admin_for_writes)]
+for r in [
+    macro_router, ism_router, ism_services_router, consumer_confidence_router, data_import_router,
+    building_permits_router, nfib_router, market_router, cot_router, cpi_ppi_router,
+    commodities_router, high_beta_momentum_router, gdp_router, debt_router,
+    correlation_router, beta_router, volatility_router, seasonality_router,
+]:
+    app.include_router(r, dependencies=ADMIN_WRITES)
+
+# Baskets: own per-route auth (create/edit/delete are user actions); regime refresh is admin.
+app.include_router(basket_router)
 
 # Keep your hello endpoint if you want
 @app.get("/")

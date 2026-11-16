@@ -4,6 +4,7 @@ import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -23,7 +24,7 @@ export default function ConsumerConfidenceAdminPage() {
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch(`${API}/api/consumer-confidence/import`, {
+      const res = await authFetch(`${API}/api/consumer-confidence/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ series_id: seriesId, csv_text: csvText }),

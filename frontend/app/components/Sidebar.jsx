@@ -84,6 +84,7 @@ const NAV = [
   },
   {
     section: "Admin",
+    adminOnly: true,
     groups: [
       {
         label: null,
@@ -104,6 +105,9 @@ export default function Sidebar() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const token = useAuthStore((s) => s.token);
+  // Logged out: only the public (macro) section; Admin only for admins
+  const visibleNav = NAV.filter((b) => (b.adminOnly ? !!user?.is_admin : true) && (token || b.section === "Macro Economics"));
 
   const [collapsed, setCollapsed] = useState({});
 
@@ -150,7 +154,7 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: "18px 14px 24px" }}>
-        {NAV.map((block) => (
+        {visibleNav.map((block) => (
           <div key={block.section} style={sectionWrapperStyle}>
             {block.soon ? (
               <div style={sectionItemStyle(true)}>
@@ -233,7 +237,12 @@ export default function Sidebar() {
 
       {/* User + Logout */}
       <div style={{ padding: "16px 18px 20px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-        {user && (
+        {!token && (
+          <Link href="/login" style={{ textDecoration: "none" }}>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", padding: "8px 4px" }}>Sign in for portfolio tools →</div>
+          </Link>
+        )}
+        {token && user && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 3 }}>Signed in as</div>
             <div style={{ fontSize: 13.5, color: "var(--text-primary)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -241,7 +250,7 @@ export default function Sidebar() {
             </div>
           </div>
         )}
-        <button
+        {token && <button
           onClick={handleLogout}
           style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 4px", background: "transparent", border: "none", borderRadius: "var(--radius-none)", color: "var(--text-secondary)", fontSize: 13, cursor: "pointer" }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
@@ -249,7 +258,7 @@ export default function Sidebar() {
         >
           <LogOut size={14} />
           <span>Logout</span>
-        </button>
+        </button>}
       </div>
     </aside>
   );

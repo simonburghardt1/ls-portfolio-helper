@@ -6,6 +6,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -69,7 +70,7 @@ export default function IsmServicesPage() {
   const [commentsLoading, setCommentsLoading]           = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/ism/services/series`)
+    authFetch(`${API}/api/ism/services/series`)
       .then((r) => r.json())
       .then((d) => { setSeries(d.series); setLabels(d.labels); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
@@ -80,7 +81,7 @@ export default function IsmServicesPage() {
   // Load industry list when tab opens or component changes
   useEffect(() => {
     if (tab !== "comments" || commentsIndustryList.length > 0) return;
-    fetch(`${API}/api/ism/services/rankings?component=${commentsComponent}`)
+    authFetch(`${API}/api/ism/services/rankings?component=${commentsComponent}`)
       .then((r) => r.json())
       .then((d) => {
         const list = (d.industries || []).sort();
@@ -95,7 +96,7 @@ export default function IsmServicesPage() {
     if (tab !== "comments" || !commentsIndustry) return;
     setCommentsLoading(true);
     setCommentsData(null);
-    fetch(`${API}/api/ism/services/industry-history?industry=${encodeURIComponent(commentsIndustry)}&component=${commentsComponent}`)
+    authFetch(`${API}/api/ism/services/industry-history?industry=${encodeURIComponent(commentsIndustry)}&component=${commentsComponent}`)
       .then((r) => r.json())
       .then((d) => { setCommentsData(d); setCommentsLoading(false); })
       .catch(() => setCommentsLoading(false));
@@ -106,7 +107,7 @@ export default function IsmServicesPage() {
     setRankingsLoading(true);
     Promise.all(
       components.map((col) =>
-        fetch(`${API}/api/ism/services/rankings?component=${col}`)
+        authFetch(`${API}/api/ism/services/rankings?component=${col}`)
           .then((r) => r.json())
           .then((d) => [col, d])
           .catch(() => [col, { dates: [], industries: [], scores: {} }])
@@ -622,7 +623,7 @@ function FullReportView() {
   const [error, setError]       = useState(null);
 
   useEffect(() => {
-    fetch(`${API}/api/ism/services/reports`)
+    authFetch(`${API}/api/ism/services/reports`)
       .then((r) => r.json())
       .then((d) => {
         setDates(d.dates || []);
@@ -635,7 +636,7 @@ function FullReportView() {
     if (!selected) return;
     setReport(null);
     setError(null);
-    fetch(`${API}/api/ism/services/reports/${selected}`)
+    authFetch(`${API}/api/ism/services/reports/${selected}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setReport)
       .catch((e) => setError(e.message));

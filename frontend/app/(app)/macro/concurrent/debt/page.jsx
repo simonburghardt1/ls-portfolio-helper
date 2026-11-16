@@ -7,6 +7,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import KpiCard from "@/app/components/KpiCard";
 import Page from "@/app/components/Page";
+import { authFetch } from "@/app/lib/api";
 
 const API = "http://localhost:8000";
 
@@ -37,8 +38,8 @@ export default function DebtPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API}/api/debt/series`).then((r) => r.json()),
-      fetch(`${API}/api/debt/market-correlation`).then((r) => r.json()),
+      authFetch(`${API}/api/debt/series`).then((r) => r.json()),
+      authFetch(`${API}/api/debt/market-correlation`).then((r) => r.json()),
     ])
       .then(([s, c]) => { setSeries(s.series); setCorrelation(c); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
