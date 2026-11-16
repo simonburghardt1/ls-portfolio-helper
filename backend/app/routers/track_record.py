@@ -464,6 +464,24 @@ def add_withdrawal(payload: CapitalIn, db: Session = Depends(get_db), user: User
     return {"ok": True}
 
 
+# Daily closes for the equity curve's tickers. The download covers the whole trading history
+# and dominated the endpoint's response time; it only changes once a day, so a 15-minute
+# in-memory cache keyed by (tickers, start) is plenty.
+_HISTORY_TTL_S = 15 * 60
+_history_cache: dict[tuple, tuple[float, "object"]] = {}
+
+
+def _history_closes(tickers: tuple, start: str):
+    key = (tickers, start)
+    now = datetime.datetime.now().timestamp()
+    hit = _history_cache.get(key)
+    if hit and now - hit[0] < _HISTORY_TTL_S:
+        return hit[1].copy()
+    closes = yf.download(list(tickers), start=start, auto_adjust=True, progress=False)["Close"]
+    _history_cache[key] = (now, closes)
+    return closes.copy()
+
+
 @router.get("/equity/performance")
 async def equity_performance(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Weekly cumulative PnL from realized trades + current unrealized, with no gaps."""
@@ -516,10 +534,7 @@ async def equity_performance(db: Session = Depends(get_db), user: User = Depends
     download_tickers = all_stock_tickers + fx_tickers
     if download_tickers:
         try:
-            raw = yf.download(
-                download_tickers, start=first_mon.isoformat(),
-                auto_adjust=True, progress=False,
-            )["Close"]
+            raw = _history_closes(tuple(sorted(download_tickers)), first_mon.isoformat())
             if isinstance(raw, pd.Series):
                 raw = raw.to_frame(name=download_tickers[0])
             # Strip timezone so asof() comparisons work with plain date timestamps

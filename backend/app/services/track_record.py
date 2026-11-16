@@ -48,6 +48,35 @@ def ibkr_to_occ(ticker: str) -> str | None:
         return None
 
 
+def option_expiry(ticker: str) -> datetime.date | None:
+    """Expiry date of an IBKR-format option ticker ('EOSE 17APR26 10 C'), else None."""
+    parts = ticker.split()
+    if len(parts) != 4:
+        return None
+    try:
+        d = parts[1]
+        return datetime.date(2000 + int(d[5:7]), _MONTHS[d[2:5].upper()], int(d[:2]))
+    except (ValueError, KeyError):
+        return None
+
+
+# Short-lived in-memory price cache: the Track Record tabs, the equity curve and a manual
+# refresh all ask for the same tickers within seconds; yfinance calls are the slow part.
+_PRICE_TTL_S = 60
+_price_cache: dict[str, tuple[float, float | None]] = {}
+
+
+def _cached_price(ticker: str) -> tuple[bool, float | None]:
+    hit = _price_cache.get(ticker)
+    if hit and (datetime.datetime.now().timestamp() - hit[0]) < _PRICE_TTL_S:
+        return True, hit[1]
+    return False, None
+
+
+def _store_price(ticker: str, price: float | None) -> None:
+    _price_cache[ticker] = (datetime.datetime.now().timestamp(), price)
+
+
 def _option_display_name(sym: str, date_str: str, strike_str: str, opt_type: str) -> str:
     """Human-readable name, e.g. 'ETHA Call $15 Apr-26'."""
     label    = "Call" if opt_type.upper() == "C" else "Put"
@@ -81,17 +110,31 @@ def _fetch_option_price(occ: str) -> float | None:
 # ─── Price / ticker info ──────────────────────────────────────────────────────
 
 async def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
-    """Batch-fetch latest close prices for a list of tickers via yfinance.
+    """Latest close per ticker via yfinance (60 s in-memory cache).
 
-    Stock tickers are downloaded in one batch.
-    IBKR-format option tickers (e.g. 'ONDS 17APR26 11 C') are converted to OCC
-    format and fetched individually.
+    Stock tickers are downloaded in one batch. IBKR-format option tickers
+    ('ONDS 17APR26 11 C') are converted to OCC and fetched one by one — except options past
+    their expiry, which can't be priced and are skipped without a network call.
     """
     if not tickers:
         return {}
-    stock_tickers  = [t for t in tickers if " " not in t]
-    option_tickers = [t for t in tickers if " " in t]
-    result: dict[str, float | None] = {t.upper(): None for t in tickers}
+    today = datetime.date.today()
+    result: dict[str, float | None] = {}
+    todo: list[str] = []
+    for t in {t.upper() for t in tickers}:
+        hit, price = _cached_price(t)
+        if hit:
+            result[t] = price
+            continue
+        exp = option_expiry(t)
+        if exp is not None and exp < today:
+            result[t] = None
+            continue
+        todo.append(t)
+
+    stock_tickers = [t for t in todo if " " not in t]
+    option_tickers = [t for t in todo if " " in t]
+    fetched: dict[str, float | None] = {t: None for t in todo}
 
     # ── Stocks: batch download ───────────────────────────────────────────────
     if stock_tickers:
@@ -101,8 +144,7 @@ async def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
             for ticker in stock_tickers:
                 try:
                     series = closes[ticker] if len(stock_tickers) > 1 else closes
-                    val    = series.dropna().iloc[-1]
-                    result[ticker.upper()] = round(float(val), 4)
+                    fetched[ticker] = round(float(series.dropna().iloc[-1]), 4)
                 except Exception:
                     pass
         except Exception as exc:
@@ -111,12 +153,12 @@ async def fetch_prices(tickers: list[str]) -> dict[str, float | None]:
     # ── Options: OCC conversion + individual fetch ───────────────────────────
     for ticker in option_tickers:
         occ = ibkr_to_occ(ticker)
-        if not occ:
-            continue
-        price = _fetch_option_price(occ)
-        if price is not None:
-            result[ticker.upper()] = price
+        if occ:
+            fetched[ticker] = _fetch_option_price(occ)
 
+    for t, price in fetched.items():
+        _store_price(t, price)
+    result.update(fetched)
     return result
 
 
@@ -215,9 +257,21 @@ def compute_position_metrics(pos, current_price: float | None) -> dict:
         invested       = avg_in * shares * contract_mult
         pnl_pct        = round(pnl_dollar / invested * 100, 2) if invested else None
 
+    # Capital put in at entry (contract multiplier included) — the denominator for the
+    # portfolio-level % PnL; known even when there's no current price.
+    invested_capital = round(abs(avg_in * shares * contract_mult), 2)
+
+    # Option expiry (IBKR format "SYM 17APR26 10 C"): a position past it can't be priced and
+    # is almost certainly closed/expired but still on the books.
+    expiry = option_expiry(ticker) if is_option else None
+
     return {
         "days_in_trade": days_in_trade,
         "r_r":           r_r,
+        "is_option":     is_option,
+        "expiry":        expiry.isoformat() if expiry else None,
+        "expired":       bool(expiry and expiry < today),
+        "invested_capital": invested_capital,
         "gross_exposure": gross_exposure,
         "net_exposure":   net_exposure,
         "pnl_dollar":     pnl_dollar,
