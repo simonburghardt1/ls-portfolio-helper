@@ -1,10 +1,21 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
+import { fmtPct, signColor } from "@/app/lib/format";
+import { useElementWidth } from "@/app/lib/hooks";
+import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
+import KpiCard from "@/app/components/KpiCard";
+import Button from "@/app/components/Button";
+import Chip from "@/app/components/Chip";
+import InfoTip from "@/app/components/InfoTip";
+import Popover from "@/app/components/Popover";
+import StateMessage from "@/app/components/StateMessage";
 import AssetSelector from "@/app/components/AssetSelector";
+import styles from "./seasonality.module.css";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -30,16 +41,8 @@ const COMPARE_COLORS = ["#10b981", "#ec4899", "#a78bfa", "#06b6d4", "#84cc16", "
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function pct(v, dp = 1) {
-  if (v == null || isNaN(v)) return "—";
-  const s = (v * 100).toFixed(dp);
-  if (Number(s) === 0) return `${(0).toFixed(dp)}%`; // no "-0.0%"
-  return `${v > 0 ? "+" : ""}${s}%`;
-}
-
-function pctColor(v) {
-  return v == null || isNaN(v) ? "var(--text-secondary)" : v >= 0 ? "var(--positive)" : "var(--negative)";
-}
+const pct = (v, dp = 1) => fmtPct(v, dp);
+const pctColor = signColor;
 
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
@@ -71,10 +74,6 @@ export default function SeasonalityPage() {
   const [asset, setAsset] = useState({ type: "stock", id: "SPY", label: "SPY" });
   const [cycle, setCycle] = useState("all");
   const [compare, setCompare] = useState([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const pickerRef = useRef(null);
-  useClickOutside(pickerRef, pickerOpen, () => setPickerOpen(false));
-
   // Compared years from one asset mean nothing for another — reset during render
   const assetKey = `${asset.type}:${asset.id}`;
   const [prevAssetKey, setPrevAssetKey] = useState(assetKey);
@@ -107,100 +106,56 @@ export default function SeasonalityPage() {
   const currentPhase = PHASE_OF(thisYear);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
-      {/* Header: title left, asset picker right */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 24, flexWrap: "wrap", marginBottom: 20 }}>
-        <PageHeader
-          title="Seasonality"
-          subtitle={`How ${asset.label} has typically behaved through the calendar year — and where ${thisYear} stands against it.`}
-          style={{ marginBottom: 0 }}
-        />
-        <AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />
-      </div>
+    <Page>
+      <PageHeader
+        title="Seasonality"
+        actions={<AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />}
+      />
 
       {/* Presidential-cycle filter — drives every section on the page */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <span style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          Presidential cycle
-        </span>
-        <div style={{ display: "flex", gap: 0, border: "1px solid var(--border)" }}>
-          {CYCLES.map((c, i) => {
-            const active = cycle === c.key;
-            const n = model?.cycleCounts[c.key];
-            return (
-              <button
-                key={c.key}
-                onClick={() => setCycle(c.key)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", cursor: "pointer",
-                  background: active ? "var(--bg-elevated)" : "transparent",
-                  border: "none", borderLeft: i ? "1px solid var(--border)" : "none",
-                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                  fontFamily: "var(--font-family-sans)", fontSize: 12, fontWeight: active ? 600 : 400,
-                  boxShadow: active ? `inset 0 -2px 0 ${AVG_COLOR}` : "none",
-                }}
-              >
-                {c.label}
-                {n != null && <span style={{ fontSize: 10, color: "var(--text-disabled)" }}>{n}</span>}
-                {c.key === currentPhase && (
-                  <span title={`${thisYear} is a ${c.label} year`} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", color: CURRENT_COLOR }}>
-                    NOW
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: "var(--space-5)" }}>
+        {CYCLES.map((c) => (
+          <Button key={c.key} variant="range-toggle" active={cycle === c.key} onClick={() => setCycle(c.key)}>
+            {c.label}
+            {c.key === currentPhase && (
+              <span title={`${thisYear} is a ${c.label} year`} style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", color: CURRENT_COLOR }}>
+                NOW
+              </span>
+            )}
+          </Button>
+        ))}
       </div>
 
-      {isLoading && <Muted pad>Loading…</Muted>}
-      {isError && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--negative)" }}>
-          Could not load seasonality data.
-        </div>
-      )}
-      {data && !model && <Muted pad>Not enough price history for this asset.</Muted>}
+      {isLoading && <StateMessage kind="loading" />}
+      {isError && <StateMessage kind="error">Could not load seasonality data.</StateMessage>}
+      {data && !model && <StateMessage>Not enough price history for this asset.</StateMessage>}
 
       {model && (
         <>
           <KpiStrip model={model} thisYear={thisYear} thisMonth={thisMonth} />
 
-          {/* Seasonal path chart */}
-          <section style={panel}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", fontSize: 12, color: "var(--text-secondary)" }}>
-                <span style={sectionTitle}>Seasonal path</span>
-                <LegendItem color={AVG_COLOR} width={3}>
-                  {cycleLabel} average · {model.histYears.length} yrs
-                </LegendItem>
-                <LegendItem band>Middle 50% of years</LegendItem>
-                {model.current && <LegendItem color={CURRENT_COLOR} width={3}>{thisYear}</LegendItem>}
+          <Panel
+            title="Seasonal path"
+            titleExtra={
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap", fontSize: 12, color: "var(--text-secondary)" }}>
+                <LegendItem color={AVG_COLOR}>{cycleLabel} avg</LegendItem>
+                <LegendItem band>Middle 50%</LegendItem>
+                {model.current && <LegendItem color={CURRENT_COLOR}>{thisYear}</LegendItem>}
                 {compare.map((y) => (
-                  <span key={y} style={chipStyle}>
-                    <span style={{ width: 10, height: 2, background: compareColor(y) }} />
-                    {y}
-                    <button aria-label={`Remove ${y}`} onClick={() => toggleCompare(y)} style={chipCloseStyle}>×</button>
-                  </span>
+                  <Chip key={y} color={compareColor(y)} onRemove={() => toggleCompare(y)}>{String(y)}</Chip>
                 ))}
               </div>
-              <div ref={pickerRef} style={{ position: "relative" }}>
-                <button onClick={() => setPickerOpen((o) => !o)} style={ghostButton}>+ Compare year</button>
-                {pickerOpen && (
-                  <YearPicker
-                    years={model.allYearsDesc}
-                    cycle={cycle}
-                    thisYear={thisYear}
-                    selected={compare}
-                    colorOf={compareColor}
-                    onToggle={toggleCompare}
-                  />
-                )}
-              </div>
-            </div>
+            }
+            actions={
+              <Popover align="right" width={300} padded trigger={(toggle) => <Button variant="range-toggle" onClick={toggle}>+ Year</Button>}>
+                <YearPicker years={model.allYearsDesc} cycle={cycle} selected={compare} colorOf={compareColor} onToggle={toggleCompare} />
+              </Popover>
+            }
+          >
             <SeasonalChart model={model} compare={compare} colorOf={compareColor} thisYear={thisYear} />
-          </section>
+          </Panel>
 
-          <MonthlyProfile model={model} thisMonth={thisMonth} cycleLabel={cycleLabel} />
+          <MonthlyProfile model={model} thisMonth={thisMonth} />
 
           <Heatmap
             model={model}
@@ -212,7 +167,7 @@ export default function SeasonalityPage() {
           />
         </>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -263,7 +218,11 @@ function buildModel(data, cycle, thisYear, thisMonth) {
   const ranked = months.map((s, m) => ({ ...s, m })).filter((s) => s.avg != null).sort((a, b) => b.avg - a.avg);
 
   // Heatmap rows: the cycle's years incl. the running one, newest first
-  const heatRows = rows.filter((r) => inCycle(r.year) && r.months.some((v) => v != null)).sort((a, b) => b.year - a.year);
+  // (complete years + the running one — an asset's partial first year would be a near-empty row)
+  const completeSet = new Set(complete.map((y) => y.year));
+  const heatRows = rows
+    .filter((r) => inCycle(r.year) && (completeSet.has(r.year) || r.year === thisYear))
+    .sort((a, b) => b.year - a.year);
   const absVals = heatRows.flatMap((r) => r.months).filter((v) => v != null).map(Math.abs);
   // Cap the colour scale at the 90th percentile so a single crash month doesn't wash out the rest
   const heatCap = Math.max(quantile(absVals, 0.9) ?? 0, 0.02);
@@ -274,7 +233,6 @@ function buildModel(data, cycle, thisYear, thisMonth) {
     heatRows, heatCap,
     allYearsDesc: years.filter((y) => y.year !== thisYear && y.week_cum_return.some((v) => v != null)).map((y) => y.year).sort((a, b) => b - a),
     yearsByNum: Object.fromEntries(years.map((y) => [y.year, y])),
-    thisMonthPartial: thisMonth,
   };
 }
 
@@ -285,66 +243,18 @@ function KpiStrip({ model, thisYear, thisMonth }) {
   const f = model.forward;
   const cur = model.current && model.nowWeek >= 0 ? model.current.week_cum_return[model.nowWeek] : null;
   const seasonalAtNow = model.nowWeek >= 0 ? model.path[model.nowWeek].avg : null;
-  const gap = cur != null && seasonalAtNow != null ? cur - seasonalAtNow : null;
+  const upOf = (s) => (s?.n ? `Up ${s.up} of ${s.n} years` : "No history");
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 20 }}>
-      <Kpi
-        label={`${MONTHS_LONG[thisMonth]}, historically`}
-        value={pct(m.avg)}
-        valueColor={pctColor(m.avg)}
-        sub={m.n ? <>Up in <strong style={{ color: "var(--text-primary)" }}>{m.up} of {m.n}</strong> years · median {pct(m.median)}</> : "No history"}
-        rate={m.n ? m.up / m.n : null}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+      <KpiCard label={MONTHS_LONG[thisMonth]} formatted={pct(m.avg)} valueColor={pctColor(m.avg)} caption={upOf(m)} />
+      <KpiCard label="Next 4 weeks" formatted={f ? pct(f.avg) : "—"} valueColor={pctColor(f?.avg)} caption={f ? upOf(f) : "Year end"} />
+      <KpiCard label={`${thisYear} YTD`} formatted={pct(cur)} valueColor={pctColor(cur)} caption={`Seasonal avg ${pct(seasonalAtNow)}`} />
+      <KpiCard
+        label="Best / worst month"
+        formatted={`${model.best ? MONTHS[model.best.m] : "—"} / ${model.worst ? MONTHS[model.worst.m] : "—"}`}
+        caption={`${pct(model.best?.avg)} / ${pct(model.worst?.avg)}`}
       />
-      <Kpi
-        label={f ? `Next ${f.weeks} weeks · to ${weekDateLabel(f.to, thisYear)}` : "Next weeks"}
-        value={f ? pct(f.avg) : "—"}
-        valueColor={pctColor(f?.avg)}
-        sub={f?.n ? <>Up in <strong style={{ color: "var(--text-primary)" }}>{f.up} of {f.n}</strong> years from this week</> : "Year end reached"}
-        rate={f?.n ? f.up / f.n : null}
-      />
-      <Kpi
-        label={`${thisYear} YTD vs seasonal`}
-        value={pct(cur)}
-        valueColor={pctColor(cur)}
-        sub={gap != null ? (
-          <>Seasonal avg {pct(seasonalAtNow)} · <strong style={{ color: pctColor(gap) }}>{gap >= 0 ? "ahead" : "behind"} by {(Math.abs(gap) * 100).toFixed(1)} pp</strong></>
-        ) : "No data for this year yet"}
-      />
-      <Kpi
-        label="Strongest / weakest month"
-        value={
-          <span style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
-            <span>{model.best ? MONTHS[model.best.m] : "—"} <span style={{ fontSize: 13, color: pctColor(model.best?.avg) }}>{pct(model.best?.avg)}</span></span>
-            <span style={{ color: "var(--text-disabled)", fontSize: 14 }}>/</span>
-            <span>{model.worst ? MONTHS[model.worst.m] : "—"} <span style={{ fontSize: 13, color: pctColor(model.worst?.avg) }}>{pct(model.worst?.avg)}</span></span>
-          </span>
-        }
-        sub="Average monthly return"
-      />
-    </div>
-  );
-}
-
-function Kpi({ label, value, valueColor, sub, rate }) {
-  return (
-    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-      <div style={{ fontFamily: "var(--font-family-mono)", fontSize: 22, fontWeight: 600, color: valueColor ?? "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>{sub}</div>
-      {rate != null && <RateBar rate={rate} />}
-    </div>
-  );
-}
-
-// Share of up-years: green part = up, rest = down, 50% tick
-function RateBar({ rate }) {
-  return (
-    <div style={{ position: "relative", height: 4, background: "rgba(242,88,92,0.35)", marginTop: 2 }}>
-      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${rate * 100}%`, background: "var(--positive)" }} />
-      <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 1, background: "var(--text-secondary)" }} />
     </div>
   );
 }
@@ -352,7 +262,7 @@ function RateBar({ rate }) {
 // ── Seasonal path chart (SVG) ──────────────────────────────────────────────────
 
 function SeasonalChart({ model, compare, colorOf, thisYear }) {
-  const [wrapRef, width] = useWidth();
+  const [wrapRef, width] = useElementWidth();
   const [hover, setHover] = useState(null);
   const H = 360, padL = 8, padR = 56, padT = 14, padB = 26;
   const innerW = Math.max(width - padL - padR, 10), innerH = H - padT - padB;
@@ -493,92 +403,72 @@ function niceTicks(lo, hi, count) {
 
 // ── Compare-year picker ────────────────────────────────────────────────────────
 
-function YearPicker({ years, cycle, thisYear, selected, colorOf, onToggle }) {
+function YearPicker({ years, cycle, selected, colorOf, onToggle }) {
   const full = selected.length >= MAX_COMPARE;
   return (
-    <div style={{ ...popoverStyle, right: 0, width: 300, padding: 12 }}>
-      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>
-        Overlay up to {MAX_COMPARE} past years. {cycle !== "all" && "Years in the selected cycle are highlighted."}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
-        {years.map((yr) => {
-          const on = selected.includes(yr);
-          const match = cycle === "all" || PHASE_OF(yr) === cycle;
-          return (
-            <button
-              key={yr}
-              onClick={() => onToggle(yr)}
-              disabled={!on && full}
-              style={{
-                padding: "5px 0", fontFamily: "var(--font-family-mono)", fontSize: 12, cursor: !on && full ? "not-allowed" : "pointer",
-                background: on ? "var(--bg-surface)" : "transparent",
-                border: `1px solid ${on ? colorOf(yr) : "var(--border)"}`,
-                color: on ? "var(--text-primary)" : match ? "var(--text-primary)" : "var(--text-disabled)",
-                opacity: !on && full ? 0.4 : 1,
-              }}
-            >
-              {yr}
-            </button>
-          );
-        })}
-      </div>
-      <div style={{ fontSize: 11, color: "var(--text-disabled)", marginTop: 8 }}>{thisYear} is always shown.</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4 }}>
+      {years.map((yr) => {
+        const on = selected.includes(yr);
+        const match = cycle === "all" || PHASE_OF(yr) === cycle;
+        return (
+          <button
+            key={yr}
+            type="button"
+            onClick={() => onToggle(yr)}
+            disabled={!on && full}
+            title={!on && full ? `Up to ${MAX_COMPARE} years` : undefined}
+            style={{
+              padding: "5px 0", fontFamily: "var(--font-family-mono)", fontSize: 12, cursor: !on && full ? "not-allowed" : "pointer",
+              background: on ? "var(--bg-surface)" : "transparent",
+              border: `1px solid ${on ? colorOf(yr) : "var(--border)"}`,
+              color: on || match ? "var(--text-primary)" : "var(--text-disabled)",
+              opacity: !on && full ? 0.4 : 1,
+            }}
+          >
+            {yr}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-// ── Monthly profile (avg return bars + hit rate) ───────────────────────────────
+// ── Monthly average bars ───────────────────────────────────────────────────────
 
-function MonthlyProfile({ model, thisMonth, cycleLabel }) {
+function MonthlyProfile({ model, thisMonth }) {
   // One scale for both directions, but only as much room below zero as the worst month needs
   const maxPos = Math.max(...model.months.map((s) => s.avg ?? 0), 0);
   const maxNeg = Math.max(...model.months.map((s) => -(s.avg ?? 0)), 0);
-  const maxAbs = Math.max(maxPos, maxNeg, 0.005);
-  const unit = 72 / maxAbs; // px per 1.0 return
+  const unit = 64 / Math.max(maxPos, maxNeg, 0.005); // px per 1.0 return
   const posH = Math.max(maxPos * unit, 8), negH = Math.max(maxNeg * unit, 8);
   return (
-    <section style={panel}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
-        <span style={sectionTitle}>Monthly profile</span>
-        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-          Average return and share of up-years per month · {cycleLabel.toLowerCase()} ({model.histYears.length} yrs)
-        </span>
-      </div>
+    <Panel title="Average month">
       <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 6 }}>
         {model.months.map((s, m) => {
           const now = m === thisMonth;
           const h = s.avg == null ? 0 : Math.abs(s.avg) * unit;
           const up = s.avg != null && s.avg >= 0;
-          const rate = s.n ? s.up / s.n : null;
           return (
             <div
               key={m}
-              title={`${MONTHS_LONG[m]}: avg ${pct(s.avg, 2)}, median ${pct(s.median, 2)}, up ${s.up}/${s.n} years`}
-              style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "8px 4px",
-                background: now ? "rgba(96,165,250,0.08)" : "transparent",
-                border: `1px solid ${now ? "rgba(96,165,250,0.45)" : "transparent"}`,
-              }}
+              title={`${MONTHS_LONG[m]}: avg ${pct(s.avg, 2)}, up ${s.up} of ${s.n} years`}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "6px 4px" }}
             >
-              <span style={{ fontFamily: "var(--font-family-mono)", fontSize: 12, fontWeight: 600, color: pctColor(s.avg) }}>{pct(s.avg)}</span>
-              {/* bar around a zero line */}
+              <span style={{ fontFamily: "var(--font-family-mono)", fontSize: 12, color: pctColor(s.avg) }}>{pct(s.avg)}</span>
               <div style={{ position: "relative", width: "100%", height: posH + negH + 1 }}>
                 <div style={{ position: "absolute", left: 0, right: 0, top: posH, height: 1, background: "var(--border)" }} />
                 <div style={{
-                  position: "absolute", left: "22%", right: "22%",
+                  position: "absolute", left: "25%", right: "25%",
                   top: up ? posH - h : posH + 1, height: h,
-                  background: up ? "var(--positive)" : "var(--negative)", opacity: 0.85,
+                  background: up ? "var(--positive)" : "var(--negative)", opacity: now ? 1 : 0.6,
                 }} />
               </div>
-              <span style={{ fontSize: 12, fontWeight: now ? 700 : 500, color: now ? CURRENT_COLOR : "var(--text-primary)" }}>{MONTHS[m]}</span>
-              <span style={{ fontSize: 11, color: rate == null ? "var(--text-disabled)" : rate >= 0.5 ? "var(--text-secondary)" : "var(--negative)", fontFamily: "var(--font-family-mono)" }}>
-                {rate == null ? "—" : `${Math.round(rate * 100)}% up`}
-              </span>
+              <span style={{ fontSize: 12, fontWeight: now ? 700 : 400, color: now ? "var(--text-primary)" : "var(--text-secondary)" }}>{MONTHS[m]}</span>
             </div>
           );
         })}
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -592,23 +482,18 @@ function heatColor(v, cap) {
 
 function Heatmap({ model, thisYear, thisMonth, compare, colorOf, onToggleYear }) {
   const summary = [
-    { label: "Average", vals: model.months.map((s) => s.avg), fmt: (v) => pct(v), heat: true },
-    { label: "Median", vals: model.months.map((s) => s.median), fmt: (v) => pct(v), heat: true },
+    { label: "Avg", vals: model.months.map((s) => s.avg), fmt: (v) => pct(v), heat: true },
     { label: "% Up", vals: model.months.map((s) => (s.n ? s.up / s.n : null)), fmt: (v) => (v == null ? "—" : `${Math.round(v * 100)}%`), heat: false },
   ];
   return (
-    <section style={{ ...panel, padding: 0 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "16px 16px 10px" }}>
-        <span style={sectionTitle}>Monthly returns</span>
-        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Click a year to overlay it on the seasonal path.</span>
-      </div>
+    <Panel title="Monthly returns" titleExtra={<InfoTip text="Click a year to overlay it on the seasonal path." />} flush>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
           <thead>
             <tr>
               <th style={{ ...hth, textAlign: "left", paddingLeft: 16 }}>Year</th>
               {MONTHS.map((m, i) => (
-                <th key={m} style={{ ...hth, color: i === thisMonth ? CURRENT_COLOR : hth.color }}>{m}</th>
+                <th key={m} style={{ ...hth, color: i === thisMonth ? "var(--text-primary)" : hth.color }}>{m}</th>
               ))}
               <th style={{ ...hth, paddingRight: 16, borderLeft: "1px solid var(--border)" }}>Year</th>
             </tr>
@@ -618,38 +503,30 @@ function Heatmap({ model, thisYear, thisMonth, compare, colorOf, onToggleYear })
               const isCurrent = r.year === thisYear;
               const on = compare.includes(r.year);
               const clickable = !isCurrent && model.yearsByNum[r.year]?.week_cum_return.some((v) => v != null);
+              const dot = isCurrent ? CURRENT_COLOR : on ? colorOf(r.year) : null;
               return (
                 <tr
                   key={r.year}
-                  className={clickable ? "season-row" : undefined}
+                  className={clickable ? styles.clickRow : undefined}
                   onClick={clickable ? () => onToggleYear(r.year) : undefined}
-                  style={{ cursor: clickable ? "pointer" : "default" }}
                 >
-                  <td style={{ ...htd, textAlign: "left", paddingLeft: 16, fontWeight: 600, color: isCurrent ? CURRENT_COLOR : "var(--text-primary)" }}>
+                  <td style={{ ...htd, textAlign: "left", paddingLeft: 16, color: "var(--text-primary)" }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: isCurrent ? CURRENT_COLOR : on ? colorOf(r.year) : "transparent", border: on || isCurrent ? "none" : "1px solid var(--border)" }} />
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot ?? "transparent" }} />
                       {r.year}
                     </span>
                   </td>
-                  {r.months.map((v, i) => {
-                    const partial = isCurrent && i === thisMonth;
-                    return (
-                      <td
-                        key={i}
-                        title={partial ? "Month to date" : undefined}
-                        style={{
-                          ...htd, background: heatColor(v, model.heatCap),
-                          color: v == null ? "var(--text-disabled)" : "var(--text-primary)",
-                          fontStyle: partial ? "italic" : "normal",
-                          boxShadow: i === thisMonth ? "inset 1px 0 0 rgba(96,165,250,0.35), inset -1px 0 0 rgba(96,165,250,0.35)" : undefined,
-                        }}
-                      >
-                        {v == null ? "" : pct(v)}
-                      </td>
-                    );
-                  })}
-                  <td style={{ ...htd, paddingRight: 16, fontWeight: 600, borderLeft: "1px solid var(--border)", color: pctColor(r.total) }}>
-                    {pct(r.total)}{isCurrent && <span style={{ fontSize: 9, color: "var(--text-secondary)", marginLeft: 4, fontWeight: 400 }}>YTD</span>}
+                  {r.months.map((v, i) => (
+                    <td
+                      key={i}
+                      title={isCurrent && i === thisMonth ? "Month to date" : undefined}
+                      style={{ ...htd, background: heatColor(v, model.heatCap), color: "var(--text-primary)" }}
+                    >
+                      {v == null ? "" : pct(v)}
+                    </td>
+                  ))}
+                  <td style={{ ...htd, paddingRight: 16, borderLeft: "1px solid var(--border)", color: pctColor(r.total) }}>
+                    {pct(r.total)}
                   </td>
                 </tr>
               );
@@ -658,9 +535,9 @@ function Heatmap({ model, thisYear, thisMonth, compare, colorOf, onToggleYear })
           <tfoot>
             {summary.map((s, k) => (
               <tr key={s.label}>
-                <td style={{ ...htd, textAlign: "left", paddingLeft: 16, fontWeight: 600, color: "var(--text-secondary)", borderTop: k === 0 ? "1px solid var(--border)" : undefined }}>{s.label}</td>
+                <td style={{ ...htd, textAlign: "left", paddingLeft: 28, color: "var(--text-secondary)", borderTop: k === 0 ? "1px solid var(--border)" : undefined }}>{s.label}</td>
                 {s.vals.map((v, i) => (
-                  <td key={i} style={{ ...htd, fontWeight: 600, borderTop: k === 0 ? "1px solid var(--border)" : undefined, background: s.heat ? heatColor(v, model.heatCap) : "transparent", color: !s.heat && v != null && v < 0.5 ? "var(--negative)" : "var(--text-primary)" }}>
+                  <td key={i} style={{ ...htd, borderTop: k === 0 ? "1px solid var(--border)" : undefined, background: s.heat ? heatColor(v, model.heatCap) : "transparent", color: s.heat ? "var(--text-primary)" : "var(--text-secondary)" }}>
                     {s.fmt(v)}
                   </td>
                 ))}
@@ -670,75 +547,27 @@ function Heatmap({ model, thisYear, thisMonth, compare, colorOf, onToggleYear })
           </tfoot>
         </table>
       </div>
-      <style>{`.season-row:hover td { filter: brightness(1.25); }`}</style>
-    </section>
+    </Panel>
   );
 }
 
 // ── Small pieces ───────────────────────────────────────────────────────────────
 
-function LegendItem({ color, width = 2, band, children }) {
+function LegendItem({ color, band, children }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
       {band
         ? <span style={{ width: 14, height: 10, background: AVG_COLOR, opacity: 0.18 }} />
-        : <span style={{ width: 14, height: width, background: color }} />}
+        : <span style={{ width: 14, height: 2, background: color }} />}
       {children}
     </span>
   );
 }
 
-function Muted({ children, pad }) {
-  return <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: pad ? "40px 0" : 0, textAlign: "center" }}>{children}</div>;
-}
-
-function useWidth() {
-  const ref = useRef(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.floor(e.contentRect.width)));
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width];
-}
-
-function useClickOutside(ref, active, onOutside) {
-  useEffect(() => {
-    if (!active) return;
-    const handle = (e) => { if (ref.current && !ref.current.contains(e.target)) onOutside(); };
-    const key = (e) => { if (e.key === "Escape") onOutside(); };
-    document.addEventListener("mousedown", handle);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", handle);
-      document.removeEventListener("keydown", key);
-    };
-  }, [ref, active, onOutside]);
-}
-
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
-const panel = { background: "var(--bg-surface)", border: "1px solid var(--border)", padding: 16, marginBottom: 20 };
-const sectionTitle = { fontSize: 13, fontWeight: 600, color: "var(--text-primary)" };
-const ghostButton = {
-  padding: "5px 12px", background: "transparent", border: "1px dashed var(--border)", cursor: "pointer",
-  color: "var(--text-secondary)", fontFamily: "var(--font-family-sans)", fontSize: 12,
-};
-const popoverStyle = {
-  position: "absolute", top: "calc(100% + 4px)", zIndex: 20,
-  background: "var(--bg-elevated)", border: "1px solid var(--border)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-};
-const chipStyle = {
-  display: "inline-flex", alignItems: "center", gap: 6, padding: "2px 4px 2px 10px",
-  border: "1px solid var(--border)", borderRadius: "var(--radius-full)", fontSize: 12, color: "var(--text-primary)",
-};
-const chipCloseStyle = {
-  background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 4px",
-};
 const hth = {
-  padding: "6px 8px", fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase",
+  padding: "6px 8px", fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase",
   letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)",
 };
 const htd = { padding: "5px 8px", textAlign: "right", fontSize: 11.5, whiteSpace: "nowrap", fontFamily: "var(--font-family-mono)" };

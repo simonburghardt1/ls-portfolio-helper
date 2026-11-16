@@ -79,15 +79,76 @@ Sharp corners, `--bg-elevated` background, 1px `--border` always. This is the on
 ## `PageHeader.jsx`
 
 ```jsx
-<PageHeader title="Market Regime" subtitle="Composite of BMSB · Market Breadth · VIX · Credit Spreads — daily closes." />
-<PageHeader title="Macro Dashboard" subtitle="FRED data · Leading & concurrent indicators" style={{ marginBottom: 0 }} />
+<PageHeader title="Seasonality" actions={<AssetSelector … />} />
+<PageHeader
+  back={{ href: "/portfolio/markets/baskets", label: "Baskets" }}
+  title={basket.name}
+  badges={<><RegimePill … /><Badge variant="neutral">CUSTOM</Badge></>}
+  meta={<><span>Equal-weight</span><span>·</span><span>7 holdings</span></>}
+  actions={<><Button>Edit</Button><Popover …/></>}
+/>
 ```
 
 | Prop | Type | Notes |
 |---|---|---|
-| `title` | string | The page's `<h1>` |
-| `subtitle` | string \| node | One line of supporting copy; accepts JSX (e.g. an inline `<strong>`) |
-| `style` | object | Merged onto the wrapper div — needed to cancel the default bottom margin when the header sits inline next to a sibling button/status pill |
+| `title` | string | The page's `<h1>` — usually the only thing needed |
+| `badges` | node | Inline right after the title (status pill, SYSTEM/CUSTOM) |
+| `meta` | node | One quiet line of identifying facts under the title (see DESIGN.md → Restraint) |
+| `actions` | node | Pinned right: buttons, an asset picker |
+| `back` | `{ href, label }` | Breadcrumb link above the title on detail pages |
+| `subtitle` | string \| node | **Legacy** — don't use on new/migrated pages |
+| `style` | object | Merged onto the wrapper |
+
+## `Page.jsx`
+
+`<Page>…</Page>` — the outer frame every page renders (background, 28px/32px padding, min-height). Replaces the hand-rolled wrapper `<div>`.
+
+## `Panel.jsx`
+
+```jsx
+<Panel title="Seasonal path" titleExtra={<Legend/>} actions={<Popover …/>}>…</Panel>
+<Panel title="Monthly returns" titleExtra={<InfoTip text="…" />} flush><table/></Panel>
+```
+
+| Prop | Notes |
+|---|---|
+| `title` | Label-styled heading (short noun phrase) |
+| `titleExtra` | Node right after the title: an `InfoTip`, a chart legend |
+| `actions` | Node pinned right of the title row |
+| `flush` | No body padding — for edge-to-edge tables; the title row keeps its own |
+
+## `Popover.jsx` (+ `MenuItem`, `MenuDivider`, `MenuGroupTitle`)
+
+```jsx
+<Popover align="right" width={170} trigger={(toggle) => <Button onClick={toggle}>⋯</Button>}>
+  {(close) => <MenuItem onClick={() => { close(); copy(); }}>Copy Basket</MenuItem>}
+</Popover>
+```
+
+Click-to-open panel under its trigger; closes on outside click / Escape. `children` may be a node or `(close) => node`. `padded` adds 12px padding for non-menu content (e.g. a picker grid). `MenuItem` takes `danger`, `disabled`. Styles in `Popover.module.css` (hover/focus states).
+
+## `Chip.jsx`
+
+`<Chip color="#3b82f6" onRemove={() => …}>SPY</Chip>` — removable pill for an active selection; `color` shows a dot matching the chart series. Omit `onRemove` for a static chip.
+
+## `InfoTip.jsx`
+
+`<InfoTip text="…" align="left|right" />` — "i" button; click opens the explanation in a popup (built on `Popover`, closes on outside click / Escape). The place for explanations (DESIGN.md → Restraint).
+
+## `StateMessage.jsx`
+
+`<StateMessage kind="loading" />`, `<StateMessage>No Baskets yet.</StateMessage>`, `<StateMessage kind="error">Could not load …</StateMessage>` — the only loading/empty/error rendering.
+
+## `lib/format.js`, `lib/hooks.js`
+
+- `fmtPct(v, dp = 2, { sign = true })` → `"+1.23%"`, `"—"` for null, never `"-0.00%"`. `fmtNum(v, dp)`. `signColor(v)` → `--positive`/`--negative`/`--text-secondary`.
+- `useClickOutside(ref, active, onOutside)`, `useElementWidth()` → `[ref, width]`.
+
+Don't re-declare `pct()`/`fmtPct()`/`pctColor()`/`useClickOutside()` locally in a page — import these.
+
+## Gallery
+
+`/dev/kit` (not in the sidebar) renders every shared component and state. Add a section there whenever a component is added or changed.
 
 ## `Tabs.jsx`
 

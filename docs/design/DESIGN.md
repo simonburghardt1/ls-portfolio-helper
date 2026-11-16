@@ -114,6 +114,19 @@ See [components.md](components.md) for exact props/usage. Visual specs:
 - *static* (default) — no container at all. Plain `--text-label-*` text, color-coded positive/negative/neutral/disabled.
 - *interactive* — full pill (`--radius-full`), translucent color fill (~18% opacity), `cursor: pointer`, hover border brightens to `--text-secondary`.
 
+## Restraint
+
+Decided 2026-11-16 after reviewing the redesigned Seasonality and Basket detail pages, which read as over-polished ("vibecoded"). These rules outrank any single page's wish for more information.
+
+- **No page subtitles.** The title alone; context comes from the content. `PageHeader`'s `subtitle` prop is legacy, kept only for pages not yet migrated.
+- **Sparing information.** Each number on screen has to earn its place. Prefer one value + one short caption over value + caption + median + bar.
+- **No derived commentary.** Show the data, not an interpretation of it ("ahead by 2.5 pp", "options price 12% more vol than realized"). The reader can compare two numbers.
+- **No decorative chrome.** No progress/hit-rate bars under KPI cards, no accent underlines. Small, meaningful markers are fine (e.g. a "NOW" tag on the current presidential-cycle phase).
+- **Header meta stays minimal.** One quiet line of identifying facts (e.g. weighting · holdings · beta). Performance numbers belong in the body, not the header.
+- **Explanations go behind an `InfoTip`** (click opens a popup), never as a sentence on the page.
+- **Copy:** short fragments, sentence case, no em-dash ("—") flourishes, no exclamation marks.
+- **Charts may be rich.** The restraint is about text and chrome; a dense, well-built chart is fine.
+
 ## Do's and Don'ts
 
 | Do | Don't |
@@ -122,7 +135,7 @@ See [components.md](components.md) for exact props/usage. Visual specs:
 | Keep `--accent` confined to the active-nav affordance | Use `--accent` as a button fill, link color, or decorative accent |
 | Sharp corners on every content container | Round a KPI card, table, or panel |
 | Round nav/tabs at `--radius-nav-active` (8px) only | Use that radius on anything other than the active sidebar item or active tab |
-| Use `--radius-full` only for an interactive `Badge` | Use a full pill for a page-level control, or mix the two rounded registers on the same kind of element |
+| Use `--radius-full` only for an interactive `Badge` or a removable `Chip` | Use a full pill for a page-level control, or mix the two rounded registers on the same kind of element |
 | Give a static `Badge` no container at all | Wrap a purely informational badge in a bordered chip |
 | Keep a range-toggle `Button`'s active state sharp | Round a range-toggle button's active state |
 | Use mono with tabular figures for every numeric value | Set numbers in the sans face or let KPI columns use proportional spacing |

@@ -1,46 +1,65 @@
 /**
- * Shared page header: title + optional subtitle.
- *
- * Uses DESIGN.md's headline/body typography tokens so the page-title-to-
- * body-text size ratio (34px vs. 14.5px) is consistent everywhere instead
- * of each page hand-rolling its own (previously flattened) heading size.
+ * Page title row.
  *
  * Props:
- *   title:    string — the page's h1 headline
- *   subtitle: string | ReactNode (optional) — one line of supporting body copy;
- *             accepts a JSX fragment when partial styling (e.g. a `<strong>`) is needed
- *   style:    object (optional) — merged onto the wrapper div, e.g. to cancel
- *             the default bottom margin when placed inline next to a sibling
+ *   title:    page title (the only required piece — no subtitle by default, see DESIGN.md
+ *             → Restraint)
+ *   badges:   optional node rendered inline right after the title (status pill, SYSTEM tag)
+ *   meta:     optional node for one quiet line of key facts under the title
+ *   actions:  optional node pinned to the right (buttons, an asset picker)
+ *   back:     optional { href, label } breadcrumb link above the title
+ *   subtitle: legacy — still rendered for pages not yet migrated; don't use on new pages
+ *   style:    container style overrides
  */
-export default function PageHeader({ title, subtitle, style }) {
-    return (
-        <div style={{ marginBottom: "var(--space-6)", ...style }}>
+import Link from "next/link";
+
+export default function PageHeader({ title, badges, meta, actions, back, subtitle, style }) {
+  return (
+    <div style={{ marginBottom: "var(--space-6)", ...style }}>
+      {back && (
+        <Link href={back.href} style={{ display: "inline-block", fontSize: 12, color: "var(--text-secondary)", marginBottom: "var(--space-3)" }}>
+          ← {back.label}
+        </Link>
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--space-4)", flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
             <h1
-                style={{
-                    fontFamily: "var(--font-family-sans)",
-                    fontSize: "var(--text-headline-size)",
-                    fontWeight: "var(--text-headline-weight)",
-                    lineHeight: "var(--text-headline-line-height)",
-                    letterSpacing: "var(--text-headline-tracking)",
-                    color: "var(--text-primary)",
-                    marginBottom: subtitle ? "var(--space-1)" : 0,
-                }}
+              style={{
+                fontFamily: "var(--font-family-sans)",
+                fontSize: "var(--text-headline-size)",
+                fontWeight: "var(--text-headline-weight)",
+                lineHeight: "var(--text-headline-line-height)",
+                letterSpacing: "var(--text-headline-tracking)",
+                color: "var(--text-primary)",
+              }}
             >
-                {title}
+              {title}
             </h1>
-            {subtitle && (
-                <p
-                    style={{
-                        fontFamily: "var(--font-family-sans)",
-                        fontSize: "var(--text-body-size)",
-                        fontWeight: "var(--text-body-weight)",
-                        lineHeight: "var(--text-body-line-height)",
-                        color: "var(--text-secondary)",
-                    }}
-                >
-                    {subtitle}
-                </p>
-            )}
+            {badges}
+          </div>
+          {meta && (
+            <div style={{ marginTop: "var(--space-2)", fontSize: 13, color: "var(--text-secondary)", display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+              {meta}
+            </div>
+          )}
+          {subtitle && (
+            <p
+              style={{
+                marginTop: "var(--space-1)",
+                fontFamily: "var(--font-family-sans)",
+                fontSize: "var(--text-body-size)",
+                fontWeight: "var(--text-body-weight)",
+                lineHeight: "var(--text-body-line-height)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {subtitle}
+            </p>
+          )}
         </div>
-    );
+        {actions && <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end", flexShrink: 0 }}>{actions}</div>}
+      </div>
+    </div>
+  );
 }

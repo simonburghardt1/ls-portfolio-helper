@@ -27,7 +27,7 @@ Three-level hierarchy in the sidebar: top-level section → group header (option
 
 ## Voice and Tone
 
-**Open gap — not addressed in discovery.** No voice/tone table exists; palette, shape, typography, and sidebar hierarchy were covered in depth, but copy voice and microcopy tone (error messages, empty states, labels-as-sentences vs. fragments) were never discussed. Needs a dedicated follow-up decision before ship.
+Decided 2026-11-16 — see DESIGN.md → Restraint. Labels are short fragments in sentence case; no subtitles, no em-dash flourishes, no exclamation marks, no apologies. State messages are one short sentence ("Could not load seasonality data.", "Not enough price history for this asset.").
 
 ## Component Patterns
 
@@ -51,9 +51,9 @@ Only states actually discussed or demonstrated are documented; everything else i
 | Active nav item | Sidebar | Covered — rounded highlight per DESIGN.md. |
 | Hover nav item | Sidebar | **[GAP]** — the *visual* hover treatment for a restyled nav item was never explicitly specced; reasonable to infer a subtle version of the active treatment but not confirmed. |
 | Disabled / "coming soon" nav item | Sidebar | Covered — `--text-disabled` + "SOON" badge, existing `Sidebar.jsx` behavior. |
-| Empty state (no KPI data, no trades yet) | Dashboard, Track Record, Backtesting | **[GAP]** — not discussed. No empty-state copy or layout designed. |
-| Error state (failed data load, e.g. broker import or API failure) | Any data page | **[GAP]** — not discussed. |
-| Loading state (KPI values pending, chart loading) | Any data page | **[GAP]** — not discussed. |
+| Empty state | Any data page | Covered — `<StateMessage>` (centered, `--text-secondary`, one sentence). |
+| Error state | Any data page | Covered — `<StateMessage kind="error">` (bordered `--negative` box, `role=alert`). |
+| Loading state | Any data page | Covered — `<StateMessage kind="loading">` ("Loading…"). |
 
 ## Interaction Primitives
 

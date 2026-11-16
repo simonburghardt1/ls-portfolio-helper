@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
+import { fmtPct, signColor } from "@/app/lib/format";
+import Page from "@/app/components/Page";
+import Chip from "@/app/components/Chip";
+import InfoTip from "@/app/components/InfoTip";
+import Popover, { MenuItem, MenuDivider, MenuGroupTitle } from "@/app/components/Popover";
+import StateMessage from "@/app/components/StateMessage";
 import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
 import Badge from "@/app/components/Badge";
@@ -119,10 +125,7 @@ function rebaseWeighted(dates, holdings, fromDate) {
   return { dates: slicedDates, levels };
 }
 
-function pct(v) {
-  if (v == null || isNaN(v)) return "—";
-  return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
-}
+const pct = (v) => fmtPct(v);
 
 // Per-holding performance and contribution over the selected range — assumes a fresh
 // rebalance to target weight at the start of the selected window (see rebaseWeighted's
@@ -194,9 +197,7 @@ function computeRangeChanges(dates, holdings) {
   return out;
 }
 
-function changeColor(v) {
-  return v == null ? undefined : v >= 0 ? "var(--positive)" : "var(--negative)";
-}
+const changeColor = signColor;
 
 function compareLabel(ticker) {
   return COMPARISON_BENCHMARKS.find((b) => b.ticker === ticker)?.label ?? ticker;
@@ -369,13 +370,6 @@ export default function BasketDetailPage() {
   const regimeCfg = currentRegimeInfo ? REGIME_CONFIG[currentRegimeInfo.regime] : null;
 
   const [tab, setTab] = useState("performance");
-  const [compareOpen, setCompareOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const compareRef = useRef(null);
-  const menuRef = useRef(null);
-  useClickOutside(compareRef, compareOpen, () => setCompareOpen(false));
-  useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
-
   const isLoading = basketLoading || seriesLoading;
   const isError = basketError || seriesError;
 
@@ -388,30 +382,17 @@ export default function BasketDetailPage() {
   const compareColor = (ticker) => COMPARE_COLORS[selectedCompares.indexOf(ticker) % COMPARE_COLORS.length];
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
-      <Link href="/portfolio/markets/baskets" style={{ fontSize: 12, color: "var(--text-secondary)", textDecoration: "none" }}>
-        ← Baskets
-      </Link>
-
-      {isLoading && (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-          Loading…
-        </div>
-      )}
-
-      {isError && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", marginTop: 16, fontSize: 13, color: "var(--negative)" }}>
-          {seriesErrorObj?.message || "Could not load this Basket."}
-        </div>
-      )}
+    <Page>
+      {isLoading && <StateMessage kind="loading" />}
+      {isError && <StateMessage kind="error">{seriesErrorObj?.message || "Could not load this Basket."}</StateMessage>}
 
       {!isLoading && !isError && basket && (
         <>
-          {/* ── Header: name, regime, key facts as one quiet line ── */}
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, margin: "12px 0 20px" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <PageHeader title={basket.name} style={{ marginBottom: 0 }} />
+          <PageHeader
+            back={{ href: "/portfolio/markets/baskets", label: "Baskets" }}
+            title={basket.name}
+            badges={
+              <>
                 {headerRegime && (
                   <span
                     title="Regime score (0-100): ≥60 Uptrend, ≤40 Downtrend, otherwise Ranging"
@@ -427,56 +408,47 @@ export default function BasketDetailPage() {
                   </span>
                 )}
                 {basket.user_id == null ? <Badge variant="disabled">SYSTEM</Badge> : <Badge variant="neutral">CUSTOM</Badge>}
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                <MetaItem>{basket.weighting_method === "market_cap" ? "Market-cap weighted" : "Equal-weight"}</MetaItem>
+              </>
+            }
+            meta={
+              <>
+                <span>{basket.weighting_method === "market_cap" ? "Market-cap weighted" : "Equal-weight"}</span>
                 <Dot />
-                <MetaItem>{basket.num_holdings ?? "—"} holdings</MetaItem>
+                <span>{basket.num_holdings ?? "—"} holdings</span>
                 <Dot />
-                <MetaItem>β {basket.beta_vs_spy != null ? basket.beta_vs_spy.toFixed(2) : "—"} <Muted>vs SPY</Muted></MetaItem>
-                <Dot />
-                <MetaItem>CAGR <Num color={changeColor(basket.cagr)}>{pct(basket.cagr)}</Num></MetaItem>
-                <Dot />
-                <MetaItem>Today <Num color={changeColor(rangeChanges["1D"])}>{pct(rangeChanges["1D"])}</Num></MetaItem>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <Link href={`/portfolio/markets/baskets/${id}/edit`} style={{ textDecoration: "none" }}>
-                <Button variant="secondary">Edit</Button>
-              </Link>
-              <div ref={menuRef} style={{ position: "relative" }}>
-                <Button variant="secondary" onClick={() => setMenuOpen((o) => !o)} title="More actions" aria-label="More actions">
-                  ⋯
-                </Button>
-                {menuOpen && (
-                  <div style={{ ...popoverStyle, right: 0, minWidth: 160 }}>
-                    <button
-                      type="button"
-                      onClick={() => { setMenuOpen(false); router.push(`/portfolio/markets/baskets/new?copyFrom=${id}`); }}
-                      style={menuItemStyle}
-                    >
-                      Copy Basket
-                    </button>
-                    <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
-                    <button
-                      type="button"
-                      onClick={() => { setMenuOpen(false); handleDelete(); }}
-                      disabled={deleteBasket.isPending}
-                      style={{ ...menuItemStyle, color: "var(--negative)" }}
-                    >
-                      {deleteBasket.isPending ? "Deleting…" : "Delete Basket"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+                <span>β {basket.beta_vs_spy != null ? basket.beta_vs_spy.toFixed(2) : "—"} <Muted>vs SPY</Muted></span>
+              </>
+            }
+            actions={
+              <>
+                <Link href={`/portfolio/markets/baskets/${id}/edit`}>
+                  <Button variant="secondary">Edit</Button>
+                </Link>
+                <Popover
+                  align="right"
+                  width={170}
+                  trigger={(toggle) => (
+                    <Button variant="secondary" onClick={toggle} title="More actions" aria-label="More actions">⋯</Button>
+                  )}
+                >
+                  {(close) => (
+                    <>
+                      <MenuItem onClick={() => { close(); router.push(`/portfolio/markets/baskets/new?copyFrom=${id}`); }}>
+                        Copy Basket
+                      </MenuItem>
+                      <MenuDivider />
+                      <MenuItem danger disabled={deleteBasket.isPending} onClick={() => { close(); handleDelete(); }}>
+                        {deleteBasket.isPending ? "Deleting…" : "Delete Basket"}
+                      </MenuItem>
+                    </>
+                  )}
+                </Popover>
+              </>
+            }
+          />
 
           {deleteBasket.isError && (
-            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "var(--negative)" }}>
-              {deleteBasket.error?.message || "Could not delete this Basket."}
-            </div>
+            <StateMessage kind="error">{deleteBasket.error?.message || "Could not delete this Basket."}</StateMessage>
           )}
 
           <Tabs
@@ -517,42 +489,32 @@ export default function BasketDetailPage() {
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap", minHeight: 30 }}>
                 {selectedCompares.map((t) => (
-                  <span key={t} style={chipStyle}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: compareColor(t) }} />
-                    {compareLabel(t)}
-                    <button type="button" onClick={() => toggleCompare(t)} aria-label={`Remove ${compareLabel(t)}`} style={chipCloseStyle}>×</button>
-                  </span>
+                  <Chip key={t} color={compareColor(t)} onRemove={() => toggleCompare(t)}>{compareLabel(t)}</Chip>
                 ))}
-                <div ref={compareRef} style={{ position: "relative" }}>
-                  <Button variant="secondary" onClick={() => setCompareOpen((o) => !o)} style={{ padding: "4px 12px" }}>
-                    + Compare
-                  </Button>
-                  {compareOpen && (
-                    <div style={{ ...popoverStyle, left: 0, width: 240, maxHeight: 360, overflowY: "auto" }}>
-                      <CompareGroup
-                        title="Benchmarks"
-                        items={COMPARISON_BENCHMARKS.map((b) => ({ ticker: b.ticker, label: b.label }))}
-                        selected={selectedCompares}
-                        full={selectedCompares.length >= MAX_COMPARISONS}
-                        onToggle={toggleCompare}
-                        colorFor={compareColor}
-                      />
-                      <CompareGroup
-                        title="Holdings"
-                        items={(basket.tickers ?? []).map((t) => ({ ticker: t, label: t }))}
-                        selected={selectedCompares}
-                        full={selectedCompares.length >= MAX_COMPARISONS}
-                        onToggle={toggleCompare}
-                        colorFor={compareColor}
-                      />
-                      {selectedCompares.length >= MAX_COMPARISONS && (
-                        <div style={{ fontSize: 11, color: "var(--text-secondary)", padding: "6px 12px 8px" }}>
-                          Max {MAX_COMPARISONS} — remove one to add another.
-                        </div>
-                      )}
-                    </div>
+                <Popover
+                  width={240}
+                  maxHeight={360}
+                  trigger={(toggle) => (
+                    <Button variant="secondary" onClick={toggle} style={{ padding: "4px 12px" }}>+ Compare</Button>
                   )}
-                </div>
+                >
+                  <CompareGroup
+                    title="Benchmarks"
+                    items={COMPARISON_BENCHMARKS.map((b) => ({ ticker: b.ticker, label: b.label }))}
+                    selected={selectedCompares}
+                    full={selectedCompares.length >= MAX_COMPARISONS}
+                    onToggle={toggleCompare}
+                    colorFor={compareColor}
+                  />
+                  <CompareGroup
+                    title="Holdings"
+                    items={(basket.tickers ?? []).map((t) => ({ ticker: t, label: t }))}
+                    selected={selectedCompares}
+                    full={selectedCompares.length >= MAX_COMPARISONS}
+                    onToggle={toggleCompare}
+                    colorFor={compareColor}
+                  />
+                </Popover>
                 {compareErrorFlag && <span style={{ fontSize: 11, color: "var(--negative)" }}>Could not load comparison data.</span>}
               </div>
 
@@ -711,7 +673,7 @@ export default function BasketDetailPage() {
           )}
         </>
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -728,44 +690,6 @@ const HOLDINGS_INFO =
   "of the selected range — matching the Performance chart, which is indexed to 100 there too — so contributions sum to the Basket's own " +
   "return for the window. \"Max\" reflects the Basket's true history since inception, since it never rebalances on its own.";
 
-function useClickOutside(ref, active, onOutside) {
-  useEffect(() => {
-    if (!active) return;
-    function handle(e) {
-      if (ref.current && !ref.current.contains(e.target)) onOutside();
-    }
-    function handleKey(e) {
-      if (e.key === "Escape") onOutside();
-    }
-    document.addEventListener("mousedown", handle);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handle);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [ref, active, onOutside]);
-}
-
-function InfoTip({ text }) {
-  return (
-    <span
-      title={text}
-      aria-label={text}
-      style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        width: 16, height: 16, borderRadius: "50%", border: "1px solid var(--border)",
-        fontSize: 10, fontWeight: 700, color: "var(--text-secondary)", cursor: "help", flexShrink: 0,
-      }}
-    >
-      i
-    </span>
-  );
-}
-
-function MetaItem({ children }) {
-  return <span style={{ whiteSpace: "nowrap" }}>{children}</span>;
-}
-
 function Dot() {
   return <span style={{ color: "var(--border)" }}>·</span>;
 }
@@ -781,28 +705,16 @@ function Num({ children, color }) {
 function CompareGroup({ title, items, selected, full, onToggle, colorFor }) {
   if (!items.length) return null;
   return (
-    <div style={{ padding: "6px 0" }}>
-      <div style={{ fontSize: 10, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.06em", padding: "4px 12px" }}>
-        {title}
-      </div>
+    <div style={{ padding: "2px 0" }}>
+      <MenuGroupTitle>{title}</MenuGroupTitle>
       {items.map((it) => {
         const on = selected.includes(it.ticker);
-        const disabled = !on && full;
         return (
-          <button
-            key={it.ticker}
-            type="button"
-            disabled={disabled}
-            onClick={() => onToggle(it.ticker)}
-            style={{ ...menuItemStyle, opacity: disabled ? 0.4 : 1, cursor: disabled ? "default" : "pointer" }}
-          >
-            <span style={{
-              width: 12, height: 12, flexShrink: 0, border: "1px solid var(--border)",
-              background: on ? colorFor(it.ticker) : "transparent",
-            }} />
+          <MenuItem key={it.ticker} disabled={!on && full} onClick={() => onToggle(it.ticker)}>
+            <span style={{ width: 12, height: 12, flexShrink: 0, border: "1px solid var(--border)", background: on ? colorFor(it.ticker) : "transparent" }} />
             <span style={{ color: on ? "var(--text-primary)" : "var(--text-secondary)" }}>{it.label}</span>
             {it.label !== it.ticker && <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-disabled)" }}>{it.ticker}</span>}
-          </button>
+          </MenuItem>
         );
       })}
     </div>
@@ -869,24 +781,6 @@ function LiveOptionsLine({ regime }) {
   );
 }
 
-const popoverStyle = {
-  position: "absolute", top: "calc(100% + 4px)", zIndex: 20,
-  background: "var(--bg-elevated)", border: "1px solid var(--border)",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: "4px 0",
-};
-const menuItemStyle = {
-  display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 12px",
-  background: "transparent", border: "none", textAlign: "left", cursor: "pointer",
-  fontFamily: "var(--font-family-sans)", fontSize: 13, color: "var(--text-primary)",
-};
-const chipStyle = {
-  display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 4px 3px 10px",
-  border: "1px solid var(--border)", borderRadius: "var(--radius-full)", fontSize: 12, color: "var(--text-primary)",
-};
-const chipCloseStyle = {
-  background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer",
-  fontSize: 14, lineHeight: 1, padding: "0 4px",
-};
 const thStyle = { fontSize: 11, color: "var(--text-secondary)", padding: "6px 8px", textAlign: "left", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" };
 const tdStyle = { padding: "8px", borderTop: "1px solid var(--border)" };
 const numCell = { textAlign: "right", fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums" };

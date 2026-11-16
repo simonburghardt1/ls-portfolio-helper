@@ -1,8 +1,23 @@
 # Rollout status & open items
 
-**Last synced: 2026-08-04.** Snapshot of where the Slate Mono redesign actually is in the code — check this before assuming a page is "done." Verify against the code before trusting anything here that's more than a session or two old (see the memory-hygiene note in the repo's CLAUDE.md-equivalent guidance).
+**Last synced: 2026-11-16.** Snapshot of where the Slate Mono redesign actually is in the code — check this before assuming a page is "done." Verify against the code before trusting anything here that's more than a session or two old (see the memory-hygiene note in the repo's CLAUDE.md-equivalent guidance).
 
-## Component adoption, by page
+## Redesign v2 rollout (started 2026-11-16)
+
+Goal: every page rebuilt on the shared kit (`Page`, `PageHeader` with badges/meta/actions, `Panel`, `KpiCard`, `Popover`, `Chip`, `InfoTip`, `StateMessage`, `lib/format`, `lib/hooks`) and following DESIGN.md → Restraint. Gallery at `/dev/kit`.
+
+Plan: kit first → one template per page type → roll out in batches by type, each batch screenshot-reviewed and committed.
+
+| Page type | Pages | Status |
+|---|---|---|
+| Analysis tool | Seasonality | ✅ reference page (kit + Restraint) |
+| | Correlation, Beta, Volatility (single-stock + portfolio risk) | ⬜ |
+| List / detail | Basket detail | ◐ header + menus on kit; tabs body still has local styles |
+| | Baskets overview, HBM, Portfolio, Track Record, Backtesting | ⬜ |
+| Macro indicator | ISM ×2, NFIB, CPI/PPI, GDP, Debt, Consumer Confidence, Building Permits, Commodities, COT, Market Regime | ⬜ |
+| Admin / forms | Data import, ISM imports, HBM admin, Indicators, Consumer Confidence admin, Basket new/edit, login/register | ⬜ |
+
+## Component adoption, by page (v1)
 
 `PageHeader` + `Button` are adopted on every page in the app — that rollout is complete. `Tabs`, `KpiCard`, and `Badge` are adopted only where a page actually consumes them; most pages don't need all three.
 

@@ -1,44 +1,58 @@
 /**
- * Shared panel container — implements DESIGN.md's `{components.panel}` spec
- * exactly: sharp corners, `--bg-surface` background, 1px `--border`, an
- * optional label-styled title, and internal padding from the spacing scale.
- *
- * Panels never use `--bg-elevated` (that tone is reserved for KpiCard so
- * cards read as "lifted" one step above the panels containing them).
+ * Section container — DESIGN.md `{components.panel}`: sharp corners, --bg-surface, 1px
+ * --border. Panels never use --bg-elevated (reserved for KpiCard, so cards read one step
+ * "lifted" above the panels around them).
  *
  * Props:
- *   title:    string (optional) — label-styled heading at the top of the panel
- *   children: panel content
- *   style:    optional style overrides/extensions merged onto the container
+ *   title:    optional label-styled heading (short noun phrase, no explanatory sentence —
+ *             put explanations in an <InfoTip/> passed via `titleExtra`)
+ *   titleExtra: optional node right after the title (InfoTip, a legend)
+ *   actions:  optional node pinned to the right of the title row
+ *   flush:    true → no padding (tables that run edge to edge); the title row keeps its own
+ *   children, style
  */
-export default function Panel({ title, children, style }) {
-    return (
+export default function Panel({ title, titleExtra, actions, flush = false, children, style }) {
+  const hasHead = title || titleExtra || actions;
+  return (
+    <section
+      style={{
+        background: "var(--bg-surface)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-none)",
+        padding: flush ? 0 : "var(--space-4)",
+        marginBottom: "var(--space-5)",
+        ...style,
+      }}
+    >
+      {hasHead && (
         <div
-            style={{
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-none)",
-                padding: "var(--space-5)",
-                ...style,
-            }}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-3)", flexWrap: "wrap",
+            marginBottom: "var(--space-3)", padding: flush ? "var(--space-4) var(--space-4) 0" : 0,
+          }}
         >
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap", minWidth: 0 }}>
             {title && (
-                <div
-                    style={{
-                        fontFamily: "var(--font-family-sans)",
-                        fontSize: "var(--text-label-size)",
-                        fontWeight: "var(--text-label-weight)",
-                        lineHeight: "var(--text-label-line-height)",
-                        letterSpacing: "var(--text-label-tracking)",
-                        textTransform: "uppercase",
-                        color: "var(--text-secondary)",
-                        marginBottom: "var(--space-3)",
-                    }}
-                >
-                    {title}
-                </div>
+              <h2
+                style={{
+                  fontFamily: "var(--font-family-sans)",
+                  fontSize: "var(--text-label-size)",
+                  fontWeight: "var(--text-label-weight)",
+                  lineHeight: "var(--text-label-line-height)",
+                  letterSpacing: "var(--text-label-tracking)",
+                  textTransform: "uppercase",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {title}
+              </h2>
             )}
-            {children}
+            {titleExtra}
+          </div>
+          {actions && <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>{actions}</div>}
         </div>
-    );
+      )}
+      {children}
+    </section>
+  );
 }
