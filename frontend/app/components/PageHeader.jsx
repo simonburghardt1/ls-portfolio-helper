@@ -2,13 +2,12 @@
  * Page title row.
  *
  * Props:
- *   title:    page title (the only required piece — no subtitle by default, see DESIGN.md
- *             → Restraint)
+ *   title:    page title (the only required piece)
  *   badges:   optional node rendered inline right after the title (status pill, SYSTEM tag)
  *   meta:     optional node for one quiet line of key facts under the title
  *   actions:  optional node pinned to the right (buttons, an asset picker)
  *   back:     optional { href, label } breadcrumb link above the title
- *   subtitle: legacy — still rendered for pages not yet migrated; don't use on new pages
+ *   subtitle: optional one-line, plain factual description (no em-dash flourishes)
  *   style:    container style overrides
  */
 import Link from "next/link";

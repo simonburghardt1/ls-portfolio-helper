@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import LineChart from "@/app/components/LineChart";
+import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 
@@ -46,7 +47,7 @@ export default function BuildingPermitsPage() {
   const hasData = datasets.length > 0;
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 1000, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <PageHeader
         title="US Building Permits"
         subtitle="US Census Bureau — Thousands of units, seasonally adjusted annual rate"
@@ -117,6 +118,6 @@ export default function BuildingPermitsPage() {
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }

@@ -109,6 +109,7 @@ export default function SeasonalityPage() {
     <Page>
       <PageHeader
         title="Seasonality"
+        subtitle="Typical calendar-year pattern of an asset, by presidential cycle."
         actions={<AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />}
       />
 

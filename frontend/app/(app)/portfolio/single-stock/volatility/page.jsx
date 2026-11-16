@@ -3,15 +3,20 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
+import { fmtPct, fmtNum, signColor } from "@/app/lib/format";
+import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
 import KpiCard from "@/app/components/KpiCard";
-import LineChart from "@/app/components/LineChart";
 import Button from "@/app/components/Button";
-import AssetSelector from "@/app/components/AssetSelector";
+import Tabs from "@/app/components/Tabs";
+import InfoTip from "@/app/components/InfoTip";
+import LineChart from "@/app/components/LineChart";
 import Histogram from "@/app/components/Histogram";
+import AssetSelector from "@/app/components/AssetSelector";
+import StateMessage from "@/app/components/StateMessage";
 
-// One shared timeframe drives both ATR and Distribution of Returns — both are computed
-// from weekly data now, so a single set of windows applies cleanly to each.
+// One shared timeframe drives both ATR and the distribution of weekly returns
 const PERIODS = [
   { key: "1y", label: "1Y", days: 365 },
   { key: "3y", label: "3Y", days: 1095 },
@@ -19,31 +24,22 @@ const PERIODS = [
   { key: "max", label: "Max", days: null },
 ];
 
-function fmtPct(v, dp = 2) {
-  if (v == null || isNaN(v)) return "—";
-  return `${(v * 100).toFixed(dp)}%`;
-}
+const STAT_TABS = [
+  { key: "summary", label: "Summary" },
+  { key: "normal", label: "vs Normal" },
+  { key: "updown", label: "Up / Down" },
+  { key: "percentiles", label: "Percentiles" },
+];
 
-function fmtNum(v, dp = 2) {
-  if (v == null || isNaN(v)) return "—";
-  return v.toFixed(dp);
-}
-
-const cellBase = { padding: "6px 10px", textAlign: "right", fontSize: 12, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
-const rowLabel = { padding: "6px 10px", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", whiteSpace: "nowrap", textAlign: "left" };
-const thStyle = { padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "right", borderBottom: "1px solid var(--border)" };
-const thRowLabel = { ...thStyle, textAlign: "left" };
-const sectionTitle = { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 10 };
-const panel = { background: "var(--bg-surface)", border: "1px solid var(--border)", padding: 16, marginBottom: 20 };
+const pct = (v, dp = 2) => fmtPct(v, dp, { sign: false });
 
 export default function VolatilityPage() {
   const [asset, setAsset] = useState({ type: "stock", id: "AAPL", label: "AAPL" });
   const [period, setPeriod] = useState("1y");
   const [selectedBin, setSelectedBin] = useState(null);
+  const [statTab, setStatTab] = useState("summary");
 
-  // A previous bin selection no longer means anything once the asset/period changes —
-  // reset during render (React's recommended pattern for state that should track a
-  // prop/derived-value change) rather than in an effect, to avoid an extra render pass.
+  // A bin selection means nothing once the asset/period changes — reset during render
   const selectionKey = `${asset.type}:${asset.id}:${period}`;
   const [prevSelectionKey, setPrevSelectionKey] = useState(selectionKey);
   if (selectionKey !== prevSelectionKey) {
@@ -51,11 +47,7 @@ export default function VolatilityPage() {
     setSelectedBin(null);
   }
 
-  const { data: baskets } = useQuery({
-    queryKey: ["baskets"],
-    queryFn: () => api.get("/api/baskets"),
-  });
-
+  const { data: baskets } = useQuery({ queryKey: ["baskets"], queryFn: () => api.get("/api/baskets") });
   const ready = Boolean(asset.id);
 
   const { data: atr, isLoading: atrLoading, isError: atrError } = useQuery({
@@ -70,227 +62,164 @@ export default function VolatilityPage() {
     enabled: ready,
   });
 
-  const atrStart = useMemo(() => {
-    const sel = PERIODS.find((r) => r.key === period);
-    if (!atr?.dates?.length || !sel?.days) return null; // "Max"
-    const to = new Date(atr.dates[atr.dates.length - 1]);
-    to.setDate(to.getDate() - sel.days);
-    return to.toISOString().slice(0, 10);
-  }, [period, atr]);
-
   const atrSliced = useMemo(() => {
     if (!atr?.dates?.length) return { dates: [], values: [] };
-    const startIdx = atrStart ? atr.dates.findIndex((d) => d >= atrStart) : 0;
+    const sel = PERIODS.find((r) => r.key === period);
+    let startIdx = 0;
+    if (sel?.days) {
+      const from = new Date(atr.dates[atr.dates.length - 1]);
+      from.setDate(from.getDate() - sel.days);
+      startIdx = atr.dates.findIndex((d) => d >= from.toISOString().slice(0, 10));
+    }
     if (startIdx === -1) return { dates: [], values: [] };
     return {
       dates: atr.dates.slice(startIdx),
-      values: atr.values.slice(startIdx).map((v) => (v == null ? null : v * 100)), // decimal -> percent, matches correlation/beta's axis convention
+      values: atr.values.slice(startIdx).map((v) => (v == null ? null : v * 100)),
     };
-  }, [atr, atrStart]);
+  }, [atr, period]);
 
   const priceMarkers = useMemo(() => {
     if (selectedBin == null || !dor?.bins?.[selectedBin]) return [];
     return dor.bins[selectedBin].dates.map((d) => ({ time: d, position: "inBar", color: "#f59e0b", shape: "circle" }));
   }, [selectedBin, dor]);
 
+  const hasDor = dor && dor.bins?.length > 0;
+  const up = dor?.breakdown?.positive;
+
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
-      <PageHeader
-        title="Volatility"
-        subtitle="Average True Range and Distribution of Returns for any asset — stocks, commodities, ETFs, or Baskets."
-      />
+    <Page>
+      <PageHeader title="Volatility" subtitle="Average true range and weekly return distribution of an asset." actions={<AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />} />
 
-      <div style={{ display: "flex", gap: 24, marginBottom: 16, flexWrap: "wrap" }}>
-        <AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />
-      </div>
-
-      <div style={{ display: "flex", gap: 6, marginBottom: 24, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: "var(--space-5)" }}>
         {PERIODS.map((p) => (
-          <Button key={p.key} variant="range-toggle" active={period === p.key} onClick={() => setPeriod(p.key)}>
-            {p.label}
-          </Button>
+          <Button key={p.key} variant="range-toggle" active={period === p.key} onClick={() => setPeriod(p.key)}>{p.label}</Button>
         ))}
       </div>
 
-      {atrLoading && (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Loading…</div>
-      )}
-      {atrError && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--negative)" }}>
-          Could not load ATR data.
+      {(atrLoading || dorLoading) && !atr && !dor && <StateMessage kind="loading" />}
+      {atrError && <StateMessage kind="error">Could not load ATR data.</StateMessage>}
+      {dorError && <StateMessage kind="error">Could not load the return distribution.</StateMessage>}
+
+      {(atr || hasDor) && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+          <KpiCard label="ATR (14W)" formatted={pct(atr?.current)} caption="of price" />
+          <KpiCard label="Weekly σ" formatted={pct(dor?.stats?.stdev)} caption={dor?.stats?.count ? `${dor.stats.count} weeks` : undefined} />
+          <KpiCard label="Up weeks" formatted={pct(up?.freq_pct, 0)} caption={up && dor?.stats?.count ? `${up.count} of ${dor.stats.count}` : undefined} />
+          <KpiCard
+            label="Worst / best week"
+            formatted={`${fmtPct(dor?.stats?.min, 1)} / ${fmtPct(dor?.stats?.max, 1)}`}
+          />
         </div>
       )}
 
-      {atr && atr.dates.length > 0 && (
+      {atr && (
+        <Panel title="Average true range (14W), % of price">
+          {atrSliced.dates.length > 0 ? (
+            <LineChart dates={atrSliced.dates} datasets={[{ dates: atrSliced.dates, data: atrSliced.values, borderColor: "#3b82f6", borderWidth: 1.5, label: "ATR %" }]} height={300} />
+          ) : (
+            <StateMessage>{atr.dates.length ? "Not enough price history for this timeframe." : "Not enough OHLC history to compute ATR for this asset."}</StateMessage>
+          )}
+        </Panel>
+      )}
+
+      {hasDor && (
         <>
-          <div style={sectionTitle}>Average True Range (14W) — {asset.label}</div>
-          <div style={{ marginBottom: 16 }}>
-            <KpiCard label="Current ATR" formatted={fmtPct(atr.current)} small />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(460px, 1fr))", gap: "var(--space-5)" }}>
+            <Panel style={{ minWidth: 0 }} title="Weekly returns" titleExtra={<InfoTip text="Click a bar to mark the weeks with that return in the price chart." />}>
+              <Histogram bins={dor.bins} selectedIndex={selectedBin} onSelect={setSelectedBin} />
+            </Panel>
+            <Panel
+              style={{ minWidth: 0 }}
+              title="Price"
+              titleExtra={selectedBin != null && (
+                <span style={{ fontSize: 12, color: "var(--caution)" }}>{dor.bins[selectedBin].count} weeks marked</span>
+              )}
+            >
+              {dor.prices?.dates?.length > 0 ? (
+                <LineChart
+                  dates={dor.prices.dates}
+                  datasets={[{ dates: dor.prices.dates, data: dor.prices.values, borderColor: "#3b82f6", borderWidth: 1.5, label: asset.label }]}
+                  markers={priceMarkers}
+                  height={270}
+                />
+              ) : (
+                <StateMessage>Not enough price history for this timeframe.</StateMessage>
+              )}
+            </Panel>
           </div>
-          <div style={panel}>
-            {atrSliced.dates.length > 0 ? (
-              <LineChart
-                dates={atrSliced.dates}
-                datasets={[{ dates: atrSliced.dates, data: atrSliced.values, borderColor: "#3b82f6", borderWidth: 1.5, label: "ATR %" }]}
+
+          <Panel title="Statistics">
+            <Tabs tabs={STAT_TABS} active={statTab} onChange={setStatTab} />
+            {statTab === "summary" && <SummaryStats stats={dor.stats} />}
+            {statTab === "normal" && (
+              <SimpleTable
+                head={["σ", "Lower", "Upper", "Actual", "Normal"]}
+                rows={dor.normal_check.map((r) => [`${r.sigma}σ`, pct(r.lower), pct(r.upper), pct(r.actual_pct), pct(r.normal_pct)])}
               />
-            ) : (
-              <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-                Not enough price history for this timeframe.
+            )}
+            {statTab === "updown" && (
+              <SimpleTable
+                head={["", "Avg return", "Weeks", "Share", "Weighted"]}
+                rows={[["Up", dor.breakdown.positive], ["Down", dor.breakdown.negative], ["Flat", dor.breakdown.zero]].map(([label, g]) => [
+                  label, pct(g?.avg), g?.count ?? "—", pct(g?.freq_pct), pct(g?.freq_adjusted),
+                ])}
+              />
+            )}
+            {statTab === "percentiles" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "var(--space-2) var(--space-5)" }}>
+                {dor.percentiles.map((r) => (
+                  <StatCell key={r.p} label={`P${r.p}`} value={pct(r.value)} color={signColor(r.value)} />
+                ))}
               </div>
             )}
-          </div>
+          </Panel>
         </>
       )}
 
-      {atr && atr.dates.length === 0 && (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center", marginBottom: 20 }}>
-          Not enough OHLC history to compute ATR for this asset.
-        </div>
-      )}
+      {dor && dor.bins?.length === 0 && !dorLoading && <StateMessage>Not enough weekly return history for this asset and timeframe.</StateMessage>}
+    </Page>
+  );
+}
 
-      {dorError && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--negative)" }}>
-          Could not load Distribution of Returns data.
-        </div>
-      )}
-
-      {dor && dor.bins?.length > 0 && (
-        <>
-          <div style={sectionTitle}>Distribution of Returns (Weekly) — {asset.label}</div>
-
-          <div style={panel}>
-            <Histogram bins={dor.bins} selectedIndex={selectedBin} onSelect={setSelectedBin} />
-          </div>
-
-          <div style={panel}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
-              <div style={{ ...sectionTitle, marginBottom: 0 }}>Price History — {asset.label}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>
-                {selectedBin == null ? "Click a bar above to highlight matching weeks" : `${dor.bins[selectedBin].count} matching weeks highlighted`}
-              </div>
-            </div>
-            {dor.prices?.dates?.length > 0 ? (
-              <LineChart
-                dates={dor.prices.dates}
-                datasets={[{ dates: dor.prices.dates, data: dor.prices.values, borderColor: "#3b82f6", borderWidth: 1.5, label: asset.label }]}
-                markers={priceMarkers}
-              />
-            ) : (
-              <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-                Not enough price history for this timeframe.
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 20 }}>
-            <div style={{ ...panel, flex: "1 1 320px", margin: 0 }}>
-              <div style={sectionTitle}>Descriptive Statistics</div>
-              <StatRow label="Mean" value={fmtPct(dor.stats.mean)} />
-              <StatRow label="Standard Error" value={fmtPct(dor.stats.std_error)} />
-              <StatRow label="Median" value={fmtPct(dor.stats.median)} />
-              <StatRow label="Mode" value={dor.stats.mode == null ? "—" : fmtPct(dor.stats.mode)} />
-              <StatRow label="Standard Deviation" value={fmtPct(dor.stats.stdev)} />
-              <StatRow label="Sample Variance" value={fmtNum(dor.stats.variance, 5)} />
-              <StatRow label="Kurtosis" value={fmtNum(dor.stats.kurtosis)} />
-              <StatRow label="Skewness" value={fmtNum(dor.stats.skewness)} />
-              <StatRow label="Range" value={fmtPct(dor.stats.range)} />
-              <StatRow label="Minimum" value={fmtPct(dor.stats.min)} />
-              <StatRow label="Maximum" value={fmtPct(dor.stats.max)} />
-              <StatRow label="Sum" value={fmtPct(dor.stats.sum)} />
-              <StatRow label="Count" value={dor.stats.count ?? "—"} last />
-            </div>
-
-            <div style={{ ...panel, flex: "1 1 380px", margin: 0 }}>
-              <div style={sectionTitle}>vs. Normal Distribution</div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={thRowLabel}>σ</th>
-                    <th style={thStyle}>Lower</th>
-                    <th style={thStyle}>Upper</th>
-                    <th style={thStyle}>Actual %</th>
-                    <th style={thStyle}>Normal %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dor.normal_check.map((row) => (
-                    <tr key={row.sigma}>
-                      <td style={rowLabel}>{row.sigma}σ</td>
-                      <td style={cellBase}>{fmtPct(row.lower)}</td>
-                      <td style={cellBase}>{fmtPct(row.upper)}</td>
-                      <td style={cellBase}>{fmtPct(row.actual_pct)}</td>
-                      <td style={cellBase}>{fmtPct(row.normal_pct)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 20 }}>
-            <div style={{ ...panel, flex: "1 1 320px", margin: 0 }}>
-              <div style={sectionTitle}>Positive / Negative / Zero Breakdown</div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={thRowLabel}></th>
-                    <th style={thStyle}>Avg Return</th>
-                    <th style={thStyle}>Count</th>
-                    <th style={thStyle}>Freq %</th>
-                    <th style={thStyle}>Freq-Adj. Return</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[["Positive", dor.breakdown.positive], ["Negative", dor.breakdown.negative], ["Zero", dor.breakdown.zero]].map(([label, g]) => (
-                    <tr key={label}>
-                      <td style={rowLabel}>{label}</td>
-                      <td style={cellBase}>{fmtPct(g?.avg)}</td>
-                      <td style={cellBase}>{g?.count ?? "—"}</td>
-                      <td style={cellBase}>{fmtPct(g?.freq_pct)}</td>
-                      <td style={cellBase}>{fmtPct(g?.freq_adjusted)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ ...panel, flex: "1 1 240px", margin: 0, maxHeight: 320, overflowY: "auto" }}>
-              <div style={sectionTitle}>Percentiles</div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={thRowLabel}>Percentile</th>
-                    <th style={thStyle}>Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dor.percentiles.map((row) => (
-                    <tr key={row.p}>
-                      <td style={rowLabel}>{row.p}%</td>
-                      <td style={cellBase}>{fmtPct(row.value)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
-
-      {dor && dor.bins?.length === 0 && !dorLoading && (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-          Not enough weekly return history for this asset/timeframe.
-        </div>
-      )}
+function SummaryStats({ stats: s }) {
+  const items = [
+    ["Mean", pct(s.mean)], ["Median", pct(s.median)], ["Std dev", pct(s.stdev)], ["Std error", pct(s.std_error)],
+    ["Skewness", fmtNum(s.skewness)], ["Kurtosis", fmtNum(s.kurtosis)], ["Min", pct(s.min)], ["Max", pct(s.max)],
+    ["Range", pct(s.range)], ["Sum", pct(s.sum)], ["Variance", fmtNum(s.variance, 5)], ["Weeks", s.count ?? "—"],
+  ];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "var(--space-3) var(--space-5)" }}>
+      {items.map(([label, value]) => <StatCell key={label} label={label} value={value} />)}
     </div>
   );
 }
 
-function StatRow({ label, value, last }) {
+function StatCell({ label, value, color }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: last ? "none" : "1px solid var(--border)", fontSize: 12.5 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", padding: "6px 0", borderBottom: "1px solid var(--border)", fontSize: 12.5 }}>
       <span style={{ color: "var(--text-secondary)" }}>{label}</span>
-      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 500 }}>{value}</span>
+      <span style={{ fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums", color: color ?? "var(--text-primary)" }}>{value}</span>
     </div>
+  );
+}
+
+function SimpleTable({ head, rows }) {
+  const th = { padding: "6px 10px", fontSize: 10.5, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)" };
+  const td = { padding: "7px 10px", textAlign: "right", fontSize: 12.5, fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums", borderBottom: "1px solid var(--border)" };
+  return (
+    <table style={{ width: "100%", maxWidth: 720, borderCollapse: "collapse" }}>
+      <thead>
+        <tr>{head.map((h, i) => <th key={i} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            {r.map((c, j) => (
+              <td key={j} style={{ ...td, textAlign: j === 0 ? "left" : "right", fontFamily: j === 0 ? "var(--font-family-sans)" : td.fontFamily, color: j === 0 ? "var(--text-secondary)" : "var(--text-primary)" }}>{c}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

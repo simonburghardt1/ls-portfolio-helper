@@ -118,7 +118,7 @@ See [components.md](components.md) for exact props/usage. Visual specs:
 
 Decided 2026-11-16 after reviewing the redesigned Seasonality and Basket detail pages, which read as over-polished ("vibecoded"). These rules outrank any single page's wish for more information.
 
-- **No page subtitles.** The title alone; context comes from the content. `PageHeader`'s `subtitle` prop is legacy, kept only for pages not yet migrated.
+- **Subtitles: one plain, factual line or none.** Say what the page shows ("Rolling beta of an asset against a benchmark."). No em-dash constructions, no marketing tone, no "…and where X stands" flourishes, no lists of everything the page can do.
 - **Sparing information.** Each number on screen has to earn its place. Prefer one value + one short caption over value + caption + median + bar.
 - **No derived commentary.** Show the data, not an interpretation of it ("ahead by 2.5 pp", "options price 12% more vol than realized"). The reader can compare two numbers.
 - **No decorative chrome.** No progress/hit-rate bars under KPI cards, no accent underlines. Small, meaningful markers are fine (e.g. a "NOW" tag on the current presidential-cycle phase).

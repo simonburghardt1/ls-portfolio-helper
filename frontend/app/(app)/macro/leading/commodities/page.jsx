@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import LineChart from "@/app/components/LineChart";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -289,9 +290,9 @@ const SELECT_STYLE = {
 
 function PageShell({ children }) {
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       {children}
-    </div>
+    </Page>
   );
 }
 

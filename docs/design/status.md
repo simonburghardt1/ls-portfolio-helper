@@ -11,7 +11,8 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 | Page type | Pages | Status |
 |---|---|---|
 | Analysis tool | Seasonality | ✅ reference page (kit + Restraint) |
-| | Correlation, Beta, Volatility (single-stock + portfolio risk) | ⬜ |
+| | Single-stock Volatility, Correlation, Beta | ✅ kit; Correlation/Beta share `RollingWindows` (KPI cards = line toggles) |
+| | Portfolio Volatility & Correlation, Portfolio Beta | ✅ kit; shared `PortfolioPicker`, matrices/statistics behind tabs |
 | List / detail | Basket detail | ◐ header + menus on kit; tabs body still has local styles |
 | | Baskets overview, HBM, Portfolio, Track Record, Backtesting | ⬜ |
 | Macro indicator | ISM ×2, NFIB, CPI/PPI, GDP, Debt, Consumer Confidence, Building Permits, Commodities, COT, Market Regime | ⬜ |

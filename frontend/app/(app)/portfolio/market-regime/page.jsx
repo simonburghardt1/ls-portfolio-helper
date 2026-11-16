@@ -6,6 +6,7 @@ import Button from "@/app/components/Button";
 import KpiCard from "@/app/components/KpiCard";
 import RegimeChart, { REGIME_CONFIG, REGIME_COLORS } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -181,7 +182,7 @@ export default function MarketRegimePage() {
   const pendingSum = Object.values(pendingWeights).reduce((a, b) => a + b, 0);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
 
       {/* Header */}
       <PageHeader
@@ -342,6 +343,6 @@ export default function MarketRegimePage() {
         &lt; −0.2 → <span style={{ color: "var(--negative)" }}>Downtrend</span>, else <span style={{ color: "var(--caution)" }}>Ranging</span>.{" "}
         Components missing before their data inception (RSP 2003, HYG/LQD 2007) are excluded and weights renormalized.
       </div>
-    </div>
+    </Page>
   );
 }

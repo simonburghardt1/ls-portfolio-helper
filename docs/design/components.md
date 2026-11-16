@@ -96,7 +96,7 @@ Sharp corners, `--bg-elevated` background, 1px `--border` always. This is the on
 | `meta` | node | One quiet line of identifying facts under the title (see DESIGN.md → Restraint) |
 | `actions` | node | Pinned right: buttons, an asset picker |
 | `back` | `{ href, label }` | Breadcrumb link above the title on detail pages |
-| `subtitle` | string \| node | **Legacy** — don't use on new/migrated pages |
+| `subtitle` | string \| node | Optional: one plain, factual line (DESIGN.md → Restraint) |
 | `style` | object | Merged onto the wrapper |
 
 ## `Page.jsx`
@@ -145,6 +145,14 @@ Click-to-open panel under its trigger; closes on outside click / Escape. `childr
 - `useClickOutside(ref, active, onOutside)`, `useElementWidth()` → `[ref, width]`.
 
 Don't re-declare `pct()`/`fmtPct()`/`pctColor()`/`useClickOutside()` locally in a page — import these.
+
+## `RollingWindows.jsx`
+
+`<RollingWindows title current series={(k) => ({dates, data})} format valueColor referenceLine defaultActive />` — one clickable `KpiCard` per rolling window (1M…5Y) that doubles as legend + toggle for its line in the chart below. Used by Correlation and Beta.
+
+## `PortfolioPicker.jsx`
+
+`<PortfolioPicker value onChange={(value, name) => …} allowLive />` — saved-portfolio select (optionally with "Live portfolio"), same label-over-control look as `AssetSelector`, for a `PageHeader`'s `actions`.
 
 ## Gallery
 

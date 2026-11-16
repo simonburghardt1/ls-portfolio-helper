@@ -3,32 +3,29 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
+import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
 import KpiCard from "@/app/components/KpiCard";
 import Button from "@/app/components/Button";
+import Popover from "@/app/components/Popover";
+import PortfolioPicker from "@/app/components/PortfolioPicker";
+import StateMessage from "@/app/components/StateMessage";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 
 // Same table-style convention as portfolio/risk/volatility's cov/corr matrices and the
 // Seasonality page's monthly-returns table.
-const cellBase = { padding: "6px 10px", textAlign: "right", fontSize: 12.5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" };
+const cellBase = { padding: "6px 10px", textAlign: "right", fontSize: 12.5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontFamily: "var(--font-family-mono)" };
 const rowLabel = { padding: "6px 10px", fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", textAlign: "left" };
-const thStyle = { padding: "6px 10px", fontSize: 10.5, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)" };
+const thStyle = { padding: "6px 10px", fontSize: 10.5, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)" };
 const thRowLabel = { ...thStyle, textAlign: "left" };
-const sectionTitle = { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 10 };
-const panel = { background: "var(--bg-surface)", border: "1px solid var(--border)", padding: 16, marginBottom: 24 };
-
-const SELECT_STYLE = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-  color: "#e5e7eb", fontSize: 13, padding: "6px 10px", cursor: "pointer", width: 260,
-};
-
 const INPUT_STYLE = {
   background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-  color: "var(--text-primary)", fontSize: 12.5, padding: "4px 6px", width: "100%", textAlign: "right",
+  color: "var(--text-primary)", fontSize: 12.5, padding: "4px 6px", width: 72, textAlign: "right",
   fontVariantNumeric: "tabular-nums",
 };
 
-const TICKER_INPUT_STYLE = { ...INPUT_STYLE, textAlign: "left", textTransform: "uppercase", fontWeight: 600 };
+const TICKER_INPUT_STYLE = { ...INPUT_STYLE, width: 96, textAlign: "left", textTransform: "uppercase", fontWeight: 600 };
 
 const REMOVE_BTN_STYLE = {
   background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer",
@@ -96,7 +93,7 @@ function EditableBetaTable({ rows, summary, loadingIds, onUpdateWeight, onTicker
             <th style={thRowLabel}>Ticker</th>
             <th style={thStyle}>Weight</th>
             <th style={thStyle}>Beta</th>
-            <th style={thStyle}>Weighted Beta</th>
+            <th style={thStyle}>Weighted</th>
             <th style={{ ...thStyle, width: 24 }}></th>
           </tr>
         </thead>
@@ -112,7 +109,7 @@ function EditableBetaTable({ rows, summary, loadingIds, onUpdateWeight, onTicker
                   style={TICKER_INPUT_STYLE}
                 />
               </td>
-              <td style={{ padding: "4px 10px" }}>
+              <td style={{ padding: "4px 10px", textAlign: "right" }}>
                 <input
                   type="number"
                   step="0.1"
@@ -138,7 +135,7 @@ function EditableBetaTable({ rows, summary, loadingIds, onUpdateWeight, onTicker
         </tbody>
       </table>
       <div style={{ marginTop: 10 }}>
-        <Button variant="secondary" onClick={onAddRow}>+ Add Position</Button>
+        <Button variant="secondary" onClick={onAddRow} style={{ padding: "4px 12px" }}>+ Add</Button>
       </div>
     </>
   );
@@ -150,23 +147,16 @@ export default function PortfolioBetaPage() {
   const [draftRows, setDraftRows] = useState([]);
   const [seededFor, setSeededFor] = useState(null);
   const [loadingIds, setLoadingIds] = useState(new Set());
-  const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveError, setSaveError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: portfolios } = useQuery({
-    queryKey: ["portfolios"],
-    queryFn: () => api.get("/api/portfolios"),
-  });
-
-  function selectPortfolio(id) {
+  function selectPortfolio(id, name) {
     setPortfolioId(id);
     setSaved(false);
-    const p = (portfolios ?? []).find((x) => x.id === id);
-    setSelectedPortfolio(id, p?.name ?? null);
+    setSelectedPortfolio(id, name);
   }
 
   const ready = Boolean(portfolioId);
@@ -239,11 +229,12 @@ export default function PortfolioBetaPage() {
         .map((r) => ({ ticker: r.ticker, side: r.side, weight: r.weight }));
       await api.post("/api/portfolios", { name: saveName.trim(), positions });
       queryClient.invalidateQueries({ queryKey: ["portfolios"] });
-      setSaveOpen(false);
       setSaveName("");
       setSaved(true);
+      return true;
     } catch (e) {
       setSaveError(e.message);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -257,103 +248,72 @@ export default function PortfolioBetaPage() {
   const portfolioBeta = longSummary.weighted_beta - shortSummary.weighted_beta;
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
       <PageHeader
-        title="Beta"
-        subtitle="Per-position beta for a saved Portfolio — always 1Y, weekly returns, vs the S&P 500 (^GSPC). Edit tickers/weights below to explore what-if scenarios."
+        title="Portfolio Beta"
+        subtitle="Per-position beta against the S&P 500, from one year of weekly returns."
+        actions={<PortfolioPicker value={portfolioId} onChange={selectPortfolio} />}
       />
 
-      <div style={{ marginBottom: 24 }}>
-        <label style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
-          Portfolio
-        </label>
-        <select
-          value={portfolioId ?? ""}
-          onChange={(e) => selectPortfolio(Number(e.target.value))}
-          style={SELECT_STYLE}
-        >
-          <option value="" disabled>— select —</option>
-          {(portfolios ?? []).map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
-          ))}
-        </select>
-      </div>
+      {!ready && <StateMessage>Select a portfolio.</StateMessage>}
+      {isLoading && <StateMessage kind="loading" />}
+      {isError && <StateMessage kind="error">Could not load beta data for this portfolio.</StateMessage>}
 
-      {!ready && (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-          Select a Portfolio above.
-        </div>
-      )}
-      {isLoading && (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Loading…</div>
-      )}
-      {isError && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--negative)" }}>
-          Could not load beta data for this Portfolio.
-        </div>
-      )}
-
-      {data && draftRows.length >= 0 && (
+      {data && (
         <>
-          <div style={{ display: "flex", gap: 14, marginBottom: 16, flexWrap: "wrap" }}>
-            <KpiCard label="Portfolio Beta" formatted={fmtBeta(portfolioBeta)} small />
-            <KpiCard label="Net Weight" formatted={fmtPct(netWeight)} small />
-            <KpiCard label="Long Weighted Beta" formatted={fmtBeta(longSummary.weighted_beta)} small />
-            <KpiCard label="Short Weighted Beta" formatted={fmtBeta(shortSummary.weighted_beta)} small />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+            <KpiCard label="Portfolio beta" formatted={fmtBeta(portfolioBeta)} />
+            <KpiCard label="Net weight" formatted={fmtPct(netWeight)} />
+            <KpiCard label="Long beta" formatted={fmtBeta(longSummary.weighted_beta)} caption={`${fmtPct(longSummary.weight)} gross`} />
+            <KpiCard label="Short beta" formatted={fmtBeta(shortSummary.weighted_beta)} caption={`${fmtPct(shortSummary.weight)} gross`} />
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
-            <Button variant="primary" onClick={applyBetaNeutral}>Make Beta Neutral</Button>
+          <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-5)", flexWrap: "wrap", alignItems: "center" }}>
+            <Button variant="primary" onClick={applyBetaNeutral}>Make beta neutral</Button>
             <Button variant="secondary" onClick={resetDraft}>Reset</Button>
-            <Button variant="secondary" onClick={() => setSaveOpen((v) => !v)}>Save as New Portfolio</Button>
+            <Popover
+              width={300}
+              padded
+              trigger={(toggle) => <Button variant="secondary" onClick={() => { setSaveError(null); toggle(); }}>Save as new…</Button>}
+            >
+              {(close) => (
+                <form
+                  onSubmit={async (e) => { e.preventDefault(); if (await saveAsNew()) close(); }}
+                  style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}
+                >
+                  <input
+                    autoFocus
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    placeholder="Portfolio name"
+                    style={{ ...INPUT_STYLE, width: "100%", textAlign: "left", fontWeight: 400, padding: "6px 8px" }}
+                  />
+                  {saveError && <span style={{ fontSize: 12, color: "var(--negative)" }}>{saveError}</span>}
+                  <Button variant="primary" type="submit" disabled={!saveName.trim() || saving}>{saving ? "Saving…" : "Save"}</Button>
+                </form>
+              )}
+            </Popover>
             {saved && <span style={{ fontSize: 12, color: "var(--positive)" }}>Saved.</span>}
           </div>
 
-          {saveOpen && (
-            <div style={{ ...panel, display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                value={saveName}
-                onChange={(e) => setSaveName(e.target.value)}
-                placeholder="New portfolio name"
-                style={{ ...INPUT_STYLE, textAlign: "left", textTransform: "none", fontWeight: 400, width: 260 }}
-              />
-              <Button variant="primary" onClick={saveAsNew} disabled={!saveName.trim() || saving}>
-                {saving ? "Saving…" : "Save"}
-              </Button>
-              <Button variant="secondary" onClick={() => { setSaveOpen(false); setSaveError(null); }}>Cancel</Button>
-              {saveError && <span style={{ fontSize: 12, color: "var(--negative)" }}>{saveError}</span>}
-            </div>
-          )}
-
-          <div style={sectionTitle}>Long Positions</div>
-          <div style={panel}>
-            <EditableBetaTable
-              rows={longRows}
-              summary={longSummary}
-              loadingIds={loadingIds}
-              onUpdateWeight={updateWeight}
-              onTickerType={tickerType}
-              onTickerBlur={tickerBlur}
-              onRemoveRow={removeRow}
-              onAddRow={() => addRow("long")}
-            />
-          </div>
-
-          <div style={sectionTitle}>Short Positions</div>
-          <div style={panel}>
-            <EditableBetaTable
-              rows={shortRows}
-              summary={shortSummary}
-              loadingIds={loadingIds}
-              onUpdateWeight={updateWeight}
-              onTickerType={tickerType}
-              onTickerBlur={tickerBlur}
-              onRemoveRow={removeRow}
-              onAddRow={() => addRow("short")}
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: "var(--space-5)" }}>
+            {[["Long", longRows, longSummary, "long"], ["Short", shortRows, shortSummary, "short"]].map(([title, rows, summary, side]) => (
+              <Panel key={side} title={title} style={{ minWidth: 0 }}>
+                <EditableBetaTable
+                  rows={rows}
+                  summary={summary}
+                  loadingIds={loadingIds}
+                  onUpdateWeight={updateWeight}
+                  onTickerType={tickerType}
+                  onTickerBlur={tickerBlur}
+                  onRemoveRow={removeRow}
+                  onAddRow={() => addRow(side)}
+                />
+              </Panel>
+            ))}
           </div>
         </>
       )}
-    </div>
+    </Page>
   );
 }

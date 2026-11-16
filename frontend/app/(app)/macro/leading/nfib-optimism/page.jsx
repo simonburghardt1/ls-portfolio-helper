@@ -5,6 +5,7 @@ import LineChart from "@/app/components/LineChart";
 import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -508,7 +509,7 @@ export default function NfibPage() {
   const [tab, setTab] = useState("Components");
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <PageHeader
         title="NFIB Small Business Confidence"
         subtitle="National Federation of Independent Business — Survey of Small Business Economic Trends"
@@ -523,6 +524,6 @@ export default function NfibPage() {
       {tab === "Components" && <ComponentsTab />}
       {tab === "Regions"    && <RegionsTab />}
       {tab === "Industries" && <IndustriesTab />}
-    </div>
+    </Page>
   );
 }

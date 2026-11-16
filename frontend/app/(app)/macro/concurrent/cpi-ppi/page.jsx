@@ -9,6 +9,7 @@ import LineChart from "@/app/components/LineChart";
 import PageHeader from "@/app/components/PageHeader";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -588,7 +589,7 @@ export default function CpiPpiPage() {
   }, []);
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 1100, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       {/* Header */}
       <PageHeader
         title="CPI & PPI Dashboard"
@@ -616,6 +617,6 @@ export default function CpiPpiPage() {
           {tab === "insights"   &&                                        <InsightsTab    insights={insights} />}
         </>
       )}
-    </div>
+    </Page>
   );
 }

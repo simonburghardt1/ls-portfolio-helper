@@ -37,7 +37,7 @@ export default function Histogram({ bins, selectedIndex = null, onSelect }) {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${bins.length}, 1fr)`, gridTemplateRows: `${BAR_ROW_HEIGHT}px ${LABEL_ROW_HEIGHT}px`, columnGap: 4, padding: "0 4px" }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${bins.length}, minmax(0, 1fr))`, gridTemplateRows: `${BAR_ROW_HEIGHT}px ${LABEL_ROW_HEIGHT}px`, columnGap: 4, padding: "0 4px" }}>
       {bins.map((b, i) => (
         <div
           key={i}

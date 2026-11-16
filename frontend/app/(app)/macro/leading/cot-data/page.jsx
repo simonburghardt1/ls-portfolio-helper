@@ -10,6 +10,7 @@ import {
 } from "lightweight-charts";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -310,7 +311,7 @@ export default function CotDataPage() {
   if (error) return <div style={{ padding: "40px 32px", color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
 
       {/* Header */}
       <PageHeader
@@ -475,6 +476,6 @@ export default function CotDataPage() {
           </div>
         )}
       </div>
-    </div>
+    </Page>
   );
 }
