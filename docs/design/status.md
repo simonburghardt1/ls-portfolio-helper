@@ -15,11 +15,12 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 | | Portfolio Volatility & Correlation, Portfolio Beta | ✅ kit; shared `PortfolioPicker`, matrices/statistics behind tabs |
 | List / detail | Basket detail | ◐ header + menus on kit; tabs body still has local styles |
 | | Track Record | ✅ split into tab components; DataTable with sorting + click-to-edit rows (`useRowEditor`), 5–6 KPIs per tab, IBKR import behind a header button |
-| | Baskets overview, HBM, Portfolio, Backtesting | ⬜ |
+| | Backtesting | ✅ builder on DataTable + CellInput/SideTag, summary line instead of 7 cards, returns table instead of 10 cards, chart + windowed drawdown in one panel, compare/regime as chips |
+| | Baskets overview, HBM, Portfolio | ⬜ |
 | Macro indicator | ISM ×2, NFIB, CPI/PPI, GDP, Debt, Consumer Confidence, Building Permits, Commodities, COT, Market Regime | ⬜ |
 | Admin / forms | Data import, ISM imports, HBM admin, Indicators, Consumer Confidence admin, Basket new/edit, login/register | ⬜ |
 
-**DataTable (2026-11-16):** shared table component; Seasonality heatmap, portfolio correlation/covariance/Sharpe, Volatility statistics, Portfolio Beta and Basket holdings migrated. Still hand-rolled: Backtesting (2), HBM, Portfolio, ISM ×2, COT, CPI, admin indicators.
+**DataTable (2026-11-16):** shared table component; Seasonality heatmap, portfolio correlation/covariance/Sharpe, Volatility statistics, Portfolio Beta and Basket holdings migrated. Still hand-rolled: HBM, Portfolio, ISM ×2, COT, CPI, admin indicators.
 
 **Page frame (2026-11-16):** every page now renders inside the shared `Page` component (full width, `--page-margin` side padding); no page has its own outer wrapper or `maxWidth` column any more, admin forms included.
 

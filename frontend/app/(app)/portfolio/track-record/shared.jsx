@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { authFetch } from "@/app/lib/api";
-import Badge from "@/app/components/Badge";
+import SideTag from "@/app/components/SideTag";
+import CellInput from "@/app/components/CellInput";
+
+// Re-exported so the tab components keep importing them from "./shared"
+export { SideTag, CellInput };
 
 export const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -57,38 +61,6 @@ export function tradingDays(start, end) {
 // ── Small pieces ───────────────────────────────────────────────────────────────
 
 export const MONO = { fontFamily: "var(--font-family-mono)" };
-
-export function SideTag({ side, onToggle }) {
-  const long = side === "long";
-  return (
-    <Badge variant={long ? "positive" : "negative"} interactive={Boolean(onToggle)} onClick={onToggle} style={{ whiteSpace: "nowrap" }}>
-      {long ? "LONG" : "SHORT"}
-    </Badge>
-  );
-}
-
-/** Text/number/date input used inside table rows in edit mode. */
-export function CellInput({ value, onChange, type = "text", width = 80, align = "left", mono = false, upper = false, autoFocus, onBlur, placeholder }) {
-  return (
-    <input
-      type={type}
-      value={value ?? ""}
-      autoFocus={autoFocus}
-      placeholder={placeholder}
-      onChange={(e) => onChange(upper ? e.target.value.toUpperCase() : e.target.value)}
-      onBlur={onBlur}
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        width, padding: "4px 6px", fontSize: 12, textAlign: align,
-        background: "var(--bg-base)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-        color: "var(--text-primary)", outline: "none", colorScheme: "dark",
-        fontFamily: mono ? "var(--font-family-mono)" : "var(--font-family-sans)",
-        fontVariantNumeric: "tabular-nums",
-        textTransform: upper ? "uppercase" : "none",
-      }}
-    />
-  );
-}
 
 export function IconButton({ children, onClick, title, tone = "default" }) {
   const color = tone === "danger" ? "var(--negative)" : tone === "ok" ? "var(--positive)" : "var(--text-secondary)";

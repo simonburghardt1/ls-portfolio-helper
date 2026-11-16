@@ -1,959 +1,536 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
-import LineChart from "@/app/components/LineChart";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import PageHeader from "@/app/components/PageHeader";
-import Button from "@/app/components/Button";
+import { useEffect, useState } from "react";
+import { authFetch, api } from "@/app/lib/api";
+import { fmtPct, signColor } from "@/app/lib/format";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 import Page from "@/app/components/Page";
-import { authFetch } from "@/app/lib/api";
+import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
+import KpiCard from "@/app/components/KpiCard";
+import Button from "@/app/components/Button";
+import Chip from "@/app/components/Chip";
+import InfoTip from "@/app/components/InfoTip";
+import Popover, { MenuItem } from "@/app/components/Popover";
+import DataTable from "@/app/components/DataTable";
+import StateMessage from "@/app/components/StateMessage";
+import LineChart from "@/app/components/LineChart";
+import PortfolioPicker from "@/app/components/PortfolioPicker";
+import CellInput from "@/app/components/CellInput";
+import SideTag from "@/app/components/SideTag";
 
-const API = "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 const DEFAULT_POSITIONS = [
   { ticker: "MSTR", weight: 0.10, side: "short" },
   { ticker: "BMBL", weight: 0.10, side: "short" },
   { ticker: "HUBS", weight: 0.10, side: "short" },
-  { ticker: "LLY",  weight: 0.10, side: "long"  },
-  { ticker: "NBIS", weight: 0.10, side: "long"  },
-  { ticker: "ONDS", weight: 0.10, side: "long"  },
-  { ticker: "GPRE", weight: 0.10, side: "long"  },
+  { ticker: "LLY", weight: 0.10, side: "long" },
+  { ticker: "NBIS", weight: 0.10, side: "long" },
+  { ticker: "ONDS", weight: 0.10, side: "long" },
+  { ticker: "GPRE", weight: 0.10, side: "long" },
   { ticker: "SOFI", weight: 0.10, side: "short" },
   { ticker: "DKNG", weight: 0.10, side: "short" },
-  { ticker: "SEZL", weight: 0.10, side: "long"  },
+  { ticker: "SEZL", weight: 0.10, side: "long" },
 ];
 
+const DEFAULT_REGIME_TARGETS = { up: 0.5, ranging: 0.0, down: -0.5 };
+
+const PERIODS = ["1W", "1M", "3M", "6M", "12M"];
+// Trading days per window — same as backend services/portfolio.py summary_returns
+const TF_DAYS = { "1W": 5, "1M": 21, "3M": 63, "6M": 126, "12M": 252 };
+
+const COLORS = { portfolio: "#3b82f6", benchmark: "#f59e0b", compare: "#10b981", regime: "#a78bfa" };
+
+const pct = (v, dp = 2) => fmtPct(v, dp);
+
+// ── Pure helpers ───────────────────────────────────────────────────────────────
+
+function cleanPositions(positions) {
+  return positions
+    .filter((p) => p.ticker && p.side && p.weight !== 0 && p.weight !== "")
+    .map((p) => ({ ticker: p.ticker.trim().toUpperCase(), weight: Number(p.weight), side: p.side }));
+}
+
+// Comparable form of the book (ignores the typed weightText and float noise) — used to tell
+// whether anything differs from the starting point.
+function bookKey(positions, targets) {
+  return JSON.stringify({
+    p: positions.map((p) => [String(p.ticker ?? "").trim().toUpperCase(), p.side, p.weight === "" ? "" : Math.round(Number(p.weight) * 1e6)]),
+    t: [Number(targets.up), Number(targets.ranging), Number(targets.down)],
+  });
+}
+
+function validate(positions) {
+  const errs = [];
+  positions.forEach((p, i) => {
+    if (!p.ticker?.trim()) errs.push(`Row ${i + 1}: ticker required`);
+    if (p.weight === "" || Number.isNaN(Number(p.weight))) errs.push(`Row ${i + 1}: weight must be a number`);
+  });
+  return errs;
+}
+
+function summarize(positions) {
+  const clean = positions.filter((p) => p.ticker && p.weight !== "" && !Number.isNaN(Number(p.weight)));
+  return {
+    count: clean.length,
+    gross: clean.reduce((s, p) => s + Math.abs(Number(p.weight) || 0), 0),
+    // rounded: equal long/short weights sum to ±1e-17, which would read as a tiny net short
+    net: Math.round(clean.reduce((s, p) => s + (p.side === "short" ? -1 : 1) * (Number(p.weight) || 0), 0) * 1e6) / 1e6,
+    longs: clean.filter((p) => p.side === "long").length,
+    shorts: clean.filter((p) => p.side === "short").length,
+  };
+}
+
+/**
+ * Window of the cumulative series, rebased to 0 at the window start. Uses days + 1 points
+ * (= `days` daily returns), the same reference close the backend's period returns use — so the
+ * 12M chart ends exactly at the 12M figure in the returns table.
+ */
+function windowed(result, timeframe, compareResult) {
+  if (!result?.series) return null;
+  const { dates, portfolio, benchmark, regime_adjusted } = result.series;
+  const start = Math.max(0, dates.length - (TF_DAYS[timeframe] ?? 252) - 1);
+  const d = dates.slice(start);
+  const rebase = (arr) => arr.slice(start).map((v, _, a) => ((1 + v) / (1 + a[0]) - 1) * 100);
+  const port = rebase(portfolio);
+
+  let comparison = null;
+  if (compareResult?.series) {
+    const map = Object.fromEntries(compareResult.series.dates.map((dt, i) => [dt, compareResult.series.portfolio[i]]));
+    const first = d.find((dt) => map[dt] != null);
+    if (first != null) comparison = d.map((dt) => (map[dt] != null ? ((1 + map[dt]) / (1 + map[first]) - 1) * 100 : null));
+  }
+
+  // Drawdown within the window (peak since the window start), not since the backtest start
+  let peak = -Infinity;
+  const drawdown = port.map((v) => { const level = 1 + v / 100; peak = Math.max(peak, level); return (level / peak - 1) * 100; });
+
+  return { dates: d, portfolio: port, benchmark: rebase(benchmark), regime: regime_adjusted ? rebase(regime_adjusted) : null, comparison, drawdown };
+}
+
+function tableRows(result, frequency) {
+  if (!result?.daily) return [];
+  if (frequency === "daily") return [...result.daily].reverse();
+  const weekly = [];
+  let week = null, weekStartCum = 0, last = null;
+  for (const row of result.daily) {
+    const d = new Date(row.date);
+    const wk = `${d.getUTCFullYear()}-${Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 604800000)}`;
+    if (week === null) { week = wk; last = row; continue; }
+    if (wk !== week) {
+      weekly.push({ date: last.date, daily_return: (1 + last.cumulative_return) / (1 + weekStartCum) - 1, cumulative_return: last.cumulative_return });
+      week = wk; weekStartCum = last.cumulative_return;
+    }
+    last = row;
+  }
+  if (last) weekly.push({ date: last.date, daily_return: (1 + last.cumulative_return) / (1 + weekStartCum) - 1, cumulative_return: last.cumulative_return });
+  return weekly.reverse();
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
 export default function BacktestingPage() {
-  const [positions,         setPositions]         = useState(DEFAULT_POSITIONS);
-  const [result,            setResult]            = useState(null);
-  const [status,            setStatus]            = useState("idle");   // idle | running | done | error
-  const [errors,            setErrors]            = useState([]);
-  const [selectedTimeframe, setSelectedTimeframe] = useState("12M");
-  const [tableFrequency,    setTableFrequency]    = useState("daily");
+  const [positions, setPositions] = useState(DEFAULT_POSITIONS);
+  const [result, setResult] = useState(null);
+  const [status, setStatus] = useState("idle"); // idle | running | done | error
+  const [errors, setErrors] = useState([]);
+  const [timeframe, setTimeframe] = useState("12M");
+  const [frequency, setFrequency] = useState("daily");
 
-  // Analytics state (beta + correlation)
-  const [betas,             setBetas]             = useState({});       // {TICKER: float}
-  const [portfolioBeta,     setPortfolioBeta]     = useState(null);
-  const [portfolioCorr,     setPortfolioCorr]     = useState(null);
-  const [betaStatus,        setBetaStatus]        = useState("idle");   // idle | loading | done | error
+  const [betas, setBetas] = useState({});
+  const [portfolioBeta, setPortfolioBeta] = useState(null);
+  const [portfolioCorr, setPortfolioCorr] = useState(null);
+  const [analyticsStatus, setAnalyticsStatus] = useState("idle"); // auto β/corr refresh
+  const [betaStatus, setBetaStatus] = useState("idle");           // the Beta-adjust action
+  // Snapshots of the positions before each Beta-adjust, so it can be undone step by step
+  // Starting point (loaded portfolio or the defaults); ↶ resets to it whenever anything differs
+  const [baseline, setBaseline] = useState({ positions: DEFAULT_POSITIONS, regimeTargets: DEFAULT_REGIME_TARGETS });
 
-  // Regime-adjust state
-  const [regimeAdjust,      setRegimeAdjust]      = useState(false);
-  const [regimeTargets,     setRegimeTargets]     = useState({ up: 0.5, ranging: 0.0, down: -0.5 });
-  const [compareStatus,     setCompareStatus]     = useState("idle");  // idle | loading | done | error
+  const [regimeOpen, setRegimeOpen] = useState(false);
+  const [regimeTargets, setRegimeTargets] = useState(DEFAULT_REGIME_TARGETS);
+  const [regimeStatus, setRegimeStatus] = useState("idle");
 
-  // Load portfolio state
-  const { selectedPortfolioId, setSelectedPortfolio: setSharedPortfolio } = usePortfolioSelectionStore();
-  const [savedPortfolios,   setSavedPortfolios]   = useState([]);
-  const [selectedPortfolio, setSelectedPortfolio] = useState(selectedPortfolioId ? String(selectedPortfolioId) : "");
-  const [loadedName,        setLoadedName]        = useState(null);
+  const { selectedPortfolioId, setSelectedPortfolio } = usePortfolioSelectionStore();
+  const [savedPortfolios, setSavedPortfolios] = useState([]);
+  const [loadedId, setLoadedId] = useState(null);
 
-  // Compare portfolio state
-  const [comparePortfolioId,     setComparePortfolioId]     = useState("");
-  const [comparePortfolioResult, setComparePortfolioResult] = useState(null);
-  const [comparePortfolioStatus, setComparePortfolioStatus] = useState("idle");
+  const [compare, setCompare] = useState(null); // { id, name, result }
+  const [compareStatus, setCompareStatus] = useState("idle");
 
   useEffect(() => {
-    authFetch(`${API}/api/portfolios`)
-      .then(r => r.json())
-      .then(setSavedPortfolios)
-      .catch(() => {});
+    api.get("/api/portfolios").then(setSavedPortfolios).catch(() => {});
   }, []);
 
-  // Auto-load the portfolio selected on another page (e.g. Portfolio Overview),
-  // once the saved-portfolios list has arrived.
+  // Auto-load the portfolio picked on another page (shared selection store)
   useEffect(() => {
-    if (!selectedPortfolioId || !savedPortfolios.length || loadedName) return;
-    const p = savedPortfolios.find(p => p.id === selectedPortfolioId);
-    if (!p) return;
-    setSelectedPortfolio(String(p.id));
-    const loaded = p.positions.map(pos => ({ ...pos }));
-    setPositions(loaded);
-    setLoadedName(p.name);
-    fetchAnalytics(loaded);
+    if (!selectedPortfolioId || !savedPortfolios.length || loadedId != null) return;
+    const p = savedPortfolios.find((x) => x.id === selectedPortfolioId);
+    if (p) applyPortfolio(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedPortfolios, selectedPortfolioId]);
 
-  // ── Portfolio loader ───────────────────────────────────────────────────────
-
-  async function fetchAnalytics(positionsList) {
-    setBetaStatus("loading");
+  async function fetchAnalytics(list) {
+    if (!cleanPositions(list).length) return;
+    setAnalyticsStatus("loading");
     try {
       const res = await authFetch(`${API}/api/portfolio/analytics`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ positions: cleanPositions(positionsList) }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ positions: cleanPositions(list) }),
       });
       if (!res.ok) throw new Error();
       const json = await res.json();
-      setBetas(json.betas);
-      setPortfolioBeta(json.portfolio_beta);
-      setPortfolioCorr(json.correlation);
+      setBetas(json.betas); setPortfolioBeta(json.portfolio_beta); setPortfolioCorr(json.correlation); setAnalyticsStatus("done");
+    } catch {
+      setAnalyticsStatus("error");
+    }
+  }
+
+  // Portfolio β and correlation follow the book: recomputed shortly after any edit (weights,
+  // sides, tickers, Beta-adjust, undo, loading). Per-ticker betas stay visible meanwhile.
+  useEffect(() => {
+    const t = setTimeout(() => fetchAnalytics(positions), 600);
+    return () => clearTimeout(t);
+  }, [positions]);
+
+  function applyPortfolio(p) {
+    const loaded = p.positions.map((pos) => ({ ...pos }));
+    setPositions(loaded);
+    setLoadedId(p.id);
+    setBaseline({ positions: loaded, regimeTargets: DEFAULT_REGIME_TARGETS });
+    setRegimeTargets(DEFAULT_REGIME_TARGETS);
+    setResult(null); setStatus("idle"); setErrors([]); setRegimeStatus("idle"); setBetaStatus("idle");
+  }
+
+  function selectPortfolio(id, name) {
+    const p = savedPortfolios.find((x) => x.id === id);
+    if (!p) return;
+    setSelectedPortfolio(id, name);
+    applyPortfolio(p);
+  }
+
+  // ── Position editing ──
+  function update(index, field, value) {
+    // weightText keeps exactly what is typed ("2", "2.", "25") — formatting the number on every
+    // keystroke turned "25" into "2.005". The numeric weight is derived from it.
+    setPositions((prev) => prev.map((p, i) => (i !== index ? p : field === "weight"
+      ? { ...p, weightText: value, weight: value === "" ? "" : Number(value) / 100 }
+      : { ...p, [field]: value })));
+  }
+  const toggleSide = (i) => update(i, "side", positions[i].side === "long" ? "short" : "long");
+  const addRow = () => setPositions((prev) => [...prev, { ticker: "", weight: 0.10, side: "long" }]);
+  function removeRow(index) { setPositions((prev) => prev.filter((_, i) => i !== index)); }
+
+  // ── Actions ──
+  async function betaAdjust() {
+    const errs = validate(positions);
+    if (errs.length) { setErrors(errs); return; }
+    setErrors([]); setBetaStatus("loading");
+    try {
+      const res = await authFetch(`${API}/api/portfolio/beta-adjust`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ positions: cleanPositions(positions) }),
+      });
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setPositions(json.positions); setBetas(json.betas); setPortfolioBeta(json.portfolio_beta); setPortfolioCorr(json.correlation ?? null);
       setBetaStatus("done");
     } catch {
       setBetaStatus("error");
     }
   }
 
-  function loadPortfolio() {
-    const p = savedPortfolios.find(p => String(p.id) === selectedPortfolio);
-    if (!p) return;
-    const loaded = p.positions.map(pos => ({ ...pos }));
-    setPositions(loaded);
-    setLoadedName(p.name);
-    setResult(null);
-    setStatus("idle");
-    setErrors([]);
+  function resetToStart() {
+    setPositions(baseline.positions.map((p) => ({ ...p })));
+    setRegimeTargets(baseline.regimeTargets);
     setBetaStatus("idle");
-    setSharedPortfolio(p.id, p.name);
-    // Auto-calculate analytics for the loaded portfolio
-    fetchAnalytics(loaded);
+    clearRegime();
   }
-
-  // ── Position helpers ───────────────────────────────────────────────────────
-
-  function updatePosition(index, field, value) {
-    setPositions(prev => {
-      const next = [...prev];
-      if (field === "weight") {
-        // UI shows % (e.g. 10), we store decimal (e.g. 0.10)
-        next[index] = { ...next[index], weight: value === "" ? "" : Number(value) / 100 };
-      } else {
-        next[index] = { ...next[index], [field]: value };
-      }
-      return next;
-    });
-    // Clear beta data when positions change
-    setBetas({});
-    setPortfolioBeta(null);
-    setBetaStatus("idle");
-  }
-
-  function toggleSide(index) {
-    setPositions(prev => {
-      const next = [...prev];
-      next[index] = { ...next[index], side: next[index].side === "long" ? "short" : "long" };
-      return next;
-    });
-    setBetas({});
-    setPortfolioBeta(null);
-    setBetaStatus("idle");
-  }
-
-  function addRow() {
-    setPositions(prev => [...prev, { ticker: "", weight: 0.10, side: "long" }]);
-  }
-
-  function removeRow(index) {
-    setPositions(prev => prev.filter((_, i) => i !== index));
-    setBetas({});
-    setPortfolioBeta(null);
-    setBetaStatus("idle");
-  }
-
-  // ── Summary ────────────────────────────────────────────────────────────────
-
-  function computeSummary(positions) {
-    const clean = positions.filter(p => p.ticker && p.weight !== "" && !isNaN(Number(p.weight)));
-    return {
-      count:   clean.length,
-      gross:   clean.reduce((s, p) => s + Math.abs(Number(p.weight) || 0), 0),
-      net:     clean.reduce((s, p) => s + (p.side === "short" ? -1 : 1) * (Number(p.weight) || 0), 0),
-      longs:   clean.filter(p => p.side === "long").length,
-      shorts:  clean.filter(p => p.side === "short").length,
-    };
-  }
-
-  // ── Validation ─────────────────────────────────────────────────────────────
-
-  function validate(positions) {
-    const errs = [];
-    positions.forEach((p, i) => {
-      if (!p.ticker?.trim())                               errs.push(`Row ${i + 1}: ticker required`);
-      if (p.weight === "" || isNaN(Number(p.weight)))      errs.push(`Row ${i + 1}: weight must be a number`);
-      if (!["long", "short"].includes(p.side))             errs.push(`Row ${i + 1}: invalid side`);
-    });
-    return errs;
-  }
-
-  function cleanPositions(positions) {
-    return positions
-      .filter(p => p.ticker && p.side && p.weight !== 0 && p.weight !== "")
-      .map(p => ({ ticker: p.ticker.trim().toUpperCase(), weight: Number(p.weight), side: p.side }));
-  }
-
-  // ── Beta Adjust ────────────────────────────────────────────────────────────
-
-  async function betaAdjust() {
-    const errs = validate(positions);
-    if (errs.length) { setErrors(errs); return; }
-    setErrors([]);
-    setBetaStatus("loading");
-    try {
-      const res = await authFetch(`${API}/api/portfolio/beta-adjust`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ positions: cleanPositions(positions) }),
-      });
-      if (!res.ok) throw new Error(`Server ${res.status}`);
-      const json = await res.json();
-      setPositions(json.positions);
-      setBetas(json.betas);
-      setPortfolioBeta(json.portfolio_beta);
-      setPortfolioCorr(json.correlation ?? null);
-      setBetaStatus("done");
-    } catch (e) {
-      console.error(e);
-      setBetaStatus("error");
-    }
-  }
-
-  // ── Backtest ───────────────────────────────────────────────────────────────
 
   async function runBacktest() {
     const errs = validate(positions);
     setErrors(errs);
-    if (errs.length) { setStatus("idle"); return; }
-    setStatus("running");
-    setCompareStatus("idle");
+    if (errs.length) return;
+    setStatus("running"); setRegimeStatus("idle");
     try {
       const res = await authFetch(`${API}/api/portfolio/backtest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ positions: cleanPositions(positions) }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ positions: cleanPositions(positions) }),
       });
       const json = await res.json();
-      if (!res.ok) {
-        setErrors([json.detail || `Server error ${res.status}`]);
-        setStatus("error");
-        return;
-      }
-      setResult(json);
-      setStatus("done");
+      if (!res.ok) { setErrors([json.detail || `Server error ${res.status}`]); setStatus("error"); return; }
+      setResult(json); setStatus("done");
     } catch (e) {
-      console.error(e);
-      setErrors([e.message || "Request failed"]);
-      setStatus("error");
+      setErrors([e.message || "Request failed"]); setStatus("error");
     }
   }
 
-  async function compareRegimeAdjusted() {
-    const errs = validate(positions);
-    if (errs.length) { setErrors(errs); return; }
-    setCompareStatus("loading");
+  async function runRegimeComparison() {
+    setRegimeStatus("loading");
     try {
       const res = await authFetch(`${API}/api/portfolio/backtest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          positions:      cleanPositions(positions),
-          regime_adjust:  true,
+          positions: cleanPositions(positions),
+          regime_adjust: true,
           regime_targets: { up: Number(regimeTargets.up), ranging: Number(regimeTargets.ranging), down: Number(regimeTargets.down) },
         }),
       });
-      if (!res.ok) throw new Error(`Server ${res.status}`);
+      if (!res.ok) throw new Error();
       const json = await res.json();
-      // Merge regime_adjusted overlay into the existing result without replacing the static series
-      setResult(prev => ({
-        ...prev,
-        series:        { ...prev.series, regime_adjusted: json.series.regime_adjusted },
-        summary_regime: json.summary_regime,
-      }));
+      setResult((prev) => ({ ...prev, series: { ...prev.series, regime_adjusted: json.series.regime_adjusted }, summary_regime: json.summary_regime }));
+      setRegimeStatus("done");
+    } catch {
+      setRegimeStatus("error");
+    }
+  }
+
+  function clearRegime() {
+    setResult((prev) => {
+      if (!prev) return prev;
+      const { regime_adjusted: _drop, ...series } = prev.series;
+      return { ...prev, series, summary_regime: undefined };
+    });
+    setRegimeStatus("idle");
+  }
+
+  async function runCompare(p) {
+    setCompareStatus("loading");
+    try {
+      const res = await authFetch(`${API}/api/portfolio/backtest`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ positions: p.positions }),
+      });
+      if (!res.ok) throw new Error();
+      setCompare({ id: p.id, name: p.name, result: await res.json() });
       setCompareStatus("done");
-    } catch (e) {
-      console.error(e);
+    } catch {
       setCompareStatus("error");
     }
   }
 
-  async function runPortfolioComparison() {
-    const p = savedPortfolios.find(p => String(p.id) === comparePortfolioId);
-    if (!p) return;
-    setComparePortfolioStatus("loading");
-    try {
-      const res = await authFetch(`${API}/api/portfolio/backtest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ positions: p.positions }),
-      });
-      if (!res.ok) throw new Error(`Server ${res.status}`);
-      setComparePortfolioResult(await res.json());
-      setComparePortfolioStatus("done");
-    } catch {
-      setComparePortfolioStatus("error");
-    }
-  }
-
-  function clearPortfolioComparison() {
-    setComparePortfolioResult(null);
-    setComparePortfolioStatus("idle");
-    setComparePortfolioId("");
-  }
-
-  function clearRegimeComparison() {
-    setResult(prev => {
-      if (!prev) return prev;
-      const { regime_adjusted: _, ...series } = prev.series;
-      return { ...prev, series, summary_regime: undefined };
-    });
-    setCompareStatus("idle");
-  }
-
-  // ── Chart / table helpers ──────────────────────────────────────────────────
-
-  const TF_DAYS = { "1W": 5, "1M": 21, "3M": 63, "6M": 126, "12M": 252 };
-
-  function getFilteredChartData(result, timeframe, compareResult) {
-    if (!result?.series) return null;
-    const { dates, portfolio, benchmark, regime_adjusted, drawdown } = result.series;
-    const days = TF_DAYS[timeframe] ?? 252;
-    const start = Math.max(0, dates.length - days);
-    const d = dates.slice(start), p = portfolio.slice(start), b = benchmark.slice(start);
-    const ra = regime_adjusted ? regime_adjusted.slice(start) : null;
-    const dd = drawdown ? drawdown.slice(start) : null;
-    if (!p.length || !b.length) return null;
-
-    const rebase = (arr) => arr.map(v => ((1 + v) / (1 + arr[0]) - 1) * 100);
-
-    let comparison = null;
-    if (compareResult?.series) {
-      const compMap = {};
-      compareResult.series.dates.forEach((dt, i) => { compMap[dt] = compareResult.series.portfolio[i]; });
-      const firstDate = d.find(dt => compMap[dt] != null);
-      if (firstDate != null) {
-        const compBase = compMap[firstDate];
-        comparison = d.map(dt => {
-          const v = compMap[dt];
-          return v != null ? ((1 + v) / (1 + compBase) - 1) * 100 : null;
-        });
-      }
-    }
-
-    return {
-      dates: d,
-      portfolio:       rebase(p),
-      benchmark:       rebase(b),
-      regime_adjusted: ra ? rebase(ra) : null,
-      comparison,
-      drawdown:        dd ? dd.map(v => v != null ? +(v * 100).toFixed(3) : null) : null,
-    };
-  }
-
-  function getTableRows(result, frequency) {
-    if (!result?.daily) return [];
-    if (frequency === "daily") return [...result.daily].reverse();
-    const rows = result.daily;
-    const weekly = [];
-    let currentWeek = null, weekStartCum = null, lastRow = null;
-    for (const row of rows) {
-      const d = new Date(row.date);
-      const wk = `${d.getUTCFullYear()}-${Math.floor((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 604800000)}`;
-      if (!currentWeek) { currentWeek = wk; weekStartCum = 0; lastRow = row; }
-      else if (wk !== currentWeek) {
-        weekly.push({ date: lastRow.date, daily_return: (1 + lastRow.cumulative_return) / (1 + weekStartCum) - 1, cumulative_return: lastRow.cumulative_return });
-        currentWeek = wk; weekStartCum = lastRow.cumulative_return; lastRow = row;
-      } else { lastRow = row; }
-    }
-    if (lastRow) weekly.push({ date: lastRow.date, daily_return: (1 + lastRow.cumulative_return) / (1 + weekStartCum) - 1, cumulative_return: lastRow.cumulative_return });
-    return weekly.reverse();
-  }
-
-  const summary   = computeSummary(positions);
-  const chartData = getFilteredChartData(result, selectedTimeframe, comparePortfolioResult);
-  const tableRows = getTableRows(result, tableFrequency);
-  const compareName = savedPortfolios.find(p => String(p.id) === comparePortfolioId)?.name ?? null;
-  const hasBetas  = Object.keys(betas).length > 0;
+  const sum = summarize(positions);
+  const hasBetas = Object.keys(betas).length > 0;
+  const chart = windowed(result, timeframe, compare?.result);
+  const rows = tableRows(result, frequency);
+  const loadedName = savedPortfolios.find((p) => p.id === loadedId)?.name;
+  const isDirty = bookKey(positions, regimeTargets) !== bookKey(baseline.positions, baseline.regimeTargets);
 
   return (
     <Page>
+      <PageHeader
+        title="Portfolio Backtester"
+        subtitle={loadedName ? `Backtesting ${loadedName}` : "Build a long/short portfolio and backtest its historical performance."}
+        actions={<PortfolioPicker value={loadedId} onChange={selectPortfolio} />}
+      />
 
-        {/* Header */}
-        <PageHeader title="Portfolio Backtester" subtitle={loadedName ? `Loaded: ${loadedName}` : "Build a long/short portfolio and backtest its historical performance."} />
+      {/* ── Builder ── */}
+      <Panel
+        title="Positions"
+        titleExtra={
+          <span style={{ fontSize: 12, color: "var(--text-secondary)", fontFamily: "var(--font-family-mono)" }}>
+            {sum.count} · {sum.longs} L / {sum.shorts} S · gross {fmtPct(sum.gross, 0, { sign: false })} · net <span style={{ color: signColor(sum.net) }}>{pct(sum.net, 0)}</span>
+            {" · "}β {analyticsStatus === "loading" ? "…" : portfolioBeta != null ? portfolioBeta.toFixed(2) : "—"}
+            {" · "}corr {analyticsStatus === "loading" ? "…" : portfolioCorr != null ? portfolioCorr.toFixed(2) : "—"}
+          </span>
+        }
+        actions={
+          <>
+            {isDirty && (
+              <Button variant="secondary" onClick={resetToStart} title={`Reset to ${loadedName ?? "the starting positions"}`} aria-label="Reset to start">↶</Button>
+            )}
+            <Button variant="secondary" onClick={addRow}>+ Add</Button>
+            <Button variant="secondary" onClick={betaAdjust} disabled={betaStatus === "loading"}>{betaStatus === "loading" ? "Fetching betas…" : "Beta-adjust"}</Button>
+            {/* Toggle variant for the on/off state, but at the regular button size */}
+            <Button variant="range-toggle" active={regimeOpen} onClick={() => { setRegimeOpen((v) => !v); clearRegime(); }} style={{ padding: "8px 16px" }}>Regime-adjust</Button>
+            <Button variant="primary" onClick={runBacktest} disabled={status === "running"}>{status === "running" ? "Running…" : "Run backtest"}</Button>
+          </>
+        }
+      >
+        <DataTable
+          rows={positions.map((p, i) => ({ ...p, __i: i }))}
+          rowKey="__i"
+          columns={[
+            { key: "__n", label: "#", numeric: true, value: (r) => r.__i + 1, color: () => "var(--text-disabled)", width: 36 },
+            { key: "ticker", label: "Ticker", render: (r) => <CellInput value={r.ticker} onChange={(v) => update(r.__i, "ticker", v)} width={110} mono upper placeholder="AAPL" invalid={!r.ticker?.trim()} /> },
+            { key: "side", label: "Side", render: (r) => <SideTag side={r.side} onToggle={() => toggleSide(r.__i)} /> },
+            {
+              key: "weight", label: "Weight", align: "right",
+              render: (r) => (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <CellInput type="number" step="0.01" value={r.weightText ?? (r.weight === "" ? "" : (Number(r.weight) * 100).toFixed(2))} onChange={(v) => update(r.__i, "weight", v)} width={80} align="right" mono invalid={r.weight === "" || Number.isNaN(Number(r.weight))} />
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>%</span>
+                </span>
+              ),
+            },
+            ...(hasBetas ? [{ key: "beta", label: "Beta", numeric: true, value: (r) => betas[r.ticker?.toUpperCase()], format: (v) => (v == null ? "—" : v.toFixed(2)) }] : []),
+            {
+              key: "remove", label: "", align: "right", width: 40,
+              render: (r) => <button type="button" onClick={() => removeRow(r.__i)} aria-label={`Remove ${r.ticker || "row"}`} style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: 16 }}>×</button>,
+            },
+          ]}
+          empty="No positions — add one."
+        />
 
-        {/* Load Portfolio */}
-        {savedPortfolios.length > 0 && (
-          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>Load saved portfolio:</span>
-            <select
-              value={selectedPortfolio}
-              onChange={e => setSelectedPortfolio(e.target.value)}
-              style={{ background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "6px 10px", fontSize: 13, color: "#e5e7eb", cursor: "pointer" }}
-            >
-              <option value="">— select —</option>
-              {savedPortfolios.map(p => (
-                <option key={p.id} value={String(p.id)}>{p.name} ({p.positions.length} pos)</option>
-              ))}
-            </select>
-            <button
-              onClick={loadPortfolio}
-              disabled={!selectedPortfolio}
-              style={selectedPortfolio ? btnPrimary : btnDisabled}
-            >
-              Load
-            </button>
+        {betaStatus === "done" && hasBetas && (
+          <div style={{ marginTop: "var(--space-3)", fontSize: 12, color: "var(--text-secondary)" }}>Weights beta-adjusted. Run the backtest to see the effect.</div>
+        )}
+        {betaStatus === "error" && <StateMessage kind="error" style={{ marginTop: "var(--space-3)", marginBottom: 0 }}>Could not fetch betas. Check the tickers.</StateMessage>}
+
+        {regimeOpen && (
+          <div style={{ marginTop: "var(--space-4)", paddingTop: "var(--space-3)", borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap", fontSize: 12 }}>
+            <span style={{ color: "var(--text-secondary)" }}>Target β by regime</span>
+            <InfoTip text="Scales the book's net beta to the target for the market regime of each day (Up / Ranging / Down) and shows the result as an extra line next to the static portfolio." />
+            {[["up", "Up"], ["ranging", "Ranging"], ["down", "Down"]].map(([k, label]) => (
+              <label key={k} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {label}
+                <CellInput type="number" step="0.1" value={regimeTargets[k]} onChange={(v) => { setRegimeTargets((t) => ({ ...t, [k]: v })); clearRegime(); }} width={64} align="right" mono />
+              </label>
+            ))}
+            <Button variant="secondary" onClick={runRegimeComparison} disabled={status !== "done" || regimeStatus === "loading"} style={{ marginLeft: "auto" }}>
+              {regimeStatus === "loading" ? "Comparing…" : status !== "done" ? "Run the backtest first" : regimeStatus === "done" ? "↻ Recompare" : "Compare regime-adjusted"}
+            </Button>
+            {regimeStatus === "error" && <span style={{ color: "var(--negative)" }}>Failed</span>}
           </div>
         )}
+      </Panel>
 
-        {/* KPI Cards */}
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-          <KpiCard label="Positions"      value={summary.count} />
-          <KpiCard label="Gross Exposure" value={`${(summary.gross * 100).toFixed(1)}%`} />
-          <KpiCard label="Net Exposure"   value={`${(summary.net * 100).toFixed(1)}%`}
-            valueColor={summary.net > 0 ? "#86efac" : summary.net < 0 ? "#fca5a5" : "#e5e7eb"} />
-          <KpiCard label="Longs"  value={summary.longs} />
-          <KpiCard label="Shorts" value={summary.shorts} />
-          <KpiCardLink
-            href="/portfolio/risk/beta"
-            label="Portfolio β"
-            value={portfolioBeta !== null ? portfolioBeta.toFixed(4) : "—"}
-            loading={betaStatus === "loading"}
-            valueColor={
-              portfolioBeta === null ? "#4b5563"
-              : Math.abs(portfolioBeta) < 0.05 ? "#86efac"
-              : Math.abs(portfolioBeta) < 0.15  ? "#f59e0b"
-              : "#fca5a5"
-            }
-          />
-          <KpiCardLink
-            href="/portfolio/risk/volatility"
-            label="Correlation (SPY)"
-            value={portfolioCorr !== null ? portfolioCorr.toFixed(4) : "—"}
-            loading={betaStatus === "loading"}
-            valueColor={
-              portfolioCorr === null ? "#4b5563"
-              : Math.abs(portfolioCorr) < 0.2 ? "#86efac"
-              : Math.abs(portfolioCorr) < 0.5  ? "#f59e0b"
-              : "#fca5a5"
-            }
-          />
-        </div>
+      {errors.length > 0 && <StateMessage kind="error">{errors.map((e, i) => <div key={i}>{e}</div>)}</StateMessage>}
 
-        {/* Positions Table */}
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden", marginBottom: 16 }}>
-          {/* Table header bar */}
-          <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>POSITIONS</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="secondary" onClick={addRow}>+ Add Row</Button>
-              <button
-                onClick={betaAdjust}
-                disabled={betaStatus === "loading"}
-                style={betaStatus === "loading" ? btnDisabled : btnBeta}
-              >
-                {betaStatus === "loading" ? "Fetching betas…" : "⚡ Beta-Adjust"}
-              </button>
-              <button
-                onClick={runBacktest}
-                disabled={status === "running"}
-                style={status === "running" ? btnDisabled : btnPrimary}
-              >
-                {status === "running" ? "Running…" : "▶ Run Backtest"}
-              </button>
-            </div>
+      {/* ── Results ── */}
+      {result && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
+            <KpiCard label="Sharpe" formatted={result.risk_metrics?.sharpe?.toFixed(2) ?? "—"} valueColor={signColor(result.risk_metrics?.sharpe)} caption="Full backtest" />
+            <KpiCard label="Sortino" formatted={result.risk_metrics?.sortino?.toFixed(2) ?? "—"} valueColor={signColor(result.risk_metrics?.sortino)} caption="Full backtest" />
+            <KpiCard label="Max drawdown" formatted={pct(result.risk_metrics?.max_dd)} valueColor="var(--negative)" caption="Full backtest" />
+            <KpiCard label="Volatility" formatted={fmtPct(result.risk_metrics?.ann_vol, 2, { sign: false })} caption="Annualized" />
           </div>
 
-          {/* Table */}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <Th style={{ width: 36, textAlign: "center" }}>#</Th>
-                  <Th>Ticker</Th>
-                  <Th>Side</Th>
-                  <Th>Weight</Th>
-                  {hasBetas && <Th>Beta</Th>}
-                  <Th style={{ width: 40 }}></Th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((pos, i) => {
-                  const beta = betas[pos.ticker?.toUpperCase()];
-                  const weightPct = pos.weight === "" ? "" : (Number(pos.weight) * 100).toFixed(2);
-                  return (
-                    <tr
-                      key={i}
-                      style={{ borderBottom: "1px solid var(--border)", transition: "background 0.1s" }}
-                      onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
-                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    >
-                      {/* Row number */}
-                      <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 11, color: "#374151", fontVariantNumeric: "tabular-nums" }}>
-                        {i + 1}
-                      </td>
-
-                      {/* Ticker */}
-                      <td style={{ padding: "8px 12px" }}>
-                        <input
-                          value={pos.ticker}
-                          onChange={e => updatePosition(i, "ticker", e.target.value.toUpperCase())}
-                          placeholder="AAPL"
-                          style={{
-                            ...cellInput,
-                            fontFamily: "ui-monospace, monospace",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            color: "#f9fafb",
-                            border: pos.ticker?.trim() ? "1px solid transparent" : "1px solid #dc2626",
-                            width: 90,
-                          }}
-                        />
-                      </td>
-
-                      {/* Side pill — click to toggle */}
-                      <td style={{ padding: "8px 12px" }}>
-                        <button
-                          onClick={() => toggleSide(i)}
-                          style={{
-                            padding: "4px 12px",
-                            borderRadius: 20,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            letterSpacing: "0.06em",
-                            cursor: "pointer",
-                            border: "none",
-                            background: pos.side === "long" ? "rgba(22, 163, 74, 0.2)" : "rgba(220, 38, 38, 0.2)",
-                            color:      pos.side === "long" ? "#86efac"                : "#fca5a5",
-                          }}
-                        >
-                          {pos.side === "long" ? "LONG" : "SHORT"}
-                        </button>
-                      </td>
-
-                      {/* Weight */}
-                      <td style={{ padding: "8px 12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={weightPct}
-                            onChange={e => updatePosition(i, "weight", e.target.value)}
-                            placeholder="10.00"
-                            style={{
-                              ...cellInput,
-                              width: 72,
-                              textAlign: "right",
-                              fontVariantNumeric: "tabular-nums",
-                              border: (pos.weight === "" || isNaN(Number(pos.weight))) ? "1px solid #dc2626" : "1px solid transparent",
-                            }}
-                          />
-                          <span style={{ fontSize: 12, color: "#4b5563" }}>%</span>
-                        </div>
-                      </td>
-
-                      {/* Beta (only shown after Beta-Adjust) */}
-                      {hasBetas && (
-                        <td style={{ padding: "8px 12px" }}>
-                          <span style={{
-                            fontSize: 12,
-                            fontVariantNumeric: "tabular-nums",
-                            color: beta == null ? "#374151"
-                              : beta > 1.5 ? "#fca5a5"
-                              : beta < 0.5 ? "#86efac"
-                              : "#9ca3af",
-                          }}>
-                            {beta != null ? beta.toFixed(2) : "—"}
-                          </span>
-                        </td>
-                      )}
-
-                      {/* Remove */}
-                      <td style={{ padding: "8px 8px", textAlign: "center" }}>
-                        <button
-                          onClick={() => removeRow(i)}
-                          style={{ background: "none", border: "none", color: "#374151", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}
-                          onMouseEnter={e => e.currentTarget.style.color = "#fca5a5"}
-                          onMouseLeave={e => e.currentTarget.style.color = "#374151"}
-                        >
-                          ×
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(440px, 1fr))", gap: "var(--space-5)" }}>
+            <Panel title="Returns" flush style={{ minWidth: 0 }}>
+              <DataTable
+                inset
+                rowKey="name"
+                rows={[
+                  { name: "Portfolio", color: COLORS.portfolio, ...result.summary },
+                  { name: "S&P 500", color: COLORS.benchmark, ...result.benchmark_summary },
+                  ...(compare ? [{ name: compare.name, color: COLORS.compare, ...compare.result.summary }] : []),
+                  ...(result.summary_regime ? [{ name: "Regime-adjusted", color: COLORS.regime, ...result.summary_regime }] : []),
+                ]}
+                columns={[
+                  { key: "name", label: "", render: (r) => <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 2, background: r.color }} />{r.name}</span> },
+                  ...PERIODS.map((p) => ({ key: p, label: p, numeric: true, format: (v) => pct(v), color: (v) => signColor(v) })),
+                ]}
+              />
+            </Panel>
+            {result.contributions && Object.keys(result.contributions).length > 0 && (
+              <Panel title="Contribution" titleExtra={<InfoTip text="Each position's share of the portfolio return over the full backtest." />} style={{ minWidth: 0 }}>
+                <Contributions contributions={result.contributions} positions={positions} />
+              </Panel>
+            )}
           </div>
 
-          {/* Beta-Adjust note */}
-          {betaStatus === "done" && (
-            <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", fontSize: 12, color: "#4b6a9b" }}>
-              Beta-adjusted. Portfolio β = <strong style={{ color: Math.abs(portfolioBeta) < 0.05 ? "#86efac" : "#f59e0b" }}>{portfolioBeta?.toFixed(4)}</strong>. Run the backtest to see updated performance.
-            </div>
-          )}
-          {betaStatus === "error" && (
-            <div style={{ padding: "10px 20px", borderTop: "1px solid rgba(242,88,92,0.3)", fontSize: 12, color: "#fca5a5" }}>
-              Failed to fetch beta data. Check that the backend is running and tickers are valid.
-            </div>
-          )}
-        </div>
-
-        {/* Regime-Adjust panel */}
-        <div style={{ background: "var(--bg-surface)", border: `1px solid ${regimeAdjust ? "rgba(167,139,250,0.3)" : "var(--border)"}`, borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <button onClick={() => { setRegimeAdjust(v => !v); clearRegimeComparison(); }} style={regimeAdjust ? btnRegimeActive : btnRegime}>
-              ◈ Regime-Adjust
-            </button>
-            {regimeAdjust && (
+          <Panel
+            title="Cumulative performance"
+            titleExtra={
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap", fontSize: 12, color: "var(--text-secondary)" }}>
+                <Legend color={COLORS.portfolio}>Portfolio</Legend>
+                <Legend color={COLORS.benchmark}>S&P 500</Legend>
+                {compare && <Chip color={COLORS.compare} onRemove={() => { setCompare(null); setCompareStatus("idle"); }}>{compare.name}</Chip>}
+                {result.series?.regime_adjusted && <Chip color={COLORS.regime} onRemove={clearRegime}>Regime-adjusted</Chip>}
+                <Popover width={220} maxHeight={320} trigger={(t) => <Button variant="secondary" onClick={t} style={{ padding: "3px 10px", fontSize: 12 }}>{compareStatus === "loading" ? "Loading…" : "+ Compare"}</Button>}>
+                  {(close) => savedPortfolios.filter((p) => p.id !== loadedId).map((p) => (
+                    <MenuItem key={p.id} onClick={() => { close(); runCompare(p); }}>{p.name}</MenuItem>
+                  ))}
+                </Popover>
+                {compareStatus === "error" && <span style={{ color: "var(--negative)" }}>Compare failed</span>}
+              </span>
+            }
+            actions={
+              <div style={{ display: "flex", gap: 4 }}>
+                {PERIODS.map((p) => <Button key={p} variant="range-toggle" active={timeframe === p} onClick={() => setTimeframe(p)}>{p}</Button>)}
+              </div>
+            }
+          >
+            {chart && (
               <>
-                <span style={{ fontSize: 11, color: "#6b7280" }}>Target β:</span>
-                {[
-                  { key: "up",      label: "Up",      color: "#86efac" },
-                  { key: "ranging", label: "Ranging", color: "#f59e0b" },
-                  { key: "down",    label: "Down",    color: "#fca5a5" },
-                ].map(({ key, label, color }) => (
-                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
-                    <span style={{ color, fontWeight: 600 }}>{label}</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="-1"
-                      max="1"
-                      value={regimeTargets[key]}
-                      onChange={e => { setRegimeTargets(prev => ({ ...prev, [key]: e.target.value })); clearRegimeComparison(); }}
-                      style={{ ...cellInput, border: "1px solid var(--border)", width: 58, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
-                    />
-                  </label>
-                ))}
-                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-                  {compareStatus === "done" && (
-                    <button onClick={clearRegimeComparison} title="Remove overlay" style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}
-                      onMouseEnter={e => e.currentTarget.style.color = "#fca5a5"}
-                      onMouseLeave={e => e.currentTarget.style.color = "#6b7280"}
-                    >×</button>
-                  )}
-                  <button
-                    onClick={compareRegimeAdjusted}
-                    disabled={status !== "done" || compareStatus === "loading"}
-                    style={status !== "done" || compareStatus === "loading" ? btnDisabled : btnRegimeActive}
-                  >
-                    {compareStatus === "loading" ? "Comparing…" : compareStatus === "done" ? "↻ Recompare" : "Compare Regime-Adjusted"}
-                  </button>
-                  {compareStatus === "error" && <span style={{ fontSize: 11, color: "#fca5a5" }}>Failed</span>}
+                <LineChart
+                  dates={chart.dates}
+                  height={340}
+                  referenceLine={0}
+                  datasets={[
+                    { label: "Portfolio", data: chart.portfolio, borderColor: COLORS.portfolio, borderWidth: 2 },
+                    { label: "S&P 500", data: chart.benchmark, borderColor: COLORS.benchmark, borderWidth: 2 },
+                    ...(chart.comparison ? [{ label: compare.name, data: chart.comparison, borderColor: COLORS.compare, borderWidth: 2 }] : []),
+                    ...(chart.regime ? [{ label: "Regime-adj.", data: chart.regime, borderColor: COLORS.regime, borderWidth: 2 }] : []),
+                  ]}
+                />
+                <div style={{ borderTop: "1px solid var(--border)", marginTop: "var(--space-2)", paddingTop: "var(--space-3)" }}>
+                  <div style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                    Drawdown ({timeframe})
+                  </div>
+                  <LineChart dates={chart.dates} height={150} referenceLine={0} datasets={[{ label: "Drawdown %", data: chart.drawdown, borderColor: "#f2585c", borderWidth: 1.5 }]} />
                 </div>
               </>
             )}
-          </div>
-        </div>
+          </Panel>
 
-        {/* Validation errors */}
-        {errors.length > 0 && (
-          <div style={{ background: "#1c0a0a", border: "1px solid rgba(242,88,92,0.3)", borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#fca5a5" }}>
-            {errors.map((e, i) => <div key={i}>• {e}</div>)}
-          </div>
-        )}
-
-        {/* ── Results ─────────────────────────────────────────────────────────── */}
-        {result && (
-          <>
-            {/* Period returns */}
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              {["1W", "1M", "3M", "6M", "12M"].map(p => (
-                <ReturnCard key={p} label={`${p} Return`} value={result.summary[p]} />
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: result.summary_regime || comparePortfolioResult ? 12 : 24 }}>
-              {["1W", "1M", "3M", "6M", "12M"].map(p => (
-                <ReturnCard key={`b-${p}`} label={`${p} S&P 500`} value={result.benchmark_summary[p]} color="#f59e0b" />
-              ))}
-            </div>
-            {comparePortfolioResult && (
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: result.summary_regime ? 12 : 24 }}>
-                {["1W", "1M", "3M", "6M", "12M"].map(p => (
-                  <ReturnCard key={`cp-${p}`} label={`${p} ${compareName ?? "Compare"}`} value={comparePortfolioResult.summary[p]} color="#10b981" />
-                ))}
+          <Panel
+            title={frequency === "daily" ? "Daily returns" : "Weekly returns"}
+            flush
+            actions={
+              <div style={{ display: "flex", gap: 4 }}>
+                {["daily", "weekly"].map((f) => <Button key={f} variant="range-toggle" active={frequency === f} onClick={() => setFrequency(f)}>{f === "daily" ? "Daily" : "Weekly"}</Button>)}
               </div>
-            )}
-            {result.summary_regime && (
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-                {["1W", "1M", "3M", "6M", "12M"].map(p => (
-                  <ReturnCard key={`ra-${p}`} label={`${p} Regime-Adj`} value={result.summary_regime[p]} color="#a78bfa" />
-                ))}
-              </div>
-            )}
-
-            {/* Compare portfolio panel */}
-            <div style={{ background: "var(--bg-surface)", border: `1px solid ${comparePortfolioResult ? "rgba(16,185,129,0.3)" : "var(--border)"}`, borderRadius: "var(--radius-none)", padding: "12px 16px", marginBottom: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12, color: "#6b7280", whiteSpace: "nowrap" }}>Compare portfolio:</span>
-                <select
-                  value={comparePortfolioId}
-                  onChange={e => { setComparePortfolioId(e.target.value); setComparePortfolioResult(null); setComparePortfolioStatus("idle"); }}
-                  style={{ background: "#111827", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "5px 10px", fontSize: 12, color: "#e5e7eb", cursor: "pointer" }}
-                >
-                  <option value="">— select portfolio —</option>
-                  {savedPortfolios.map(p => (
-                    <option key={p.id} value={String(p.id)}>{p.name} ({p.positions.length} pos)</option>
-                  ))}
-                </select>
-                <button
-                  onClick={runPortfolioComparison}
-                  disabled={!comparePortfolioId || comparePortfolioStatus === "loading"}
-                  style={!comparePortfolioId || comparePortfolioStatus === "loading" ? btnDisabled : { ...btnBase, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.35)", color: "#10b981" }}
-                >
-                  {comparePortfolioStatus === "loading" ? "Loading…" : comparePortfolioStatus === "done" ? "↻ Rerun" : "Compare"}
-                </button>
-                {comparePortfolioResult && (
-                  <button onClick={clearPortfolioComparison} title="Remove" style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}
-                    onMouseEnter={e => e.currentTarget.style.color = "#fca5a5"}
-                    onMouseLeave={e => e.currentTarget.style.color = "#6b7280"}
-                  >×</button>
-                )}
-                {comparePortfolioStatus === "error" && <span style={{ fontSize: 11, color: "#fca5a5" }}>Failed</span>}
-              </div>
-            </div>
-
-            {/* Risk metrics strip */}
-            {result.risk_metrics && (
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-                <RiskCard label="Sharpe Ratio"  value={result.risk_metrics.sharpe}  format="ratio" />
-                <RiskCard label="Sortino Ratio" value={result.risk_metrics.sortino} format="ratio" />
-                <RiskCard label="Max Drawdown"  value={result.risk_metrics.max_dd}  format="pct" alwaysRed />
-                <RiskCard label="Ann. Volatility" value={result.risk_metrics.ann_vol} format="pct" neutral />
-              </div>
-            )}
-
-            {/* Cumulative chart */}
-            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: 20, marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>CUMULATIVE PERFORMANCE</span>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {["1W", "1M", "3M", "6M", "12M"].map(tf => (
-                    <Button key={tf} variant="range-toggle" active={selectedTimeframe === tf} onClick={() => setSelectedTimeframe(tf)}>
-                      {tf}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              {chartData && (
-                <LineChart dates={chartData.dates} datasets={[
-                  { label: "Portfolio",      data: chartData.portfolio,       borderColor: "#60a5fa", backgroundColor: "rgba(96,165,250,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
-                  { label: "S&P 500 (SPY)",  data: chartData.benchmark,       borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,0.1)",  borderWidth: 2, pointRadius: 0, tension: 0.25 },
-                  ...(chartData.comparison ? [
-                    { label: compareName ?? "Comparison", data: chartData.comparison, borderColor: "#10b981", backgroundColor: "rgba(16,185,129,0.1)", borderWidth: 2, pointRadius: 0, tension: 0.25 },
-                  ] : []),
-                  ...(chartData.regime_adjusted ? [
-                    { label: "Regime-Adjusted", data: chartData.regime_adjusted, borderColor: "#a78bfa", backgroundColor: "rgba(167,139,250,0.1)", borderWidth: 2, pointRadius: 0, tension: 0.25 },
-                  ] : []),
-                ]} />
-              )}
-            </div>
-
-            {/* Drawdown chart */}
-            {chartData?.drawdown && (
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 16 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>DRAWDOWN</span>
-                <ResponsiveContainer width="100%" height={180} style={{ marginTop: 12 }}>
-                  <AreaChart data={chartData.dates.map((date, i) => ({ date, value: chartData.drawdown[i] }))} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-                    <XAxis dataKey="date" tick={{ fill: "#6b7280", fontSize: 11 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                    <YAxis
-                      tick={{ fill: "#6b7280", fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={v => `${v.toFixed(0)}%`}
-                      domain={["auto", 0]}
-                      width={48}
-                    />
-                    <Tooltip
-                      contentStyle={{ background: "#0d1829", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", fontSize: 12 }}
-                      labelStyle={{ color: "#9ca3af" }}
-                      formatter={v => [`${v != null ? v.toFixed(2) : "—"}%`, "Drawdown"]}
-                    />
-                    <Area type="monotone" dataKey="value" stroke="#ef4444" fill="rgba(239,68,68,0.15)" strokeWidth={1.5} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* Stock contribution */}
-            {result.contributions && Object.keys(result.contributions).length > 0 && (
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden", marginBottom: 16 }}>
-                <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>STOCK CONTRIBUTION</span>
-                </div>
-                <div style={{ padding: "12px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {Object.entries(result.contributions)
-                    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-                    .map(([ticker, contrib]) => {
-                      const pos = positions.find(p => p.ticker.toUpperCase() === ticker);
-                      const isLong = pos?.side === "long";
-                      const pct = +(contrib * 100).toFixed(2);
-                      const barMax = Math.max(...Object.values(result.contributions).map(v => Math.abs(v))) * 100;
-                      const barWidth = Math.min(100, Math.abs(pct) / barMax * 100);
-                      return (
-                        <div key={ticker} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <span style={{
-                            minWidth: 60, fontSize: 12, fontWeight: 700, fontFamily: "ui-monospace, monospace",
-                            padding: "2px 8px", borderRadius: 4, textAlign: "center",
-                            background: isLong ? "rgba(22,163,74,0.15)" : "rgba(220,38,38,0.15)",
-                            color:      isLong ? "#86efac" : "#fca5a5",
-                          }}>{ticker}</span>
-                          <span style={{ fontSize: 11, color: "#4b5563", minWidth: 36 }}>{isLong ? "LONG" : "SHORT"}</span>
-                          <span style={{ fontSize: 11, color: "#4b5563", minWidth: 40 }}>{pos ? `${(pos.weight * 100).toFixed(0)}%` : ""}</span>
-                          <div style={{ flex: 1, height: 6, background: "#0d1829", borderRadius: 3, overflow: "hidden" }}>
-                            <div style={{
-                              height: "100%", width: `${barWidth}%`, borderRadius: 3,
-                              background: pct >= 0 ? "#22c55e" : "#ef4444",
-                            }} />
-                          </div>
-                          <span style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums", minWidth: 68, textAlign: "right", color: pct >= 0 ? "#86efac" : "#fca5a5" }}>
-                            {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
-                          </span>
-                        </div>
-                      );
-                    })
-                  }
-                </div>
-              </div>
-            )}
-
-            {/* Returns table */}
-            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", overflow: "hidden" }}>
-              <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", letterSpacing: "0.04em" }}>
-                  {tableFrequency === "daily" ? "DAILY" : "WEEKLY"} RETURNS
-                </span>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {["daily", "weekly"].map(f => (
-                    <Button key={f} variant="range-toggle" active={tableFrequency === f} onClick={() => setTableFrequency(f)}>
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ maxHeight: 420, overflowY: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead style={{ position: "sticky", top: 0, background: "var(--bg-surface)", zIndex: 1 }}>
-                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      <Th>Date</Th>
-                      <Th>{tableFrequency === "daily" ? "Daily PnL" : "Weekly PnL"}</Th>
-                      <Th>Cumulative PnL</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.map((row, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#0a1628"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                      >
-                        <td style={{ padding: "10px 20px", fontSize: 13, color: "#9ca3af", fontVariantNumeric: "tabular-nums" }}>{row.date}</td>
-                        <Td value={row.daily_return} />
-                        <Td value={row.cumulative_return} />
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
+            }
+          >
+            <DataTable
+              inset
+              stickyHeader
+              maxHeight={420}
+              rowKey="date"
+              rows={rows}
+              columns={[
+                { key: "date", label: "Date", render: (r) => <span style={{ fontFamily: "var(--font-family-mono)", color: "var(--text-secondary)" }}>{r.date}</span> },
+                { key: "daily_return", label: frequency === "daily" ? "Return" : "Weekly return", numeric: true, format: (v) => pct(v), color: (v) => signColor(v) },
+                { key: "cumulative_return", label: `Cumulative since ${result.daily?.[0]?.date ?? "start"}`, numeric: true, format: (v) => pct(v), color: (v) => signColor(v) },
+              ]}
+            />
+          </Panel>
+        </>
+      )}
     </Page>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+// ── Small pieces ───────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, valueColor = "#f9fafb", loading = false }) {
+function Legend({ color, children }) {
   return (
-    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 130 }}>
-      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: loading ? "#374151" : valueColor, fontVariantNumeric: "tabular-nums" }}>
-        {loading ? "…" : value}
-      </div>
-    </div>
-  );
-}
-
-function KpiCardLink({ href, label, value, valueColor, loading }) {
-  return (
-    <Link href={href} style={{ textDecoration: "none" }}>
-      <div
-        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 130, cursor: "pointer", transition: "border-color 0.15s" }}
-        onMouseEnter={e => e.currentTarget.style.borderColor = "#2d5a8e"}
-        onMouseLeave={e => e.currentTarget.style.borderColor = "var(--border)"}
-      >
-        <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-          {label}
-          <span style={{ fontSize: 9, color: "#1e3a5f" }}>↗</span>
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: loading ? "#374151" : (valueColor ?? "#f9fafb"), fontVariantNumeric: "tabular-nums" }}>
-          {loading ? "…" : value}
-        </div>
-      </div>
-    </Link>
-  );
-}
-
-function RiskCard({ label, value, format, alwaysRed, neutral }) {
-  let color = "#e5e7eb";
-  if (value != null) {
-    if (alwaysRed) color = "#fca5a5";
-    else if (neutral) color = "#9ca3af";
-    else color = value > 1 ? "#86efac" : value > 0 ? "#f59e0b" : "#fca5a5";
-  }
-  const display = value == null ? "—"
-    : format === "pct" ? `${(value * 100).toFixed(2)}%`
-    : value.toFixed(2);
-  return (
-    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 140 }}>
-      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{display}</div>
-    </div>
-  );
-}
-
-function ReturnCard({ label, value, color = "#f9fafb" }) {
-  return (
-    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "14px 18px", minWidth: 130 }}>
-      <div style={{ fontSize: 10, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>
-        {value == null ? "—" : `${(value * 100).toFixed(2)}%`}
-      </div>
-    </div>
-  );
-}
-
-function Th({ children, style }) {
-  return (
-    <th style={{ padding: "10px 20px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#4b5563", textTransform: "uppercase", letterSpacing: "0.07em", ...style }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span style={{ width: 14, height: 2, background: color }} />
       {children}
-    </th>
+    </span>
   );
 }
 
-function Td({ value }) {
-  const color = value > 0 ? "#86efac" : value < 0 ? "#fca5a5" : "#6b7280";
+function Contributions({ contributions, positions }) {
+  const entries = Object.entries(contributions).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const max = Math.max(...entries.map(([, v]) => Math.abs(v)), 1e-9);
   return (
-    <td style={{ padding: "10px 20px", fontSize: 13, color, fontVariantNumeric: "tabular-nums" }}>
-      {(value * 100).toFixed(2)}%
-    </td>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {entries.map(([ticker, v]) => {
+        const pos = positions.find((p) => p.ticker?.toUpperCase() === ticker);
+        return (
+          <div key={ticker} style={{ display: "grid", gridTemplateColumns: "64px 54px 1fr 72px", alignItems: "center", gap: "var(--space-2)", fontSize: 12 }}>
+            <span style={{ fontFamily: "var(--font-family-mono)", fontWeight: 600 }}>{ticker}</span>
+            <span style={{ color: pos?.side === "short" ? "var(--negative)" : "var(--positive)", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em" }}>
+              {pos ? `${pos.side === "short" ? "S" : "L"} ${(pos.weight * 100).toFixed(0)}%` : ""}
+            </span>
+            <div style={{ height: 6, background: "var(--bg-elevated)" }}>
+              <div style={{ height: "100%", width: `${(Math.abs(v) / max) * 100}%`, background: v >= 0 ? "var(--positive)" : "var(--negative)", opacity: 0.8 }} />
+            </div>
+            <span style={{ fontFamily: "var(--font-family-mono)", textAlign: "right", color: signColor(v) }}>{fmtPct(v)}</span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
-
-// ── Styles ─────────────────────────────────────────────────────────────────────
-
-const cellInput = {
-  background: "transparent",
-  border: "1px solid transparent",
-  borderRadius: 5,
-  padding: "5px 8px",
-  fontSize: 13,
-  color: "#e5e7eb",
-  outline: "none",
-  transition: "border-color 0.15s",
-};
-
-const btnBase = {
-  borderRadius: 6,
-  padding: "7px 14px",
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: "pointer",
-  transition: "opacity 0.15s",
-};
-const btnPrimary     = { ...btnBase, background: "#1e3a5f", border: "1px solid #2d5a8e", color: "#93c5fd" };
-const btnBeta        = { ...btnBase, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", color: "#f59e0b" };
-const btnDisabled    = { ...btnBase, background: "transparent", border: "1px solid var(--border)", color: "#374151", cursor: "default" };
-const btnRegime      = { ...btnBase, background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)", color: "#8b7ec8" };
-const btnRegimeActive = { ...btnBase, background: "rgba(167,139,250,0.18)", border: "1px solid #a78bfa", color: "#a78bfa" };
