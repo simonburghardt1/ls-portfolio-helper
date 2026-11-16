@@ -18,6 +18,8 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 | Macro indicator | ISM ×2, NFIB, CPI/PPI, GDP, Debt, Consumer Confidence, Building Permits, Commodities, COT, Market Regime | ⬜ |
 | Admin / forms | Data import, ISM imports, HBM admin, Indicators, Consumer Confidence admin, Basket new/edit, login/register | ⬜ |
 
+**DataTable (2026-11-16):** shared table component; Seasonality heatmap, portfolio correlation/covariance/Sharpe, Volatility statistics, Portfolio Beta and Basket holdings migrated. Still hand-rolled: Track Record (4), Backtesting (2), HBM, Portfolio, ISM ×2, COT, CPI, admin indicators.
+
 **Page frame (2026-11-16):** every page now renders inside the shared `Page` component (full width, `--page-margin` side padding); no page has its own outer wrapper or `maxWidth` column any more, admin forms included.
 
 ## Component adoption, by page (v1)

@@ -11,14 +11,11 @@ import Button from "@/app/components/Button";
 import Popover from "@/app/components/Popover";
 import PortfolioPicker from "@/app/components/PortfolioPicker";
 import StateMessage from "@/app/components/StateMessage";
+import DataTable from "@/app/components/DataTable";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 
-// Same table-style convention as portfolio/risk/volatility's cov/corr matrices and the
-// Seasonality page's monthly-returns table.
-const cellBase = { padding: "6px 10px", textAlign: "right", fontSize: 12.5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontFamily: "var(--font-family-mono)" };
-const rowLabel = { padding: "6px 10px", fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", textAlign: "left" };
-const thStyle = { padding: "6px 10px", fontSize: 10.5, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)" };
-const thRowLabel = { ...thStyle, textAlign: "left" };
+const MONO = { fontFamily: "var(--font-family-mono)" };
+
 const INPUT_STYLE = {
   background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
   color: "var(--text-primary)", fontSize: 12.5, padding: "4px 6px", width: 72, textAlign: "right",
@@ -85,55 +82,47 @@ function betaNeutralize(rows) {
 }
 
 function EditableBetaTable({ rows, summary, loadingIds, onUpdateWeight, onTickerBlur, onTickerType, onRemoveRow, onAddRow }) {
+  const columns = [
+    {
+      key: "ticker", label: "Ticker",
+      render: (r) => r.__footer ? "Subtotal" : (
+        <input
+          value={r.ticker}
+          onChange={(e) => onTickerType(r.id, e.target.value)}
+          onBlur={(e) => onTickerBlur(r.id, e.target.value)}
+          placeholder="e.g. AAPL"
+          style={TICKER_INPUT_STYLE}
+        />
+      ),
+    },
+    {
+      key: "weight", label: "Weight", align: "right",
+      render: (r) => r.__footer ? <span style={MONO}>{fmtPct(summary.weight)}</span> : (
+        <input
+          type="number"
+          step="0.1"
+          value={Math.round(r.weight * 1000) / 10}
+          onChange={(e) => onUpdateWeight(r.id, (Number(e.target.value) || 0) / 100)}
+          style={INPUT_STYLE}
+        />
+      ),
+    },
+    { key: "beta", label: "Beta", numeric: true, format: (v, r) => (r.__footer ? "" : loadingIds.has(r.id) ? "…" : fmtBeta(v)) },
+    {
+      key: "weighted", label: "Weighted", numeric: true,
+      value: (r) => (r.__footer ? summary.weighted_beta : r.beta == null ? null : r.weight * r.beta),
+      format: (v) => fmtBeta(v),
+    },
+    {
+      key: "remove", label: "", align: "center", width: 28,
+      render: (r) => r.__footer ? null : (
+        <button onClick={() => onRemoveRow(r.id)} style={REMOVE_BTN_STYLE} title="Remove position" aria-label={`Remove ${r.ticker || "position"}`}>×</button>
+      ),
+    },
+  ];
   return (
     <>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={thRowLabel}>Ticker</th>
-            <th style={thStyle}>Weight</th>
-            <th style={thStyle}>Beta</th>
-            <th style={thStyle}>Weighted</th>
-            <th style={{ ...thStyle, width: 24 }}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td style={{ padding: "4px 10px" }}>
-                <input
-                  value={r.ticker}
-                  onChange={(e) => onTickerType(r.id, e.target.value)}
-                  onBlur={(e) => onTickerBlur(r.id, e.target.value)}
-                  placeholder="e.g. AAPL"
-                  style={TICKER_INPUT_STYLE}
-                />
-              </td>
-              <td style={{ padding: "4px 10px", textAlign: "right" }}>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={Math.round(r.weight * 1000) / 10}
-                  onChange={(e) => onUpdateWeight(r.id, (Number(e.target.value) || 0) / 100)}
-                  style={INPUT_STYLE}
-                />
-              </td>
-              <td style={cellBase}>{loadingIds.has(r.id) ? "…" : fmtBeta(r.beta)}</td>
-              <td style={cellBase}>{r.beta == null ? "—" : fmtBeta(r.weight * r.beta)}</td>
-              <td style={{ textAlign: "center" }}>
-                <button onClick={() => onRemoveRow(r.id)} style={REMOVE_BTN_STYLE} title="Remove position">×</button>
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <td style={{ ...rowLabel, borderTop: "1px solid var(--border)" }}>Subtotal</td>
-            <td style={{ ...cellBase, borderTop: "1px solid var(--border)", fontWeight: 600 }}>{fmtPct(summary.weight)}</td>
-            <td style={{ ...cellBase, borderTop: "1px solid var(--border)" }}></td>
-            <td style={{ ...cellBase, borderTop: "1px solid var(--border)", fontWeight: 600 }}>{fmtBeta(summary.weighted_beta)}</td>
-            <td style={{ borderTop: "1px solid var(--border)" }}></td>
-          </tr>
-        </tbody>
-      </table>
+      <DataTable columns={columns} rows={rows} rowKey="id" footerRows={[{ __footer: true, __strong: true }]} empty="No positions." />
       <div style={{ marginTop: 10 }}>
         <Button variant="secondary" onClick={onAddRow} style={{ padding: "4px 12px" }}>+ Add</Button>
       </div>

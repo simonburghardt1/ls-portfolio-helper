@@ -1,0 +1,119 @@
+.wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.auto {
+  width: auto;
+}
+
+.th {
+  padding: 6px 10px;
+  font-family: var(--font-family-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.sortable:hover {
+  color: var(--text-primary);
+}
+.sorted {
+  color: var(--text-primary);
+}
+
+.td {
+  padding: 7px 10px;
+  font-family: var(--font-family-sans);
+  font-size: 12.5px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.dense .td {
+  padding: 4px 8px;
+  font-size: 11.5px;
+  border-bottom: none;
+}
+.dense .th {
+  padding: 6px 8px;
+}
+
+.num {
+  text-align: right;
+  font-family: var(--font-family-mono);
+}
+.right {
+  text-align: right;
+}
+.center {
+  text-align: center;
+}
+
+.row:hover > .td {
+  background-color: rgba(255, 255, 255, 0.025);
+}
+.clickable {
+  cursor: pointer;
+}
+.selected > .td {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+/* Heatmap cells set their own background; brighten instead of overlaying */
+.row:hover > .heat {
+  filter: brightness(1.25);
+}
+
+.foot .td {
+  color: var(--text-secondary);
+  border-bottom: none;
+}
+.foot:first-child .td {
+  border-top: 1px solid var(--border);
+}
+.footStrong .td {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.stickyHead .th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-surface);
+}
+.stickyCol .th:first-child,
+.stickyCol .td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+}
+.stickyHead.stickyCol .th:first-child {
+  z-index: 3;
+}
+
+.divider {
+  border-left: 1px solid var(--border);
+}
+
+.inset .th:first-child,
+.inset .td:first-child {
+  padding-left: var(--space-4);
+}
+.inset .th:last-child,
+.inset .td:last-child {
+  padding-right: var(--space-4);
+}

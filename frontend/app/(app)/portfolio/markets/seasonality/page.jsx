@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
 import { fmtPct, signColor } from "@/app/lib/format";
+import { heatColor, heatCap as computeHeatCap } from "@/app/lib/heat";
 import { useElementWidth } from "@/app/lib/hooks";
 import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
@@ -14,8 +15,8 @@ import Chip from "@/app/components/Chip";
 import InfoTip from "@/app/components/InfoTip";
 import Popover from "@/app/components/Popover";
 import StateMessage from "@/app/components/StateMessage";
+import DataTable from "@/app/components/DataTable";
 import AssetSelector from "@/app/components/AssetSelector";
-import styles from "./seasonality.module.css";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -224,9 +225,7 @@ function buildModel(data, cycle, thisYear, thisMonth) {
   const heatRows = rows
     .filter((r) => inCycle(r.year) && (completeSet.has(r.year) || r.year === thisYear))
     .sort((a, b) => b.year - a.year);
-  const absVals = heatRows.flatMap((r) => r.months).filter((v) => v != null).map(Math.abs);
-  // Cap the colour scale at the 90th percentile so a single crash month doesn't wash out the rest
-  const heatCap = Math.max(quantile(absVals, 0.9) ?? 0, 0.02);
+  const heatCap = computeHeatCap(heatRows.flatMap((r) => r.months), 0.9, 0.02);
 
   return {
     histYears, cycleCounts, path, current, nowWeek, forward, months,
@@ -475,79 +474,52 @@ function MonthlyProfile({ model, thisMonth }) {
 
 // ── Monthly returns heatmap ────────────────────────────────────────────────────
 
-function heatColor(v, cap) {
-  if (v == null) return "transparent";
-  const t = Math.min(Math.abs(v) / cap, 1);
-  return v >= 0 ? `rgba(22,163,74,${0.08 + t * 0.6})` : `rgba(220,38,38,${0.08 + t * 0.6})`;
-}
-
 function Heatmap({ model, thisYear, thisMonth, compare, colorOf, onToggleYear }) {
-  const summary = [
-    { label: "Avg", vals: model.months.map((s) => s.avg), fmt: (v) => pct(v), heat: true },
-    { label: "% Up", vals: model.months.map((s) => (s.n ? s.up / s.n : null)), fmt: (v) => (v == null ? "—" : `${Math.round(v * 100)}%`), heat: false },
+  const heat = (v) => ({ background: heatColor(v, model.heatCap) });
+  const isPctUp = (row) => row.__kind === "up";
+
+  const columns = [
+    {
+      key: "year", label: "Year",
+      render: (r) => {
+        if (r.__kind) return <span style={{ paddingLeft: 12, color: "var(--text-secondary)" }}>{r.label}</span>;
+        const dot = r.year === thisYear ? CURRENT_COLOR : compare.includes(r.year) ? colorOf(r.year) : null;
+        return (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-family-mono)" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot ?? "transparent" }} />
+            {r.year}
+          </span>
+        );
+      },
+    },
+    ...MONTHS.map((m, i) => ({
+      key: `m${i}`, numeric: true,
+      label: <span style={{ color: i === thisMonth ? "var(--text-primary)" : undefined }}>{m}</span>,
+      value: (r) => r.months[i],
+      format: (v, r) => (v == null ? "" : isPctUp(r) ? `${Math.round(v * 100)}%` : pct(v)),
+      color: (v, r) => (isPctUp(r) ? "var(--text-secondary)" : "var(--text-primary)"),
+      cellStyle: (v, r) => (isPctUp(r) ? {} : heat(v)),
+    })),
+    { key: "total", label: "Year", numeric: true, divider: true, format: (v) => (v == null ? "" : pct(v)), color: (v) => pctColor(v) },
   ];
+
+  const footerRows = [
+    { __kind: "avg", label: "Avg", months: model.months.map((s) => s.avg), total: null },
+    { __kind: "up", label: "% Up", months: model.months.map((s) => (s.n ? s.up / s.n : null)), total: null },
+  ];
+
   return (
     <Panel title="Monthly returns" titleExtra={<InfoTip text="Click a year to overlay it on the seasonal path." />} flush>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" }}>
-          <thead>
-            <tr>
-              <th style={{ ...hth, textAlign: "left", paddingLeft: 16 }}>Year</th>
-              {MONTHS.map((m, i) => (
-                <th key={m} style={{ ...hth, color: i === thisMonth ? "var(--text-primary)" : hth.color }}>{m}</th>
-              ))}
-              <th style={{ ...hth, paddingRight: 16, borderLeft: "1px solid var(--border)" }}>Year</th>
-            </tr>
-          </thead>
-          <tbody>
-            {model.heatRows.map((r) => {
-              const isCurrent = r.year === thisYear;
-              const on = compare.includes(r.year);
-              const clickable = !isCurrent && model.yearsByNum[r.year]?.week_cum_return.some((v) => v != null);
-              const dot = isCurrent ? CURRENT_COLOR : on ? colorOf(r.year) : null;
-              return (
-                <tr
-                  key={r.year}
-                  className={clickable ? styles.clickRow : undefined}
-                  onClick={clickable ? () => onToggleYear(r.year) : undefined}
-                >
-                  <td style={{ ...htd, textAlign: "left", paddingLeft: 16, color: "var(--text-primary)" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot ?? "transparent" }} />
-                      {r.year}
-                    </span>
-                  </td>
-                  {r.months.map((v, i) => (
-                    <td
-                      key={i}
-                      title={isCurrent && i === thisMonth ? "Month to date" : undefined}
-                      style={{ ...htd, background: heatColor(v, model.heatCap), color: "var(--text-primary)" }}
-                    >
-                      {v == null ? "" : pct(v)}
-                    </td>
-                  ))}
-                  <td style={{ ...htd, paddingRight: 16, borderLeft: "1px solid var(--border)", color: pctColor(r.total) }}>
-                    {pct(r.total)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            {summary.map((s, k) => (
-              <tr key={s.label}>
-                <td style={{ ...htd, textAlign: "left", paddingLeft: 28, color: "var(--text-secondary)", borderTop: k === 0 ? "1px solid var(--border)" : undefined }}>{s.label}</td>
-                {s.vals.map((v, i) => (
-                  <td key={i} style={{ ...htd, borderTop: k === 0 ? "1px solid var(--border)" : undefined, background: s.heat ? heatColor(v, model.heatCap) : "transparent", color: s.heat ? "var(--text-primary)" : "var(--text-secondary)" }}>
-                    {s.fmt(v)}
-                  </td>
-                ))}
-                <td style={{ ...htd, borderLeft: "1px solid var(--border)", borderTop: k === 0 ? "1px solid var(--border)" : undefined }} />
-              </tr>
-            ))}
-          </tfoot>
-        </table>
-      </div>
+      <DataTable
+        dense
+        inset
+        columns={columns}
+        rows={model.heatRows}
+        rowKey="year"
+        footerRows={footerRows}
+        onRowClick={(r) => onToggleYear(r.year)}
+        isRowClickable={(r) => r.year !== thisYear && model.yearsByNum[r.year]?.week_cum_return.some((v) => v != null)}
+      />
     </Panel>
   );
 }
@@ -564,11 +536,3 @@ function LegendItem({ color, band, children }) {
     </span>
   );
 }
-
-// ── Styles ─────────────────────────────────────────────────────────────────────
-
-const hth = {
-  padding: "6px 8px", fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase",
-  letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)",
-};
-const htd = { padding: "5px 8px", textAlign: "right", fontSize: 11.5, whiteSpace: "nowrap", fontFamily: "var(--font-family-mono)" };

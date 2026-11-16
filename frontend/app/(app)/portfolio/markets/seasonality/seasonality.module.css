@@ -1,6 +1,0 @@
-.clickRow {
-  cursor: pointer;
-}
-.clickRow:hover td {
-  filter: brightness(1.25);
-}

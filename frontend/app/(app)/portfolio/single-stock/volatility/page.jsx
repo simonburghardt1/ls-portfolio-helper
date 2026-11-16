@@ -15,6 +15,7 @@ import LineChart from "@/app/components/LineChart";
 import Histogram from "@/app/components/Histogram";
 import AssetSelector from "@/app/components/AssetSelector";
 import StateMessage from "@/app/components/StateMessage";
+import DataTable from "@/app/components/DataTable";
 
 // One shared timeframe drives both ATR and the distribution of weekly returns
 const PERIODS = [
@@ -152,17 +153,31 @@ export default function VolatilityPage() {
             <Tabs tabs={STAT_TABS} active={statTab} onChange={setStatTab} />
             {statTab === "summary" && <SummaryStats stats={dor.stats} />}
             {statTab === "normal" && (
-              <SimpleTable
-                head={["σ", "Lower", "Upper", "Actual", "Normal"]}
-                rows={dor.normal_check.map((r) => [`${r.sigma}σ`, pct(r.lower), pct(r.upper), pct(r.actual_pct), pct(r.normal_pct)])}
+              <DataTable
+                autoWidth
+                rowKey="sigma"
+                rows={dor.normal_check}
+                columns={[
+                  { key: "sigma", label: "σ", format: (v) => `${v}σ` },
+                  { key: "lower", label: "Lower", numeric: true, format: (v) => pct(v) },
+                  { key: "upper", label: "Upper", numeric: true, format: (v) => pct(v) },
+                  { key: "actual_pct", label: "Actual", numeric: true, format: (v) => pct(v) },
+                  { key: "normal_pct", label: "Normal", numeric: true, format: (v) => pct(v) },
+                ]}
               />
             )}
             {statTab === "updown" && (
-              <SimpleTable
-                head={["", "Avg return", "Weeks", "Share", "Weighted"]}
-                rows={[["Up", dor.breakdown.positive], ["Down", dor.breakdown.negative], ["Flat", dor.breakdown.zero]].map(([label, g]) => [
-                  label, pct(g?.avg), g?.count ?? "—", pct(g?.freq_pct), pct(g?.freq_adjusted),
-                ])}
+              <DataTable
+                autoWidth
+                rowKey="label"
+                rows={[["Up", dor.breakdown.positive], ["Down", dor.breakdown.negative], ["Flat", dor.breakdown.zero]].map(([label, g]) => ({ label, ...g }))}
+                columns={[
+                  { key: "label", label: "" },
+                  { key: "avg", label: "Avg return", numeric: true, format: (v) => pct(v) },
+                  { key: "count", label: "Weeks", numeric: true },
+                  { key: "freq_pct", label: "Share", numeric: true, format: (v) => pct(v) },
+                  { key: "freq_adjusted", label: "Weighted", numeric: true, format: (v) => pct(v) },
+                ]}
               />
             )}
             {statTab === "percentiles" && (
@@ -200,26 +215,5 @@ function StatCell({ label, value, color }) {
       <span style={{ color: "var(--text-secondary)" }}>{label}</span>
       <span style={{ fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums", color: color ?? "var(--text-primary)" }}>{value}</span>
     </div>
-  );
-}
-
-function SimpleTable({ head, rows }) {
-  const th = { padding: "6px 10px", fontSize: 10.5, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)" };
-  const td = { padding: "7px 10px", textAlign: "right", fontSize: 12.5, fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums", borderBottom: "1px solid var(--border)" };
-  return (
-    <table style={{ width: "100%", maxWidth: 720, borderCollapse: "collapse" }}>
-      <thead>
-        <tr>{head.map((h, i) => <th key={i} style={{ ...th, textAlign: i === 0 ? "left" : "right" }}>{h}</th>)}</tr>
-      </thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i}>
-            {r.map((c, j) => (
-              <td key={j} style={{ ...td, textAlign: j === 0 ? "left" : "right", fontFamily: j === 0 ? "var(--font-family-sans)" : td.fontFamily, color: j === 0 ? "var(--text-secondary)" : "var(--text-primary)" }}>{c}</td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

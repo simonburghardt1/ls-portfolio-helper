@@ -11,6 +11,7 @@ import Chip from "@/app/components/Chip";
 import InfoTip from "@/app/components/InfoTip";
 import Popover, { MenuItem, MenuDivider, MenuGroupTitle } from "@/app/components/Popover";
 import StateMessage from "@/app/components/StateMessage";
+import DataTable from "@/app/components/DataTable";
 import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
 import Badge from "@/app/components/Badge";
@@ -379,6 +380,7 @@ export default function BasketDetailPage() {
   const headerBucket = headerScore != null ? scoreToRegime(headerScore, BASKET_REGIME_THRESHOLDS) : null;
   const headerRegime = headerBucket ? REGIME_CONFIG[headerBucket] : null;
 
+  const maxHoldingWeight = Math.max(0, ...holdingsBreakdown.map((h) => h.targetWeight));
   const compareColor = (ticker) => COMPARE_COLORS[selectedCompares.indexOf(ticker) % COMPARE_COLORS.length];
 
   return (
@@ -620,50 +622,35 @@ export default function BasketDetailPage() {
                   Performance &amp; contribution over {range} · click a row to add it to the Performance chart
                   <InfoTip text={HOLDINGS_INFO} />
                 </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                        <th style={{ ...thStyle, width: 28 }} />
-                        <th style={thStyle}>Ticker</th>
-                        <th style={{ ...thStyle, width: "30%" }}>Weight</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Performance</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Contribution</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const maxW = Math.max(...holdingsBreakdown.map((h) => h.targetWeight));
-                        return holdingsBreakdown.map((h) => {
-                          const compared = selectedCompares.includes(h.ticker);
-                          return (
-                            <tr
-                              key={h.ticker}
-                              onClick={() => toggleCompare(h.ticker)}
-                              title={compared ? "Remove from Performance chart" : "Add to Performance chart"}
-                              style={{ cursor: "pointer", background: compared ? "rgba(255,255,255,0.03)" : "transparent" }}
-                            >
-                              <td style={tdStyle}>
-                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: compared ? compareColor(h.ticker) : "transparent", border: compared ? "none" : "1px solid var(--border)" }} />
-                              </td>
-                              <td style={{ ...tdStyle, fontWeight: 600, color: "var(--text-primary)" }}>{h.ticker}</td>
-                              <td style={tdStyle}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ flex: 1, maxWidth: 160, height: 6, background: "var(--bg-elevated)" }}>
-                                    <div style={{ width: `${(h.targetWeight / maxW) * 100}%`, height: "100%", background: "#a78bfa" }} />
-                                  </div>
-                                  <span style={{ fontFamily: "var(--font-family-mono)", minWidth: 48 }}>{(h.targetWeight * 100).toFixed(1)}%</span>
-                                </div>
-                              </td>
-                              <td style={{ ...tdStyle, ...numCell, color: changeColor(h.performance) ?? "var(--text-secondary)" }}>{pct(h.performance)}</td>
-                              <td style={{ ...tdStyle, ...numCell, color: changeColor(h.contribution) ?? "var(--text-secondary)" }}>{pct(h.contribution)}</td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  rows={holdingsBreakdown}
+                  rowKey="ticker"
+                  onRowClick={(h) => toggleCompare(h.ticker)}
+                  isRowSelected={(h) => selectedCompares.includes(h.ticker)}
+                  columns={[
+                    {
+                      key: "dot", label: "", width: 28,
+                      render: (h) => {
+                        const on = selectedCompares.includes(h.ticker);
+                        return <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: on ? compareColor(h.ticker) : "transparent", border: on ? "none" : "1px solid var(--border)" }} />;
+                      },
+                    },
+                    { key: "ticker", label: "Ticker", sortable: true, render: (h) => <span style={{ fontWeight: 600 }}>{h.ticker}</span>, value: (h) => h.ticker },
+                    {
+                      key: "targetWeight", label: "Weight", width: "30%", sortable: true,
+                      render: (h) => (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, maxWidth: 160, height: 6, background: "var(--bg-elevated)" }}>
+                            <div style={{ width: `${(h.targetWeight / maxHoldingWeight) * 100}%`, height: "100%", background: "#a78bfa" }} />
+                          </div>
+                          <span style={{ fontFamily: "var(--font-family-mono)", minWidth: 48 }}>{(h.targetWeight * 100).toFixed(1)}%</span>
+                        </div>
+                      ),
+                    },
+                    { key: "performance", label: "Performance", numeric: true, sortable: true, format: (v) => pct(v), color: (v) => changeColor(v) },
+                    { key: "contribution", label: "Contribution", numeric: true, sortable: true, format: (v) => pct(v), color: (v) => changeColor(v) },
+                  ]}
+                />
               </>
             ) : (
               <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
@@ -781,6 +768,3 @@ function LiveOptionsLine({ regime }) {
   );
 }
 
-const thStyle = { fontSize: 11, color: "var(--text-secondary)", padding: "6px 8px", textAlign: "left", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" };
-const tdStyle = { padding: "8px", borderTop: "1px solid var(--border)" };
-const numCell = { textAlign: "right", fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums" };

@@ -17,11 +17,14 @@ import Chip from "@/app/components/Chip";
 import InfoTip from "@/app/components/InfoTip";
 import Popover, { MenuItem, MenuDivider, MenuGroupTitle } from "@/app/components/Popover";
 import StateMessage from "@/app/components/StateMessage";
+import DataTable from "@/app/components/DataTable";
+import { heatColor } from "@/app/lib/heat";
 
 export default function KitPage() {
   const [tab, setTab] = useState("a");
   const [range, setRange] = useState("1Y");
   const [chips, setChips] = useState(["SPY", "QQQ"]);
+  const [selRow, setSelRow] = useState(null);
 
   return (
     <Page>
@@ -77,6 +80,37 @@ export default function KitPage() {
         </div>
       </Panel>
 
+      <Panel title="Data table" titleExtra={<InfoTip text="Click a header with sortable: true to sort (desc, asc, original). Rows can be clickable and selected." />}>
+        <DataTable
+          rowKey="t"
+          rows={DEMO_ROWS}
+          onRowClick={(r) => setSelRow(r.t === selRow ? null : r.t)}
+          isRowSelected={(r) => r.t === selRow}
+          footerRows={[{ t: "Total", w: 1, p: null, c: DEMO_ROWS.reduce((s, r) => s + r.c, 0), __strong: true }]}
+          columns={[
+            { key: "t", label: "Ticker", sortable: true },
+            { key: "w", label: "Weight", numeric: true, sortable: true, format: (v) => fmtPct(v, 1, { sign: false }) },
+            { key: "p", label: "Performance", numeric: true, sortable: true, format: (v) => fmtPct(v), color: signColor },
+            { key: "c", label: "Contribution", numeric: true, sortable: true, format: (v) => fmtPct(v), color: signColor },
+          ]}
+        />
+      </Panel>
+
+      <Panel title="Heatmap table (dense, flush, inset)" flush>
+        <DataTable
+          dense
+          inset
+          rowKey="y"
+          rows={[{ y: 2026, m: [0.015, -0.009, -0.049, 0.105] }, { y: 2025, m: [0.027, -0.013, -0.056, -0.009] }]}
+          columns={[
+            { key: "y", label: "Year" },
+            ...["Jan", "Feb", "Mar", "Apr"].map((label, i) => ({
+              key: label, label, numeric: true, value: (r) => r.m[i], format: (v) => fmtPct(v, 1), cellStyle: (v) => ({ background: heatColor(v, 0.06) }),
+            })),
+          ]}
+        />
+      </Panel>
+
       <Panel title="Numbers">
         <div style={{ display: "flex", gap: "var(--space-6)", fontFamily: "var(--font-family-mono)", fontSize: 13 }}>
           {[0.1234, -0.0567, 0, -0.00001, null].map((v, i) => (
@@ -99,6 +133,12 @@ export default function KitPage() {
     </Page>
   );
 }
+
+const DEMO_ROWS = [
+  { t: "NVDA", w: 0.2, p: 0.124, c: 0.0248 },
+  { t: "AAPL", w: 0.3, p: -0.031, c: -0.0093 },
+  { t: "MSFT", w: 0.5, p: 0.042, c: 0.021 },
+];
 
 function Row({ label, children }) {
   return (

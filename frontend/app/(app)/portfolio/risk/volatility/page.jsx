@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
 import { fmtPct, signColor } from "@/app/lib/format";
+import { heatColor } from "@/app/lib/heat";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
 import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
@@ -14,6 +15,7 @@ import Tabs from "@/app/components/Tabs";
 import InfoTip from "@/app/components/InfoTip";
 import PortfolioPicker from "@/app/components/PortfolioPicker";
 import StateMessage from "@/app/components/StateMessage";
+import DataTable from "@/app/components/DataTable";
 
 const PERIODS = [
   { label: "13W", weeks: 13 },
@@ -36,22 +38,6 @@ function fmtUsd(v) {
   if (v == null) return "—";
   const abs = Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 0 });
   return `${v < 0 ? "−" : ""}$${abs}`;
-}
-
-// Covariance: orange (positive) / blue (negative) — not gain/loss, so not the green/red tokens
-function covColor(val, maxAbs) {
-  if (!maxAbs) return "transparent";
-  const t = Math.min(Math.abs(val) / maxAbs, 1);
-  if (val > 0) return `rgba(234,88,12,${0.1 + t * 0.5})`;
-  if (val < 0) return `rgba(37,99,235,${0.1 + t * 0.5})`;
-  return "transparent";
-}
-
-function corrColor(val) {
-  const t = Math.min(Math.abs(val), 1);
-  if (val > 0) return `rgba(22,163,74,${0.08 + t * 0.55})`;
-  if (val < 0) return `rgba(220,38,38,${0.08 + t * 0.55})`;
-  return "transparent";
 }
 
 export default function PortfolioVolatilityPage() {
@@ -140,89 +126,79 @@ export default function PortfolioVolatilityPage() {
 function TickerLabel({ ticker, weight }) {
   const long = weight >= 0;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
       {ticker}
       <span style={{ fontSize: 9, fontWeight: 700, color: long ? "var(--positive)" : "var(--negative)" }}>{long ? "L" : "S"}</span>
     </span>
   );
 }
 
+// Rows of a square matrix → objects the DataTable can read (one field per ticker column)
+function matrixRows(data, matrix, extra) {
+  return data.tickers.map((ticker, i) => ({ ticker, i, weight: data.weights[i], cells: matrix[i], ...extra?.(i) }));
+}
+
+function tickerColumn() {
+  return {
+    key: "ticker", label: "Ticker",
+    render: (r) => (r.__footer ? <span style={{ color: "var(--text-secondary)" }}>{r.label}</span> : <TickerLabel ticker={r.ticker} weight={r.weight} />),
+  };
+}
+
 function CorrMatrix({ data, avCorr, portfolioCorr }) {
+  const columns = [
+    tickerColumn(),
+    ...data.tickers.map((t, j) => ({
+      key: `c${j}`, label: t, numeric: true,
+      value: (r) => r.cells?.[j],
+      format: (v, r) => (r.__footer ? "" : r.i === j ? "—" : pct(v, 0)),
+      color: (v, r) => (r.i === j ? "var(--text-disabled)" : "var(--text-primary)"),
+      cellStyle: (v, r) => (r.__footer ? {} : r.i === j ? { background: "var(--bg-elevated)" } : { background: heatColor(v, 1) }),
+    })),
+    { key: "avg", label: "Avg corr", numeric: true, divider: true, format: (v) => pct(v, 1), color: (v) => signColor(v) },
+  ];
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={{ ...th, ...stickyCol, textAlign: "left" }}>Ticker</th>
-            {data.tickers.map((t) => <th key={t} style={th}>{t}</th>)}
-            <th style={{ ...th, borderLeft: "1px solid var(--border)" }}>Avg corr</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.tickers.map((ticker, i) => (
-            <tr key={ticker}>
-              <td style={{ ...td, ...stickyCol, textAlign: "left", fontFamily: "var(--font-family-sans)", fontWeight: 600 }}>
-                <TickerLabel ticker={ticker} weight={data.weights[i]} />
-              </td>
-              {data.corr_matrix[i].map((val, j) => (
-                <td key={j} style={{ ...td, background: i === j ? "var(--bg-elevated)" : corrColor(val), color: i === j ? "var(--text-disabled)" : "var(--text-primary)" }}>
-                  {i === j ? "—" : pct(val, 0)}
-                </td>
-              ))}
-              <td style={{ ...td, borderLeft: "1px solid var(--border)", color: signColor(avCorr[i]) }}>{pct(avCorr[i], 1)}</td>
-            </tr>
-          ))}
-          <tr>
-            <td style={{ ...td, ...stickyCol, textAlign: "left", fontFamily: "var(--font-family-sans)", color: "var(--text-secondary)", borderTop: "1px solid var(--border)" }}>Portfolio</td>
-            <td colSpan={data.tickers.length} style={{ ...td, borderTop: "1px solid var(--border)" }} />
-            <td style={{ ...td, borderTop: "1px solid var(--border)", borderLeft: "1px solid var(--border)", fontWeight: 600, color: signColor(portfolioCorr) }}>{pct(portfolioCorr, 1)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      dense
+      autoWidth
+      stickyFirstColumn
+      columns={columns}
+      rows={matrixRows(data, data.corr_matrix, (i) => ({ avg: avCorr[i] }))}
+      rowKey="ticker"
+      footerRows={[{ __footer: true, __strong: true, label: "Portfolio", avg: portfolioCorr }]}
+    />
   );
 }
 
 function CovMatrix({ data, isLive }) {
-  const maxAbs = Math.max(0, ...data.cov_matrix.flat().map(Math.abs));
+  const cap = Math.max(0, ...data.cov_matrix.flat().map(Math.abs));
   const gross = isLive && data.allocations ? data.allocations.reduce((s, a) => s + Math.abs(a), 0) : null;
+  const columns = [
+    tickerColumn(),
+    ...data.tickers.map((t, j) => ({
+      key: `c${j}`, label: t, numeric: true,
+      value: (r) => r.cells?.[j],
+      format: (v, r) => (r.__footer ? "" : v.toFixed(5)),
+      cellStyle: (v, r) => (r.__footer ? {} : { background: heatColor(v, cap, "diverging"), fontWeight: r.i === j ? 600 : 400 }),
+    })),
+    ...(isLive ? [{ key: "alloc", label: "Net alloc", numeric: true, divider: true, format: (v) => fmtUsd(v), color: (v, r) => (r.__footer ? undefined : signColor(v)) }] : []),
+    { key: "weight", label: "Weight", numeric: true, divider: !isLive, format: (v, r) => (r.__footer ? "100%" : pct(v, 1)), color: (v, r) => (r.__footer ? undefined : signColor(v)) },
+  ];
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={{ ...th, ...stickyCol, textAlign: "left" }}>Ticker</th>
-            {data.tickers.map((t) => <th key={t} style={th}>{t}</th>)}
-            {isLive && <th style={{ ...th, borderLeft: "1px solid var(--border)" }}>Net alloc</th>}
-            <th style={{ ...th, borderLeft: isLive ? undefined : "1px solid var(--border)" }}>Weight</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.tickers.map((ticker, i) => (
-            <tr key={ticker}>
-              <td style={{ ...td, ...stickyCol, textAlign: "left", fontFamily: "var(--font-family-sans)", fontWeight: 600 }}>
-                <TickerLabel ticker={ticker} weight={data.weights[i]} />
-              </td>
-              {data.cov_matrix[i].map((val, j) => (
-                <td key={j} style={{ ...td, background: covColor(val, maxAbs), fontWeight: i === j ? 600 : 400 }}>{val.toFixed(5)}</td>
-              ))}
-              {isLive && <td style={{ ...td, borderLeft: "1px solid var(--border)", color: signColor(data.allocations?.[i]) }}>{fmtUsd(data.allocations?.[i])}</td>}
-              <td style={{ ...td, borderLeft: isLive ? undefined : "1px solid var(--border)", color: signColor(data.weights[i]) }}>{pct(data.weights[i], 1)}</td>
-            </tr>
-          ))}
-          {gross != null && (
-            <tr>
-              <td colSpan={data.tickers.length + 1} style={{ ...td, textAlign: "left", fontFamily: "var(--font-family-sans)", color: "var(--text-secondary)", borderTop: "1px solid var(--border)" }}>Gross</td>
-              <td style={{ ...td, borderTop: "1px solid var(--border)", borderLeft: "1px solid var(--border)", fontWeight: 600 }}>{fmtUsd(gross)}</td>
-              <td style={{ ...td, borderTop: "1px solid var(--border)" }}>100%</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+    <>
+      <DataTable
+        dense
+        autoWidth
+        stickyFirstColumn
+        columns={columns}
+        rows={matrixRows(data, data.cov_matrix, (i) => ({ alloc: data.allocations?.[i] }))}
+        rowKey="ticker"
+        footerRows={gross != null ? [{ __footer: true, __strong: true, label: "Gross", alloc: gross }] : undefined}
+      />
       <div style={{ marginTop: "var(--space-3)", fontSize: 12, color: "var(--text-secondary)" }}>
         Portfolio variance {data.portfolio_variance?.toFixed(6)} (weekly)
       </div>
-    </div>
+    </>
   );
 }
 
@@ -233,32 +209,16 @@ function SharpeTable({ vol }) {
         Implied annual return
         <InfoTip text="Return = Sharpe × annualized portfolio volatility (risk-free rate ignored)." />
       </div>
-      <table style={{ ...tableStyle, width: "auto", minWidth: 320 }}>
-        <thead>
-          <tr>
-            <th style={{ ...th, textAlign: "left" }}>Sharpe</th>
-            <th style={th}>Volatility</th>
-            <th style={th}>Return</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SHARPES.map((s) => (
-            <tr key={s}>
-              <td style={{ ...td, textAlign: "left" }}>{s.toFixed(1)}</td>
-              <td style={td}>{pct(vol)}</td>
-              <td style={{ ...td, color: "var(--positive)" }}>{pct(s * vol)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        autoWidth
+        columns={[
+          { key: "sharpe", label: "Sharpe", numeric: true, align: "left", format: (v) => v.toFixed(1) },
+          { key: "vol", label: "Volatility", numeric: true, format: (v) => pct(v) },
+          { key: "ret", label: "Return", numeric: true, format: (v) => pct(v), color: () => "var(--positive)" },
+        ]}
+        rows={SHARPES.map((s) => ({ sharpe: s, vol, ret: s * vol }))}
+        rowKey="sharpe"
+      />
     </div>
   );
 }
-
-const tableStyle = { borderCollapse: "collapse", fontVariantNumeric: "tabular-nums" };
-const th = {
-  padding: "6px 8px", fontSize: 10.5, fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase",
-  letterSpacing: "0.05em", textAlign: "right", borderBottom: "1px solid var(--border)", whiteSpace: "nowrap", background: "var(--bg-surface)",
-};
-const td = { padding: "5px 8px", fontSize: 11.5, textAlign: "right", whiteSpace: "nowrap", fontFamily: "var(--font-family-mono)", minWidth: 64 };
-const stickyCol = { position: "sticky", left: 0, background: "var(--bg-surface)", zIndex: 1 };

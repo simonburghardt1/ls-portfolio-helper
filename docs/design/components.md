@@ -154,6 +154,28 @@ Don't re-declare `pct()`/`fmtPct()`/`pctColor()`/`useClickOutside()` locally in 
 
 `<PortfolioPicker value onChange={(value, name) => …} allowLive />` — saved-portfolio select (optionally with "Live portfolio"), same label-over-control look as `AssetSelector`, for a `PageHeader`'s `actions`.
 
+## `DataTable.jsx` (+ `lib/heat.js`)
+
+The one table component — don't hand-roll `<table>` with local `thStyle`/`tdStyle` any more.
+
+```jsx
+<DataTable
+  rows={holdings} rowKey="ticker"
+  onRowClick={(h) => toggle(h.ticker)} isRowSelected={(h) => selected.includes(h.ticker)}
+  footerRows={[{ __strong: true, ticker: "Total", contribution: total }]}
+  columns={[
+    { key: "ticker", label: "Ticker", sortable: true },
+    { key: "performance", label: "Performance", numeric: true, sortable: true, format: fmtPct, color: signColor },
+    { key: "m0", label: "Jan", numeric: true, value: (r) => r.months[0], cellStyle: (v) => ({ background: heatColor(v, cap) }) },
+    { key: "w", label: "Weight", render: (r) => <input … /> },
+  ]}
+/>
+```
+
+Column options: `numeric` (right-aligned mono), `align`, `width`, `value(row)`, `format(v,row)`, `color(v,row)`, `cellStyle(v,row)` (heatmaps), `render(row)` (inputs/tags), `sortable` (desc → asc → original), `divider`, `title`. Table options: `footerRows` (`__strong` for totals), `onRowClick` / `isRowClickable` / `isRowSelected`, `dense` (matrices), `inset` (inside a `flush` Panel), `stickyHeader` + `maxHeight`, `stickyFirstColumn`, `autoWidth`, `empty`, `defaultSort`.
+
+`lib/heat.js`: `heatColor(v, cap, "gainloss" | "diverging")` and `heatCap(values, percentile, floor)` — the shared heatmap scale (green/red for gain/loss and correlation, orange/blue for covariance).
+
 ## Gallery
 
 `/dev/kit` (not in the sidebar) renders every shared component and state. Add a section there whenever a component is added or changed.
