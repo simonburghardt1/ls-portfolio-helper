@@ -7,6 +7,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "rec
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -365,8 +366,7 @@ export default function BacktestingPage() {
   const hasBetas  = Object.keys(betas).length > 0;
 
   return (
-    <div style={{ background: "var(--bg-base)", minHeight: "100vh", color: "var(--text-primary)" }}>
-      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "28px 32px 60px" }}>
+    <Page>
 
         {/* Header */}
         <PageHeader title="Portfolio Backtester" subtitle={loadedName ? `Loaded: ${loadedName}` : "Build a long/short portfolio and backtest its historical performance."} />
@@ -847,8 +847,7 @@ export default function BacktestingPage() {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Page>
   );
 }
 

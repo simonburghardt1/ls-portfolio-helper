@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const MIN_HOLDINGS = 5;
 const MAX_HOLDINGS = 20;
@@ -117,7 +118,7 @@ export default function BasketForm({
   const displayError = validationError || (!ambiguous ? errorMessage : null);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
       <PageHeader title={title} subtitle={subtitle} />
 
       <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "24px 28px", maxWidth: 560 }}>
@@ -226,6 +227,6 @@ export default function BasketForm({
           </Link>
         </div>
       </div>
-    </div>
+    </Page>
   );
 }

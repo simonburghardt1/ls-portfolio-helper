@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -67,7 +68,7 @@ export default function HighBetaMomentumAdminPage() {
   }
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 820, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <PageHeader
         title="High Beta Momentum — Build"
         subtitle="Full historical rebuild (screens the universe, downloads ~5+ years of prices for ~2000 candidates, computes every monthly rebalance). Takes 10-40 minutes."
@@ -127,6 +128,6 @@ export default function HighBetaMomentumAdminPage() {
           )}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

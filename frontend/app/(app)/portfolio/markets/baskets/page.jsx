@@ -7,6 +7,7 @@ import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
 import { REGIME_CONFIG } from "@/app/components/RegimeChart";
 import { scoreToRegime } from "@/app/lib/regime";
+import Page from "@/app/components/Page";
 
 // Same thresholds as the Basket detail page's BASKET_REGIME_THRESHOLDS (score01 0-100 scale).
 const REGIME_THRESHOLDS = { up: 60, down: 40 };
@@ -48,7 +49,7 @@ export default function BasketsPage() {
   const system = (baskets ?? []).filter((b) => b.user_id == null);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
       <style>{`
         .basket-card > div { transition: border-color 0.15s ease; }
         .basket-card:hover > div, .basket-card:focus-visible > div { border-color: var(--text-secondary); }
@@ -91,7 +92,7 @@ export default function BasketsPage() {
           <BasketSection title="System Baskets" baskets={system} seriesById={seriesById} />
         </>
       )}
-    </div>
+    </Page>
   );
 }
 

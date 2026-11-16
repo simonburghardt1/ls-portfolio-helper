@@ -3,6 +3,7 @@
 import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -37,7 +38,7 @@ export default function ConsumerConfidenceAdminPage() {
   }
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 800, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <PageHeader
         title="Consumer Confidence — Data Import"
         subtitle="Import historical ICC or ICE data from investing.com or any CSV source."
@@ -116,6 +117,6 @@ export default function ConsumerConfidenceAdminPage() {
           Error: {result.detail}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import PageHeader from "@/app/components/PageHeader";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -152,8 +153,7 @@ export default function IndicatorsAdminPage() {
   }
 
   return (
-    <div style={{ background: "var(--bg-base)", minHeight: "100vh", color: "var(--text-primary)" }}>
-      <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 32px 60px" }}>
+    <Page>
 
         <PageHeader
           title="Indicator Data Refresh"
@@ -329,8 +329,7 @@ export default function IndicatorsAdminPage() {
             );
           })}
         </div>
-      </div>
-    </div>
+    </Page>
   );
 }
 

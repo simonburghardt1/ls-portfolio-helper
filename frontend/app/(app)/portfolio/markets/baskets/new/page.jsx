@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
 import BasketForm from "@/app/components/BasketForm";
+import Page from "@/app/components/Page";
 
 // useSearchParams needs a Suspense boundary in the App Router
 export default function NewBasketPage() {
@@ -63,11 +64,11 @@ function NewBasketContent() {
 
   if (isError || !source) {
     return (
-      <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)" }}>
+      <Page>
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", fontSize: 13, color: "var(--negative)" }}>
           Could not load the Basket to copy.
         </div>
-      </div>
+      </Page>
     );
   }
 
@@ -88,8 +89,8 @@ function NewBasketContent() {
 
 function LoadingState() {
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-secondary)", textAlign: "center" }}>
+    <Page style={{ color: "var(--text-secondary)", textAlign: "center" }}>
       Loading…
-    </div>
+    </Page>
   );
 }

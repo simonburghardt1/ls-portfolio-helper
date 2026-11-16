@@ -5,6 +5,7 @@ import KpiCard from "@/app/components/KpiCard";
 import LineChart from "@/app/components/LineChart";
 import Button from "@/app/components/Button";
 import PageHeader from "@/app/components/PageHeader";
+import Page from "@/app/components/Page";
 
 const KPI_GROUPS = ["Yields", "Inflation", "Employment"];
 
@@ -16,7 +17,7 @@ function getVisibleRange(button) {
   return { from: from.toISOString().split("T")[0], to };
 }
 
-export default function Page() {
+export default function DashboardPage() {
   const [kpis, setKpis] = useState([]);
   const [selectedSeriesId, setSelectedSeriesId] = useState("US_CPI_YOY");
   const [chartSeries, setChartSeries] = useState(null);
@@ -71,8 +72,7 @@ export default function Page() {
   const statusColor = status === "Live" ? "var(--positive)" : status === "Loading..." ? "var(--caution)" : "var(--negative)";
 
   return (
-    <div style={{ color: "var(--text-primary)" }}>
-      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "32px 36px 48px" }}>
+    <Page>
 
         {/* Header */}
         <header style={{
@@ -179,7 +179,6 @@ export default function Page() {
             </div>
           )}
         </section>
-      </div>
-    </div>
+    </Page>
   );
 }

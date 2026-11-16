@@ -13,6 +13,7 @@ import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
 import Badge from "@/app/components/Badge";
 import KpiCard from "@/app/components/KpiCard";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -1169,7 +1170,7 @@ export default function TrackRecordPage() {
   const [importKey,  setImportKey] = useState(0);
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
       {/* Header */}
       <PageHeader title="Trading Track Record" subtitle="Live positions, realized trades, and equity curve analytics." />
 
@@ -1189,6 +1190,6 @@ export default function TrackRecordPage() {
         {tab === "Realized PnL"  && <RealizedPnlTab   key={`rp-${importKey}`} />}
         {tab === "Equity Curve"  && <EquityCurveTab   key={`ec-${importKey}`} />}
       </div>
-    </div>
+    </Page>
   );
 }

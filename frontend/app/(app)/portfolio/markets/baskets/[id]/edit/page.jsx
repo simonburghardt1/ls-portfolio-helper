@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/app/lib/api";
 import BasketForm from "@/app/components/BasketForm";
+import Page from "@/app/components/Page";
 
 export default function EditBasketPage() {
   const { id } = useParams();
@@ -30,19 +31,19 @@ export default function EditBasketPage() {
 
   if (isLoading) {
     return (
-      <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-secondary)", textAlign: "center" }}>
+      <Page style={{ color: "var(--text-secondary)", textAlign: "center" }}>
         Loading…
-      </div>
+      </Page>
     );
   }
 
   if (isError || !basket) {
     return (
-      <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)" }}>
+      <Page>
         <div style={{ background: "var(--bg-surface)", border: "1px solid var(--negative)", padding: "12px 16px", fontSize: 13, color: "var(--negative)" }}>
           Could not load this Basket.
         </div>
-      </div>
+      </Page>
     );
   }
 

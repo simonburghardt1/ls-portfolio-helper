@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Button from "@/app/components/Button";
 import PageHeader from "@/app/components/PageHeader";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -161,7 +162,7 @@ export default function PortfolioManagerPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: "28px 32px", minHeight: "100vh", background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <Page>
 
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
@@ -375,7 +376,7 @@ export default function PortfolioManagerPage() {
           <Button variant="secondary" onClick={clearForm}>Clear</Button>
         </div>
       </div>
-    </div>
+    </Page>
   );
 }
 

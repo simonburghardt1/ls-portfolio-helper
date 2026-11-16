@@ -3,6 +3,7 @@
 import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
 import Button from "@/app/components/Button";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -93,7 +94,7 @@ export default function DataImportPage() {
   }
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 820, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <PageHeader
         title="Data Import"
         subtitle="Paste historical time-series data for any indicator. One row per month."
@@ -203,6 +204,6 @@ export default function DataImportPage() {
           Error: {result.detail}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

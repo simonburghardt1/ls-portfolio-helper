@@ -18,6 +18,8 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 | Macro indicator | ISM ×2, NFIB, CPI/PPI, GDP, Debt, Consumer Confidence, Building Permits, Commodities, COT, Market Regime | ⬜ |
 | Admin / forms | Data import, ISM imports, HBM admin, Indicators, Consumer Confidence admin, Basket new/edit, login/register | ⬜ |
 
+**Page frame (2026-11-16):** every page now renders inside the shared `Page` component (full width, `--page-margin` side padding); no page has its own outer wrapper or `maxWidth` column any more, admin forms included.
+
 ## Component adoption, by page (v1)
 
 `PageHeader` + `Button` are adopted on every page in the app — that rollout is complete. `Tabs`, `KpiCard`, and `Badge` are adopted only where a page actually consumes them; most pages don't need all three.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import PageHeader from "@/app/components/PageHeader";
 import KpiCard from "@/app/components/KpiCard";
 import { usePortfolioSelectionStore } from "@/app/store/portfolioSelectionStore";
+import Page from "@/app/components/Page";
 
 const API = "http://localhost:8000";
 
@@ -52,7 +53,7 @@ export default function PortfolioOverviewPage() {
   const summary = selected ? portfolioSummary(selected.positions) : null;
 
   return (
-    <div style={{ color: "#e5e7eb", maxWidth: 1200, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <PageHeader
         title="Portfolio Overview"
         subtitle="Select a portfolio, then jump into any analysis view — the selection follows you across pages."
@@ -107,6 +108,6 @@ export default function PortfolioOverviewPage() {
           Select a portfolio above to see its KPIs.
         </div>
       )}
-    </div>
+    </Page>
   );
 }

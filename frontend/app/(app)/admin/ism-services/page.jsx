@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import PageHeader from "@/app/components/PageHeader";
+import Page from "@/app/components/Page";
 
 export default function IsmServicesAdminPage() {
   const [text, setText] = useState("");
@@ -54,7 +55,7 @@ export default function IsmServicesAdminPage() {
   }
 
   return (
-    <div style={{ color: "#e5e7eb", fontFamily: "Arial, sans-serif", maxWidth: 900, margin: "0 auto", padding: "28px 24px" }}>
+    <Page>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <PageHeader title="ISM Services — Data Import" style={{ marginBottom: 0 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -160,7 +161,7 @@ export default function IsmServicesAdminPage() {
           Error: {results.error}
         </div>
       )}
-    </div>
+    </Page>
   );
 }
 
