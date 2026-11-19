@@ -187,6 +187,20 @@ def _compute_rebalance(
     return pd.DataFrame(rows)
 
 
+# ── Rebalance guard ──────────────────────────────────────────────────────────────
+
+def _apply_rebalance(rb_date: pd.Timestamp, holdings_df: pd.DataFrame, current: dict[str, float],
+                     holding_sets: list) -> dict[str, float]:
+    """Records a rebalance and returns the book to hold until the next one. An empty result
+    (e.g. prices for that day not complete yet) must not wipe the book — the index would then
+    stand still for a whole month — so the previous holdings carry over and nothing is stored."""
+    if holdings_df.empty:
+        log.warning("HBM: rebalance %s produced no holdings — keeping the previous %d names.", rb_date.date(), len(current))
+        return current
+    holding_sets.append((rb_date.date(), holdings_df))
+    return dict(zip(holdings_df["ticker"], holdings_df["weight"]))
+
+
 # ── NAV chain construction ───────────────────────────────────────────────────────
 
 def _walk_forward(returns: pd.DataFrame, all_days: pd.DatetimeIndex, start_date, end_date,
@@ -198,6 +212,8 @@ def _walk_forward(returns: pd.DataFrame, all_days: pd.DatetimeIndex, start_date,
             returns.at[d, t] for t in holdings
             if t in returns.columns and pd.notna(returns.at[d, t])
         ]
+        if holdings and not day_rets:
+            log.warning("HBM: no returns for any of the %d holdings on %s — day counted as 0%%.", len(holdings), d.date())
         basket_ret = float(np.mean(day_rets)) if day_rets else 0.0
         index_level *= (1 + basket_ret)
         nav_rows.append({
@@ -230,8 +246,7 @@ def _build_index_and_holdings(
     for i in range(1, len(rb_dates)):
         index_level = _walk_forward(returns, all_days, rb_dates[i - 1], rb_dates[i], current_holdings, index_level, nav_rows)
         holdings_df = _compute_rebalance(prices, returns, shares_out, rb_dates[i], spy_returns)
-        holding_sets.append((rb_dates[i].date(), holdings_df))
-        current_holdings = dict(zip(holdings_df["ticker"], holdings_df["weight"]))
+        current_holdings = _apply_rebalance(rb_dates[i], holdings_df, current_holdings, holding_sets)
 
     last_day = all_days[-1]
     if last_day > rb_dates[-1]:
@@ -370,7 +385,10 @@ def update_high_beta_momentum(db: Session):
         log.warning("HBM update: screener returned no candidates, skipping.")
         return
 
-    start = (datetime.now(timezone.utc) - timedelta(days=430)).strftime("%Y-%m-%d")  # ~14mo buffer
+    # Every rebalance still to compute needs MIN_HISTORY_DAYS (~273 trading days) before it, so the
+    # window is anchored on the last stored rebalance, not on today: a run that is a few weeks late
+    # would otherwise get an empty month-end rebalance (and the index would stand still for it).
+    start = (pd.Timestamp(last_rb) - pd.Timedelta(days=450)).strftime("%Y-%m-%d")
     prices = download_prices_chunked(tickers + ["SPY"], start=start)
     if prices.empty or "SPY" not in prices.columns:
         log.warning("HBM update: price download failed, skipping.")
@@ -384,6 +402,9 @@ def update_high_beta_momentum(db: Session):
 
     prior_rows = db.execute(select(HbmHolding).where(HbmHolding.rebalance_date == last_rb)).scalars().all()
     current_holdings = {r.ticker: r.weight for r in prior_rows}
+    if not current_holdings:
+        log.warning("HBM update: no holdings stored for %s, skipping.", last_rb)
+        return
     index_level = last_nav_row.index_level
     last_date = last_nav_row.date
     all_days = prices.index
@@ -394,8 +415,7 @@ def update_high_beta_momentum(db: Session):
     for rb_date in new_rb_dates:
         index_level = _walk_forward(returns, all_days, last_date, rb_date, current_holdings, index_level, nav_rows)
         holdings_df = _compute_rebalance(prices, returns, shares_out, rb_date, spy_returns)
-        holding_sets.append((rb_date.date(), holdings_df))
-        current_holdings = dict(zip(holdings_df["ticker"], holdings_df["weight"]))
+        current_holdings = _apply_rebalance(rb_date, holdings_df, current_holdings, holding_sets)
         last_date = rb_date.date()
 
     # Always extend the daily NAV chain through the latest downloaded trading day,
