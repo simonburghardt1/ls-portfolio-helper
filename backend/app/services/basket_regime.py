@@ -27,7 +27,8 @@ from sqlalchemy.orm import Session
 
 from app.models.basket import Basket
 from app.repositories import basket as basket_repo
-from app.services.basket import _visible_to, _download_close, _reconstruct_series, SERIES_LOOKBACK_DAYS
+from app.services import basket as basket_service
+from app.services.basket import HBM_SYNTHETIC_ID, _visible_to, _download_close, _hbm_series_with_prices, _reconstruct_series
 
 log = logging.getLogger(__name__)
 
@@ -150,7 +151,13 @@ def _compute_regime_series(tickers: list[str], weights: dict[str, float]) -> dic
     constituent for every Basket. compute_basket_regime (the detail-page path) still needs
     both, and remains the only caller that also computes the live VIX snapshot.
     """
-    series = _reconstruct_series(tickers, weights)
+    return _regime_from_series(_reconstruct_series(tickers, weights))
+
+
+def _regime_from_series(series: dict) -> dict:
+    """Scores a Basket-shaped series ({dates, index_level, ticker_prices}). Custom Baskets pass
+    their reconstructed buy-and-hold series; High Beta Momentum passes its own rebalanced NAV
+    with the current holdings' prices for breadth."""
     if not series["dates"]:
         return dict(_EMPTY_REGIME_SERIES)
 
@@ -158,8 +165,7 @@ def _compute_regime_series(tickers: list[str], weights: dict[str, float]) -> dic
     nav = pd.Series(series["index_level"], index=dates)
     ticker_prices_df = pd.DataFrame(series["ticker_prices"], index=dates)
 
-    start = (datetime.now(timezone.utc).date() - timedelta(days=SERIES_LOOKBACK_DAYS)).isoformat()
-    spy = _download_close(SPY_TICKER, start).dropna()
+    spy = _download_close(SPY_TICKER, series["dates"][0]).dropna()
     spy_aligned = spy.reindex(dates, method="nearest", tolerance=pd.Timedelta("4d"))
 
     # BMSB
@@ -219,6 +225,8 @@ def _compute_regime_series(tickers: list[str], weights: dict[str, float]) -> dic
 
 
 def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | None:
+    if basket_id == HBM_SYNTHETIC_ID:
+        return _compute_hbm_regime(db)
     basket = basket_repo.get_basket(db, basket_id)
     if not basket or not _visible_to(basket, user_id):
         return None
@@ -251,6 +259,37 @@ def compute_basket_regime(db: Session, basket_id: int, user_id: int) -> dict | N
         "basket_vix": round(basket_vix_value, 4) if basket_vix_value is not None else None,
         "iv_rv_ratio": iv_rv_ratio,
     }
+
+
+def _hbm_regime_series(db: Session) -> tuple[dict, dict]:
+    """Scores HBM and remembers the latest score for its overview card."""
+    series = _hbm_series_with_prices(db)
+    regime = _regime_from_series(series)
+    score = _last_non_none(regime["score01"])
+    if score is not None:
+        basket_service._hbm_regime_latest.update(score01=score, label=_label_for_score(score))
+    return series, regime
+
+
+def refresh_hbm_regime(db: Session) -> None:
+    """Re-scores HBM for the overview card (no live options snapshot)."""
+    _hbm_regime_series(db)
+
+
+def _last_non_none(vals: list):
+    return next((v for v in reversed(vals) if v is not None), None)
+
+
+def _compute_hbm_regime(db: Session) -> dict:
+    """High Beta Momentum's regime from its own NAV (monthly rebalanced, not a buy-and-hold
+    reconstruction); breadth and the live options snapshot use the current holdings."""
+    series, regime = _hbm_regime_series(db)
+    if not regime["dates"]:
+        return {**regime, "basket_vix": None, "iv_rv_ratio": None}
+    tickers = list(series["ticker_prices"])
+    vix = _basket_vix(tickers, {t: 1 / len(tickers) for t in tickers}) if tickers else None
+    ratio = round(vix / regime["realized_vol_last"], 4) if vix is not None and regime["realized_vol_last"] else None
+    return {**regime, "basket_vix": round(vix, 4) if vix is not None else None, "iv_rv_ratio": ratio}
 
 
 def _last_or_none(vals: list) -> float | None:
@@ -323,6 +362,11 @@ def compute_and_persist_all_basket_regimes(db: Session, only_basket_id: int | No
 
     if rows:
         basket_repo.upsert_basket_regime(db, rows)
+    if only_basket_id is None:
+        try:
+            refresh_hbm_regime(db)
+        except Exception:
+            log.warning("basket_regime_daily: HBM scoring failed", exc_info=True)
     return len(rows)
 
 

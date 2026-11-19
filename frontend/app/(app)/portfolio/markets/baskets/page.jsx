@@ -13,9 +13,9 @@ import Sparkline from "@/app/components/Sparkline";
 // Same thresholds as the Basket detail page's BASKET_REGIME_THRESHOLDS (score01 0-100 scale).
 const REGIME_THRESHOLDS = { up: 60, down: 40 };
 
-// Kept in sync with backend/app/services/basket.py's HBM_SYNTHETIC_ID — the legacy High Beta
-// Momentum basket is projected into this list from its own separate tables (Story 1.4, AD-7)
-// but routes to its own richer detail page, not the generic /baskets/[id] route.
+// Kept in sync with backend/app/services/basket.py's HBM_SYNTHETIC_ID — High Beta Momentum is
+// projected into this list from its own tables and opens the normal Basket detail page under
+// /baskets/high-beta-momentum (the API serves it as id -1).
 const HBM_SYNTHETIC_ID = -1;
 
 const SPARK_DAYS = 63; // ~3 months of trading days
@@ -36,15 +36,14 @@ export default function BasketsPage() {
   });
 
   // Same query key as the detail page, so opening a Basket after this is served from cache.
-  const realBaskets = (baskets ?? []).filter((b) => b.id !== HBM_SYNTHETIC_ID);
   const seriesQueries = useQueries({
-    queries: realBaskets.map((b) => ({
+    queries: (baskets ?? []).map((b) => ({
       queryKey: ["basket-series", String(b.id)],
       queryFn: () => api.get(`/api/baskets/${b.id}/series`),
       staleTime: 5 * 60 * 1000,
     })),
   });
-  const seriesById = Object.fromEntries(realBaskets.map((b, i) => [b.id, seriesQueries[i]?.data]));
+  const seriesById = Object.fromEntries((baskets ?? []).map((b, i) => [b.id, seriesQueries[i]?.data]));
 
   const mine = (baskets ?? []).filter((b) => b.user_id != null);
   const system = (baskets ?? []).filter((b) => b.user_id == null);
@@ -118,7 +117,7 @@ function BasketSection({ title, baskets, seriesById }) {
 }
 
 function BasketCard({ basket: b, series }) {
-  const href = b.id === HBM_SYNTHETIC_ID ? "/portfolio/markets/high-beta-momentum" : `/portfolio/markets/baskets/${b.id}`;
+  const href = `/portfolio/markets/baskets/${b.id === HBM_SYNTHETIC_ID ? "high-beta-momentum" : b.id}`;
   const nHoldings = b.num_holdings ?? b.tickers?.length;
   const regimeBucket = b.regime_score != null ? scoreToRegime(b.regime_score, REGIME_THRESHOLDS) : null;
   const regime = regimeBucket ? REGIME_CONFIG[regimeBucket] : null;
@@ -163,7 +162,7 @@ function BasketCard({ basket: b, series }) {
         <div style={{ height: 44 }}>
           {spark?.length > 1 ? (
             <Sparkline values={spark} color={sparkChange >= 0 ? "#34d399" : "#f2585c"} />
-          ) : b.id === HBM_SYNTHETIC_ID ? null : (
+          ) : (
             <div style={{ height: "100%", background: "var(--bg-surface)", opacity: 0.5 }} />
           )}
         </div>
@@ -178,9 +177,7 @@ function BasketCard({ basket: b, series }) {
               <ScoreBar score={b.regime_score} color={regime.color} />
             </>
           ) : (
-            <span style={{ color: "var(--text-disabled)" }}>
-              {b.id === HBM_SYNTHETIC_ID ? "Regime on its own page" : "Regime not scored yet"}
-            </span>
+            <span style={{ color: "var(--text-disabled)" }}>Regime not scored yet</span>
           )}
           {sparkChange != null && (
             <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-disabled)", letterSpacing: "0.06em" }}>

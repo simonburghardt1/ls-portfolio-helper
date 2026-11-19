@@ -57,6 +57,7 @@ class HoldingOut(BaseModel):
 
 
 class BasketSeriesOut(BaseModel):
+    kind: Literal["reconstructed", "index"] = "reconstructed"  # "index": a stored NAV to rebase as is (HBM)
     dates: list[str]
     index_level: list[float]
     holdings: list[HoldingOut]

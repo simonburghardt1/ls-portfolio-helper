@@ -3,6 +3,7 @@ Basket service — business logic and orchestration for the Basket domain.
 Delegates all persistence to app.repositories.basket (AD-1).
 """
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timezone, datetime, timedelta
 
@@ -481,14 +482,41 @@ def _basket_dict(
 
 HBM_SYNTHETIC_ID = -1  # sentinel — real basket ids are positive SERIAL, never collides
 
+# Latest HBM regime ({"score01", "label"}) for its overview card. HBM has no basket row, so the
+# basket_regime table can't hold it; basket_regime fills this whenever it scores HBM (detail page,
+# nightly job) and the first list request after a restart starts a background scoring.
+_hbm_regime_latest: dict = {}
+_hbm_regime_refreshing = threading.Event()
+
+
+def _ensure_hbm_regime_in_background() -> None:
+    if _hbm_regime_latest or _hbm_regime_refreshing.is_set():
+        return
+    _hbm_regime_refreshing.set()
+
+    def run():
+        from app.db.session import SessionLocal
+        from app.services.basket_regime import refresh_hbm_regime
+        db = SessionLocal()
+        try:
+            refresh_hbm_regime(db)
+        except Exception:
+            log.warning("HBM regime background scoring failed", exc_info=True)
+        finally:
+            db.close()
+            _hbm_regime_refreshing.clear()
+
+    threading.Thread(target=run, daemon=True).start()
+
 
 def _hbm_as_basket_entry(db: Session) -> dict | None:
     """Projects the legacy High Beta Momentum basket's own, separate tables (hbm_index_level/
     hbm_holding — AD-7, never touched or migrated) into a Basket-shaped dict for the list.
     Read-only: only calls high_beta_momentum's existing read helpers. None if HBM hasn't been
     seeded yet (no /admin/high-beta-momentum "Build" run), so no dead/empty card shows.
-    Clicking this card routes straight to HBM's own detail page, not /baskets/{id} — it has
-    its own, richer factor-screening presentation that a generic Basket page can't reproduce."""
+    Its detail page is the normal Basket page (/baskets/high-beta-momentum, id -1): the -1
+    branches in get_basket_detail/get_basket_series/get_basket_compare and
+    basket_regime.compute_basket_regime serve it from HBM's own tables."""
     series = hbm_service.get_index_series(db)
     if not series["dates"]:
         return None
@@ -500,7 +528,7 @@ def _hbm_as_basket_entry(db: Session) -> dict | None:
         "id": HBM_SYNTHETIC_ID,
         "name": "High Beta Momentum",
         "user_id": None,  # renders the existing SYSTEM badge, same convention as a global Basket
-        "weighting_method": "beta_momentum",
+        "weighting_method": "equal",
         "created_at": datetime.fromisoformat(series["dates"][0]).replace(tzinfo=timezone.utc),
         "ytd_change_pct": ytd_change_pct,
         "nav_change_pct": nav_change_pct,
@@ -508,7 +536,53 @@ def _hbm_as_basket_entry(db: Session) -> dict | None:
         "cagr": None,
         "beta_vs_spy": None,
         "num_holdings": len(tickers),
+        "regime_score": _hbm_regime_latest.get("score01"),
+        "regime_label": _hbm_regime_latest.get("label"),
     }
+
+
+HBM_REGIME_LOOKBACK_DAYS = 365 * 3  # regime needs ~1.3y warmup; 3y keeps the breadth download small
+
+
+def _hbm_detail(db: Session) -> dict | None:
+    """The detail-page header for High Beta Momentum: the list entry plus beta vs SPY (its own
+    NAV over the last SERIES_LOOKBACK_DAYS, like custom Baskets) and CAGR since inception."""
+    entry = _hbm_as_basket_entry(db)
+    if entry is None:
+        return None
+    series = hbm_service.get_index_series(db)
+    dates, levels = series["dates"], series["index_level"]
+    start = (datetime.now(timezone.utc).date() - timedelta(days=SERIES_LOOKBACK_DAYS)).isoformat()
+    recent = [i for i, d in enumerate(dates) if d >= start]
+    if recent:
+        entry["beta_vs_spy"] = _beta_vs_spy([dates[i] for i in recent], [levels[i] for i in recent])
+    entry["cagr"] = _cagr(dates, levels)
+    return entry
+
+
+def _hbm_series(db: Session) -> dict:
+    """HBM for the detail page: its stored, monthly-rebalanced NAV. kind "index" tells the page
+    to rebase this series directly; the custom-Basket reconstruction from today's holdings
+    would be wrong for a basket whose members change every month."""
+    series = hbm_service.get_index_series(db)
+    return {"kind": "index", "dates": series["dates"], "index_level": series["index_level"], "holdings": []}
+
+
+def _hbm_series_with_prices(db: Session) -> dict:
+    """HBM NAV (last HBM_REGIME_LOOKBACK_DAYS) plus the current holdings' closes aligned to it,
+    the {dates, index_level, ticker_prices} shape basket_regime scores."""
+    series = hbm_service.get_index_series(db)
+    start = (datetime.now(timezone.utc).date() - timedelta(days=HBM_REGIME_LOOKBACK_DAYS)).isoformat()
+    idx = [i for i, d in enumerate(series["dates"]) if d >= start]
+    if len(idx) < 2:
+        return {"dates": [], "index_level": [], "ticker_prices": {}}
+    dates = [series["dates"][i] for i in idx]
+    tickers = [r["ticker"] for r in hbm_service.get_holdings(db, None)["rows"]]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        closes = list(pool.map(lambda t: _download_close(t, start), tickers))
+    dt = pd.to_datetime(dates)
+    prices = {c.name: [None if pd.isna(v) else float(v) for v in c.reindex(dt)] for c in closes if not c.empty}
+    return {"dates": dates, "index_level": [series["index_level"][i] for i in idx], "ticker_prices": prices}
 
 
 def list_baskets(db: Session, user_id: int) -> list[dict]:
@@ -516,6 +590,8 @@ def list_baskets(db: Session, user_id: int) -> list[dict]:
     with the legacy High Beta Momentum basket prepended as a synthetic entry (Story 1.4)."""
     hbm_entry = _hbm_as_basket_entry(db)
     prefix = [hbm_entry] if hbm_entry else []
+    if hbm_entry:
+        _ensure_hbm_regime_in_background()
 
     baskets = basket_repo.list_baskets(db, user_id=user_id)
     if not baskets:
@@ -541,6 +617,8 @@ def list_baskets(db: Session, user_id: int) -> list[dict]:
 
 
 def get_basket_detail(db: Session, basket_id: int, user_id: int) -> dict | None:
+    if basket_id == HBM_SYNTHETIC_ID:
+        return _hbm_detail(db)
     basket = basket_repo.get_basket(db, basket_id)
     if not basket or not _visible_to(basket, user_id):
         return None
@@ -570,6 +648,8 @@ def get_basket_series(db: Session, basket_id: int, user_id: int) -> dict | None:
     including a from-scratch, target-weight reconstruction per range (see the detail page's
     rebaseWeighted()), which is why this fetches SERIES_FULL_HISTORY_YEARS back rather than
     the shorter default SERIES_LOOKBACK_DAYS other Basket price callers use."""
+    if basket_id == HBM_SYNTHETIC_ID:
+        return _hbm_series(db)
     basket = basket_repo.get_basket(db, basket_id)
     if not basket or not _visible_to(basket, user_id):
         return None
@@ -598,14 +678,16 @@ def get_basket_compare(db: Session, basket_id: int, user_id: int, ticker: str) -
     helper), and the chart component already supports two datasets with independent date
     arrays, so no backend-side date-alignment is needed.
     """
-    basket = basket_repo.get_basket(db, basket_id)
-    if not basket or not _visible_to(basket, user_id):
-        return None
-
     ticker = ticker.strip().upper()
-    constituent_tickers = {
-        c.ticker for c in basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
-    }
+    if basket_id == HBM_SYNTHETIC_ID:
+        constituent_tickers = {r["ticker"] for r in hbm_service.get_holdings(db, None)["rows"]}
+    else:
+        basket = basket_repo.get_basket(db, basket_id)
+        if not basket or not _visible_to(basket, user_id):
+            return None
+        constituent_tickers = {
+            c.ticker for c in basket_repo.get_effective_constituents(db, basket_id, as_of=datetime.now(timezone.utc).date())
+        }
     if ticker not in COMPARISON_BENCHMARKS and ticker not in constituent_tickers:
         raise BasketValidationError(
             f"'{ticker}' is not a recognized comparison ticker — choose one of "

@@ -20,6 +20,7 @@ import LineChart from "@/app/components/LineChart";
 import Tabs from "@/app/components/Tabs";
 import RegimeChart, { REGIME_CONFIG } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
+import HbmHoldings from "./HbmHoldings";
 
 const BASKET_REGIME_THRESHOLDS = { up: 60, down: 40 }; // score01 (0-100) equivalent of Market Regime's composite ±0.2 via score01=(composite+1)/2*100
 const COMPONENT_THRESHOLDS = { up: 0.2, down: -0.2 };   // raw per-component scores are ~[-1,1], same scale as Market Regime's
@@ -221,8 +222,33 @@ function computeDrawdown(dates, levels) {
   };
 }
 
+// High Beta Momentum lives at /baskets/high-beta-momentum; the Basket API serves it as id -1
+// from its own monthly-rebalanced tables (backend services/basket.py, HBM_SYNTHETIC_ID).
+const HBM_SLUG = "high-beta-momentum";
+const HBM_API_ID = "-1";
+
+const HBM_INFO =
+  "Our own rebuild of a high-beta momentum basket (in the spirit of Goldman Sachs' GSPRHIMO, whose holdings aren't public). " +
+  "Universe: NASDAQ/NYSE stocks with $3B–$50B market cap, approximated historically as current shares × historical price, so names delisted since may be missing. " +
+  "Each month the top 50 by 0.5×z(1Y beta vs SPY) + 0.5×z(12-1 momentum) are held equal-weight. " +
+  "Unlike a custom Basket, returns come from that real monthly-rebalanced history, not from today's holdings held over the whole window.";
+
+// Return of a stored index (HBM) from the first date of each range to the last date
+function computeIndexRangeChanges(dates, levels) {
+  if (!dates?.length) return {};
+  const lastIdx = dates.length - 1;
+  const out = { "1D": lastIdx >= 1 ? levels[lastIdx] / levels[lastIdx - 1] - 1 : null };
+  for (const r of RANGES) {
+    const startIdx = dates.findIndex((d) => d >= rangeStartDate(r.label));
+    out[r.label] = startIdx === -1 ? null : levels[lastIdx] / levels[startIdx] - 1;
+  }
+  return out;
+}
+
 export default function BasketDetailPage() {
-  const { id } = useParams();
+  const { id: slug } = useParams();
+  const id = slug === HBM_SLUG ? HBM_API_ID : slug;
+  const isHbm = id === HBM_API_ID;
   const router = useRouter();
   const queryClient = useQueryClient();
   const [range, setRange] = useState("3M");
@@ -294,8 +320,13 @@ export default function BasketDetailPage() {
     }
   }
 
+  // "index" series (HBM) are a real stored NAV: rebase as is. Custom Baskets are rebuilt from
+  // today's holdings at target weight from the range start (rebaseWeighted).
+  const isIndex = series?.kind === "index";
+
   const rebased = useMemo(() => {
     if (!series?.dates?.length) return { dates: [], levels: [] };
+    if (series.kind === "index") return rebase(series.dates, series.index_level, rangeStartDate(range));
     return rebaseWeighted(series.dates, series.holdings, rangeStartDate(range));
   }, [series, range]);
 
@@ -305,7 +336,7 @@ export default function BasketDetailPage() {
   );
 
   const rangeChanges = useMemo(
-    () => computeRangeChanges(series?.dates, series?.holdings),
+    () => (series?.kind === "index" ? computeIndexRangeChanges(series.dates, series.index_level) : computeRangeChanges(series?.dates, series?.holdings)),
     [series]
   );
 
@@ -410,18 +441,20 @@ export default function BasketDetailPage() {
                   </span>
                 )}
                 {basket.user_id == null ? <Badge variant="disabled">SYSTEM</Badge> : <Badge variant="neutral">CUSTOM</Badge>}
+                {isHbm && <InfoTip text={HBM_INFO} />}
               </>
             }
             meta={
               <>
                 <span>{basket.weighting_method === "market_cap" ? "Market-cap weighted" : "Equal-weight"}</span>
+                {isHbm && <><Dot /><span>rebalanced monthly</span></>}
                 <Dot />
                 <span>{basket.num_holdings ?? "—"} holdings</span>
                 <Dot />
                 <span>β {basket.beta_vs_spy != null ? basket.beta_vs_spy.toFixed(2) : "—"} <Muted>vs SPY</Muted></span>
               </>
             }
-            actions={
+            actions={!isHbm && (
               <>
                 <Link href={`/portfolio/markets/baskets/${id}/edit`}>
                   <Button variant="secondary">Edit</Button>
@@ -446,7 +479,7 @@ export default function BasketDetailPage() {
                   )}
                 </Popover>
               </>
-            }
+            )}
           />
 
           {deleteBasket.isError && (
@@ -464,7 +497,7 @@ export default function BasketDetailPage() {
           />
 
           {/* ── Range bar (Performance + Holdings): each range shows its own return ── */}
-          {tab !== "regime" && (
+          {(tab === "performance" || (tab === "holdings" && !isIndex)) && (
             <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
               {RANGES.map((r) => {
                 const v = rangeChanges[r.label];
@@ -615,7 +648,10 @@ export default function BasketDetailPage() {
           )}
 
           {/* ── Holdings ── */}
-          {tab === "holdings" && (
+          {tab === "holdings" && isIndex && (
+            <HbmHoldings selectedCompares={selectedCompares} onToggleCompare={toggleCompare} compareColor={compareColor} />
+          )}
+          {tab === "holdings" && !isIndex && (
             holdingsBreakdown.length > 0 ? (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--text-secondary)", marginBottom: 10 }}>
