@@ -10,7 +10,7 @@ export default function LoginPage() {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
 
-  const [form, setForm] = useState({ email: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "", remember_me: true });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [next, setNext] = useState("/");
@@ -69,7 +69,7 @@ export default function LoginPage() {
             />
           </div>
 
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Password</label>
             <input
               type="password"
@@ -80,6 +80,17 @@ export default function LoginPage() {
               placeholder="••••••••"
             />
           </div>
+
+          {/* Ticked: the backend issues a 30-day token instead of a 24-hour one */}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24, fontSize: 13, color: "var(--text-secondary)", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={form.remember_me}
+              onChange={(e) => setForm({ ...form, remember_me: e.target.checked })}
+              style={{ margin: 0, cursor: "pointer" }}
+            />
+            Remember me
+          </label>
 
           {error && (
             <div style={{ background: "#450a0a", border: "1px solid #991b1b", borderRadius: 8, padding: "10px 14px", color: "#fca5a5", fontSize: 14, marginBottom: 18 }}>
