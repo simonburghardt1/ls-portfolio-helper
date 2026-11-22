@@ -1,5 +1,8 @@
+/* Overview cards (Baskets, Portfolios): clickable tile in a card grid, plus its ⋯ menu button */
 .card {
   height: 100%;
+  color: inherit;
+  text-decoration: none;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;

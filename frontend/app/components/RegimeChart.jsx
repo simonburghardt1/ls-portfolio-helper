@@ -9,9 +9,11 @@ import {
   HistogramSeries,
   PriceScaleMode,
 } from "lightweight-charts";
+import { resolveColor } from "@/app/lib/cssColor";
 
-// Canvas (lightweight-charts) colors can't consume CSS vars, so these are literal
-// rgb/hex bases matching --positive/--negative/--caution in globals.css. Shared
+// Colours passed in (price/overlays/components/regimeColors) may be CSS vars; they are
+// resolved before they reach the canvas. The shading needs alpha, so these stay literal
+// rgba bases matching --positive/--negative/--caution in globals.css. Shared
 // across every page that renders a discrete regime label + background shading —
 // import these instead of inventing a second copy.
 export const REGIME_COLORS = {
@@ -172,7 +174,7 @@ export default function RegimeChart({
 
     const overlaySeries = overlays.map((ov) => {
       const s = mc.addSeries(LineSeries, {
-        color: ov.color, lineWidth: 1.5, lineStyle: ov.lineStyle ?? 1,
+        color: resolveColor(ov.color), lineWidth: 1.5, lineStyle: ov.lineStyle ?? 1,
         priceLineVisible: false, lastValueVisible: false, title: ov.label,
       });
       s.setData(dates.map((d, i) => ({ time: d, value: ov.data[i] })).filter((p) => p.value != null));
@@ -180,11 +182,12 @@ export default function RegimeChart({
     });
 
     const priceSeries = mc.addSeries(LineSeries, {
-      color: price.color ?? "#e5e7eb", lineWidth: 2,
+      color: resolveColor(price.color ?? "#e5e7eb"), lineWidth: 2,
       priceLineVisible: false, lastValueVisible: true, title: price.label,
     });
     priceSeries.setData(dates.map((d, i) => ({ time: d, value: price.data[i] })).filter((p) => p.value != null));
-    priceSeries.attachPrimitive(new RegimePrimitive(blocks, regimeColors));
+    const shading = Object.fromEntries(Object.entries(regimeColors).map(([k, c]) => [k, resolveColor(c)]));
+    priceSeries.attachPrimitive(new RegimePrimitive(blocks, shading));
 
     mc.timeScale().fitContent();
 
@@ -258,7 +261,7 @@ export default function RegimeChart({
     for (const comp of components) {
       const title = comp.weight != null ? `${comp.label} (${Math.round(comp.weight * 100)}%)` : comp.label;
       const s = cc.addSeries(LineSeries, {
-        color: comp.color, lineWidth: 1.5,
+        color: resolveColor(comp.color), lineWidth: 1.5,
         priceLineVisible: false, lastValueVisible: true, title,
       });
       s.setData(dates.map((d, i) => ({ time: d, value: comp.data[i] })).filter((p) => p.value != null));

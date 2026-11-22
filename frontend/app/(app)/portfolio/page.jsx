@@ -12,7 +12,7 @@ import Button from "@/app/components/Button";
 import Popover, { MenuItem, MenuDivider } from "@/app/components/Popover";
 import StateMessage from "@/app/components/StateMessage";
 import Sparkline from "@/app/components/Sparkline";
-import styles from "./portfolios.module.css";
+import styles from "@/app/components/OverviewCard.module.css";
 
 export default function PortfoliosPage() {
   const router = useRouter();

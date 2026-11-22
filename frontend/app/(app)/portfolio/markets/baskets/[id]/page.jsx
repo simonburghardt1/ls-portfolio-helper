@@ -18,6 +18,7 @@ import Badge from "@/app/components/Badge";
 import Button from "@/app/components/Button";
 import LineChart from "@/app/components/LineChart";
 import Tabs from "@/app/components/Tabs";
+import Panel from "@/app/components/Panel";
 import RegimeChart, { REGIME_CONFIG } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
 import HbmHoldings from "./HbmHoldings";
@@ -63,11 +64,9 @@ const COMPARISON_BENCHMARKS = [
 
 const MAX_COMPARISONS = 5;
 
-// The Basket's own line keeps #a78bfa (--chart-10, established throughout this file as
-// "this Basket"). These 5 slots pull from the app's own categorical chart tokens
-// (globals.css) — literal hex since canvas charts can't consume CSS vars — skipping
-// chart-4 (#8b5cf6, purple) so it doesn't read too close to the Basket's own line.
-const COMPARE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4"];
+// The Basket's own line is --chart-10 everywhere on the page. Comparisons take the categorical
+// chart tokens, skipping --chart-4 (purple) so none reads too close to the Basket's own line.
+const COMPARE_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-5)", "var(--chart-6)"];
 
 function rangeStartDate(rangeLabel) {
   const now = new Date();
@@ -126,8 +125,6 @@ function rebaseWeighted(dates, holdings, fromDate) {
   });
   return { dates: slicedDates, levels };
 }
-
-const pct = (v) => fmtPct(v);
 
 // Per-holding performance and contribution over the selected range — assumes a fresh
 // rebalance to target weight at the start of the selected window (see rebaseWeighted's
@@ -198,8 +195,6 @@ function computeRangeChanges(dates, holdings) {
   }
   return out;
 }
-
-const changeColor = signColor;
 
 function compareLabel(ticker) {
   return COMPARISON_BENCHMARKS.find((b) => b.ticker === ticker)?.label ?? ticker;
@@ -379,16 +374,16 @@ export default function BasketDetailPage() {
       dates: regime.dates,
       price: { data: regime.prices, label: basket?.name ?? "NAV" },
       overlays: [
-        { key: "ema21", label: "EMA-21W", color: "#a78bfa", data: regime.ema21 },
-        { key: "sma20", label: "SMA-20W", color: "#fb923c", data: regime.sma20 },
+        { key: "ema21", label: "EMA-21W", color: "var(--chart-10)", data: regime.ema21 },
+        { key: "sma20", label: "SMA-20W", color: "var(--chart-11)", data: regime.sma20 },
       ],
       regimes,
       composite: { data: regime.score01, domain: [0, 100], thresholds: BASKET_REGIME_THRESHOLDS },
       components: [
-        { key: "bmsb", label: "BMSB", color: "#3b82f6", weight: 0.25, data: regime.components?.bmsb },
-        { key: "vol", label: "Realized Vol", color: "#f59e0b", weight: 0.25, data: regime.components?.vol },
-        { key: "breadth", label: "Market Breadth", color: "#10b981", weight: 0.25, data: regime.components?.breadth },
-        { key: "relative_strength", label: "Relative Strength", color: "#8b5cf6", weight: 0.25, data: regime.components?.relative_strength },
+        { key: "bmsb", label: "BMSB", color: "var(--chart-1)", weight: 0.25, data: regime.components?.bmsb },
+        { key: "vol", label: "Realized Vol", color: "var(--chart-3)", weight: 0.25, data: regime.components?.vol },
+        { key: "breadth", label: "Market Breadth", color: "var(--chart-2)", weight: 0.25, data: regime.components?.breadth },
+        { key: "relative_strength", label: "Relative Strength", color: "var(--chart-4)", weight: 0.25, data: regime.components?.relative_strength },
       ],
     };
   }, [regime, basket?.name]);
@@ -510,8 +505,8 @@ export default function BasketDetailPage() {
                     style={{ padding: "6px 12px", minWidth: 76, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}
                   >
                     <span style={{ fontSize: 11, letterSpacing: "0.04em" }}>{r.label}</span>
-                    <span style={{ fontFamily: "var(--font-family-mono)", fontSize: 13, fontWeight: 600, color: changeColor(v) ?? "var(--text-secondary)" }}>
-                      {pct(v)}
+                    <span style={{ fontFamily: "var(--font-family-mono)", fontSize: 13, fontWeight: 600, color: signColor(v) }}>
+                      {fmtPct(v)}
                     </span>
                   </Button>
                 );
@@ -553,13 +548,13 @@ export default function BasketDetailPage() {
                 {compareErrorFlag && <span style={{ fontSize: 11, color: "var(--negative)" }}>Could not load comparison data.</span>}
               </div>
 
-              <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", padding: "16px 8px 8px" }}>
+              <Panel style={{ padding: "16px 8px 8px", marginBottom: 0 }}>
                 {rebased.dates.length > 0 ? (
                   <LineChart
                     height={340}
                     dates={rebased.dates}
                     datasets={[
-                      { dates: rebased.dates, data: rebased.levels, borderColor: "#a78bfa", borderWidth: 2, label: `${basket.name} (indexed to 100)` },
+                      { dates: rebased.dates, data: rebased.levels, borderColor: "var(--chart-10)", borderWidth: 2, label: `${basket.name} (indexed to 100)` },
                       ...compareRebasedList.map((c) => ({
                         dates: c.dates,
                         data: c.levels,
@@ -572,9 +567,7 @@ export default function BasketDetailPage() {
                     referenceLine={100}
                   />
                 ) : (
-                  <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-                    Not enough price history yet for this timeframe.
-                  </div>
+                  <StateMessage>Not enough price history yet for this timeframe.</StateMessage>
                 )}
 
                 {/* Drawdown as a sub-panel of the same chart card, same range */}
@@ -582,18 +575,18 @@ export default function BasketDetailPage() {
                   <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 10 }}>
                     <div style={{ display: "flex", gap: 16, alignItems: "baseline", padding: "0 8px 4px", fontSize: 12, color: "var(--text-secondary)" }}>
                       <span style={{ fontWeight: 600, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 11 }}>Drawdown</span>
-                      <span>Current <Num color={drawdown.current < 0 ? "var(--negative)" : undefined}>{pct(drawdown.current)}</Num></span>
-                      <span>Max <Num color="var(--negative)">{pct(drawdown.max)}</Num></span>
+                      <span>Current <Num color={drawdown.current < 0 ? "var(--negative)" : undefined}>{fmtPct(drawdown.current)}</Num></span>
+                      <span>Max <Num color="var(--negative)">{fmtPct(drawdown.max)}</Num></span>
                     </div>
                     <LineChart
                       height={150}
                       dates={drawdown.dates}
-                      datasets={[{ dates: drawdown.dates, data: drawdown.drawdown.map((v) => v * 100), borderColor: "#f2585c", borderWidth: 2, label: "Drawdown %" }]}
+                      datasets={[{ dates: drawdown.dates, data: drawdown.drawdown.map((v) => v * 100), borderColor: "var(--negative)", borderWidth: 2, label: "Drawdown %" }]}
                       referenceLine={0}
                     />
                   </div>
                 )}
-              </div>
+              </Panel>
 
               {compareRebasedList
                 .filter((c) => c.dates[0] !== rebased.dates[0])
@@ -623,7 +616,7 @@ export default function BasketDetailPage() {
               </div>
 
               {regimeLoading ? (
-                <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "24px 0", textAlign: "center" }}>Loading regime…</div>
+                <StateMessage kind="loading">Loading regime…</StateMessage>
               ) : (
                 <>
                   <RegimeCards regime={regime} regimeCfg={regimeCfg} currentRegimeInfo={currentRegimeInfo} />
@@ -677,21 +670,19 @@ export default function BasketDetailPage() {
                       render: (h) => (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <div style={{ flex: 1, maxWidth: 160, height: 6, background: "var(--bg-elevated)" }}>
-                            <div style={{ width: `${(h.targetWeight / maxHoldingWeight) * 100}%`, height: "100%", background: "#a78bfa" }} />
+                            <div style={{ width: `${(h.targetWeight / maxHoldingWeight) * 100}%`, height: "100%", background: "var(--chart-10)" }} />
                           </div>
                           <span style={{ fontFamily: "var(--font-family-mono)", minWidth: 48 }}>{(h.targetWeight * 100).toFixed(1)}%</span>
                         </div>
                       ),
                     },
-                    { key: "performance", label: "Performance", numeric: true, sortable: true, format: (v) => pct(v), color: (v) => changeColor(v) },
-                    { key: "contribution", label: "Contribution", numeric: true, sortable: true, format: (v) => pct(v), color: (v) => changeColor(v) },
+                    { key: "performance", label: "Performance", numeric: true, sortable: true, format: (v) => fmtPct(v), color: signColor },
+                    { key: "contribution", label: "Contribution", numeric: true, sortable: true, format: (v) => fmtPct(v), color: signColor },
                   ]}
                 />
               </>
             ) : (
-              <div style={{ color: "var(--text-secondary)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>
-                Not enough price history yet for this timeframe.
-              </div>
+              <StateMessage>Not enough price history yet for this timeframe.</StateMessage>
             )
           )}
         </>

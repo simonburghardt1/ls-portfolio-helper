@@ -2,6 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import { createChart, createSeriesMarkers, ColorType, CrosshairMode, LineSeries, PriceScaleMode } from "lightweight-charts";
+import { resolveColor } from "@/app/lib/cssColor";
+
+// Colours may be CSS vars ("var(--chart-1)"); the canvas needs them resolved
+const resolveMarkers = (markers) => (markers ?? []).map((m) => (m.color ? { ...m, color: resolveColor(m.color) } : m));
 
 /**
  * markers: optional array of lightweight-charts marker objects ({time, position, color,
@@ -47,7 +51,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
 
     datasets.forEach((ds, i) => {
       const series = chart.addSeries(LineSeries, {
-        color:            ds.borderColor      ?? "#3b82f6",
+        color:            resolveColor(ds.borderColor ?? "var(--chart-1)"),
         lineWidth:        ds.borderWidth      ?? 2,
         lineStyle:        ds.lineStyle        ?? 0,
         priceLineVisible: false,
@@ -65,7 +69,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
       series.setData(data);
 
       if (i === 0) {
-        markersApiRef.current = createSeriesMarkers(series, markers ?? []);
+        markersApiRef.current = createSeriesMarkers(series, resolveMarkers(markers));
       }
     });
 
@@ -124,7 +128,7 @@ export default function LineChart({ dates, datasets, visibleRange, referenceLine
   // Update markers without recreating the chart (e.g. clicking a different histogram bin)
   useEffect(() => {
     if (!markersApiRef.current) return;
-    markersApiRef.current.setMarkers(markers ?? []);
+    markersApiRef.current.setMarkers(resolveMarkers(markers));
   }, [markers]);
 
   return <div ref={containerRef} style={{ width: "100%", height }} />;
