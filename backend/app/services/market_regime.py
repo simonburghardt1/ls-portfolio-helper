@@ -1,5 +1,6 @@
 import datetime
 import logging
+import threading
 
 import numpy as np
 import pandas as pd
@@ -330,6 +331,64 @@ def get_regime_from_db(db: Session) -> dict:
             "credit":  [r.score_credit  for r in rows],
         },
     }
+
+
+# ─── Other indices (computed on request, not stored) ──────────────────────────
+# SPY's regime lives in market_regime / market_prices and is updated nightly. Other indices
+# reuse the same scoring with their own instruments, computed from the price provider on
+# request and kept in memory for a few hours.
+
+INDEX_UNIVERSES = {
+    # price → BMSB; breadth = equal-weight ETF / cap-weight ETF; vol = the index's own VIX
+    "QQQ": {"price": "QQQ", "equal_weight": "QQEW", "vol": "^VXN", "start": "1999-03-01", "equal_weight_start": "2006-05-01"},
+}
+INDEX_CACHE_TTL = datetime.timedelta(hours=6)
+_index_cache: dict[str, tuple[datetime.datetime, dict]] = {}
+_index_lock = threading.Lock()
+
+
+def get_index_regime(db: Session, index: str) -> dict:
+    """Regime for a non-SPY index (INDEX_UNIVERSES), same response shape as get_regime_from_db."""
+    cfg = INDEX_UNIVERSES[index]
+    with _index_lock:
+        hit = _index_cache.get(index)
+        if hit and datetime.datetime.now() - hit[0] < INDEX_CACHE_TTL:
+            return hit[1]
+
+    price = get_price_series(db, "stock", cfg["price"], cfg["start"])
+    spy = get_price_series(db, "stock", "SPY", cfg["start"])  # the provider's shared calendar
+    series = {
+        # _compute's keys are SPY-named; here they carry the index's own instruments
+        "spy": price.reindex(spy.index, method="nearest", tolerance=pd.Timedelta(days=4)).dropna(),
+        "rsp": get_price_series(db, "stock", cfg["equal_weight"], cfg["equal_weight_start"], spy_series=spy),
+        "vix": get_price_series(db, "stock", cfg["vol"], cfg["start"], spy_series=spy),
+        "hyg": get_price_series(db, "stock", "HYG", TICKER_STARTS["HYG"], spy_series=spy),
+        "lqd": get_price_series(db, "stock", "LQD", TICKER_STARTS["LQD"], spy_series=spy),
+    }
+    idx = series["spy"].index
+    series = {k: (v if k == "spy" else v.reindex(idx)) for k, v in series.items()}
+    df = _compute(series)
+
+    def col(name):
+        return [_fmt(v) for v in df[name]]
+
+    result = {
+        "dates":     [d.strftime("%Y-%m-%d") for d in df.index],
+        "prices":    col("spy_price"),
+        "ema21":     col("ema21"),
+        "sma20":     col("sma20"),
+        "regimes":   [r if isinstance(r, str) else None for r in df["regime"]],  # pandas turns None into NaN
+        "composite": col("composite"),
+        "scores": {
+            "bmsb":    col("score_bmsb"),
+            "breadth": col("score_breadth"),
+            "vix":     col("score_vix"),
+            "credit":  col("score_credit"),
+        },
+    }
+    with _index_lock:
+        _index_cache[index] = (datetime.datetime.now(), result)
+    return result
 
 
 def compare_regime_weights(db: Session, config_a: dict, config_b: dict) -> dict:

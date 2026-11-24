@@ -37,6 +37,9 @@ FETCH_YEARS = 11  # matches correlation.py/beta.py's convention
 ATR_WINDOW = 14
 
 WINDOW_WEEKS = {"1y": 52, "3y": 156, "5y": 260, "max": None}
+# Trading days per window, for daily returns
+WINDOW_DAYS = {"1y": 252, "3y": 756, "5y": 1260, "max": None}
+FREQS = ("weekly", "daily")
 
 # Bin edges as multiples of stdev away from the mean, per the reference workbook's DoR tab.
 SIGMA_STEPS = [-3, -2.4, -1.8, -1.2, -0.6, 0, 0.6, 1.2, 1.8, 2.4, 3]
@@ -206,21 +209,21 @@ def _breakdown(returns: pd.Series) -> dict:
     }
 
 
-def compute_return_distribution(db: Session, asset_type: str, asset_id: str, window: str) -> dict:
+def compute_return_distribution(db: Session, asset_type: str, asset_id: str, window: str, freq: str = "weekly") -> dict:
     empty = {"bins": [], "stats": {}, "normal_check": [], "percentiles": [], "breakdown": {}, "prices": {"dates": [], "values": []}}
 
     close = get_price_series(db, asset_type, asset_id, _fetch_start())
     if close.empty:
         return empty
 
-    weekly = close.resample("W").last().dropna()
-    returns = weekly.pct_change().dropna()
+    prices = close.dropna() if freq == "daily" else close.resample("W").last().dropna()
+    returns = prices.pct_change().dropna()
     if returns.empty:
         return empty
 
-    weeks = WINDOW_WEEKS.get(window)
-    if weeks:
-        returns = returns.tail(weeks)
+    periods = (WINDOW_DAYS if freq == "daily" else WINDOW_WEEKS).get(window)
+    if periods:
+        returns = returns.tail(periods)
     if len(returns) < 2:
         return empty
 
@@ -244,7 +247,7 @@ def compute_return_distribution(db: Session, asset_type: str, asset_id: str, win
         "count": n,
     }
 
-    price_window = weekly.loc[returns.index[0]:]
+    price_window = prices.loc[returns.index[0]:]
 
     return {
         "bins": _histogram(returns, mean, stdev),
@@ -255,5 +258,9 @@ def compute_return_distribution(db: Session, asset_type: str, asset_id: str, win
         "prices": {
             "dates": [d.strftime("%Y-%m-%d") for d in price_window.index],
             "values": [round(float(v), 4) for v in price_window],
+        },
+        "returns": {
+            "dates": [d.strftime("%Y-%m-%d") for d in returns.index],
+            "values": [round(float(v), 6) for v in returns],
         },
     }

@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createChart, ColorType, CrosshairMode, HistogramSeries } from "lightweight-charts";
+import { useEffect, useState } from "react";
 import LineChart from "@/app/components/LineChart";
-import PageHeader from "@/app/components/PageHeader";
-import Tabs from "@/app/components/Tabs";
-import KpiCard from "@/app/components/KpiCard";
 import Page from "@/app/components/Page";
+import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
+import Tabs from "@/app/components/Tabs";
+import Select from "@/app/components/Select";
+import SignBars from "@/app/components/SignBars";
+import InfoTip from "@/app/components/InfoTip";
+import StateMessage from "@/app/components/StateMessage";
+import SeriesLegend from "@/app/components/SeriesLegend";
+import { toggleKeepOne } from "@/app/components/SeriesCards";
 import { authFetch } from "@/app/lib/api";
+import { fmtPct, signColor } from "@/app/lib/format";
 
 const API = "http://localhost:8000";
 
@@ -17,28 +23,27 @@ const REGIONS = [
   { value: "EU", label: "EU Region" },
   { value: "DE", label: "Germany" },
   { value: "JP", label: "Japan" },
-  { value: "CN", label: "China", soon: true },
+  { value: "CN", label: "China (coming soon)", disabled: true },
 ];
 
-const LAG_COLORS = {
-  lag0: "#3b82f6",
-  lag1: "#10b981",
-  lag2: "#f59e0b",
-  lag3: "#a78bfa",
-  lag4: "#ef4444",
+const LAGS = {
+  lag0: { label: "No Lag", color: "var(--chart-1)" },
+  lag1: { label: "1Q Lag", color: "var(--chart-2)" },
+  lag2: { label: "2Q Lag", color: "var(--chart-3)" },
+  lag3: { label: "3Q Lag", color: "var(--chart-10)" },
+  lag4: { label: "4Q Lag", color: "var(--chart-5)" },
 };
-const LAG_LABELS = {
-  lag0: "No Lag",
-  lag1: "1Q Lag",
-  lag2: "2Q Lag",
-  lag3: "3Q Lag",
-  lag4: "4Q Lag",
-};
+
+function mean(values) {
+  const valid = values.filter((v) => v != null && !isNaN(v));
+  if (!valid.length) return null;
+  return valid.reduce((a, b) => a + b, 0) / valid.length;
+}
 
 export default function GdpPage() {
   const [region, setRegion] = useState("US");
   const [tab, setTab] = useState("gdp");
-  const [activeLags, setActiveLags] = useState(new Set(Object.keys(LAG_LABELS)));
+  const [activeLags, setActiveLags] = useState(new Set(Object.keys(LAGS)));
 
   const [series, setSeries] = useState(null);
   const [unit, setUnit] = useState("");
@@ -46,21 +51,16 @@ export default function GdpPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  function toggleLag(lag) {
-    setActiveLags((prev) => {
-      const next = new Set(prev);
-      if (next.has(lag)) { if (next.size === 1) return prev; next.delete(lag); }
-      else next.add(lag);
-      return next;
-    });
-  }
-
-  useEffect(() => {
+  function changeRegion(r) {
+    setRegion(r);
     setLoading(true);
     setError(null);
     setSeries(null);
     setUnit("");
     setCorrelation(null);
+  }
+
+  useEffect(() => {
     Promise.all([
       authFetch(`${API}/api/gdp/series?region=${region}`).then((r) => r.json()),
       authFetch(`${API}/api/gdp/market-correlation?region=${region}`).then((r) => r.json()),
@@ -69,37 +69,17 @@ export default function GdpPage() {
       .catch((e) => { setError(e.message); setLoading(false); });
   }, [region]);
 
-  if (loading) return <PageShell><LoadingState /></PageShell>;
-  if (error)   return <PageShell><div style={{ color: "#f87171" }}>Error: {error}</div></PageShell>;
-
   const nominal = series?.nominal;
   const real    = series?.real;
-
-  const avgCorrelation = correlation?.correlation
-    ? Object.fromEntries(
-        Object.entries(correlation.correlation).map(([lag, values]) => [lag, mean(values)])
-      )
-    : {};
+  const market  = correlation?.market_name;
 
   return (
-    <PageShell>
-      <PageHeader title="GDP" subtitle="Gross Domestic Product — quarterly, seasonally adjusted annual rate." />
-
-      {/* Region selector */}
-      <div style={{ marginBottom: 20 }}>
-        <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 8 }}>Region</label>
-        <select
-          value={region}
-          onChange={(e) => setRegion(e.target.value)}
-          style={SELECT_STYLE}
-        >
-          {REGIONS.map((r) => (
-            <option key={r.value} value={r.value} disabled={r.soon}>
-              {r.label}{r.soon ? " (coming soon)" : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+    <Page>
+      <PageHeader
+        title="GDP"
+        subtitle="Gross Domestic Product, quarterly, seasonally adjusted annual rate."
+        actions={<Select label="Region" value={region} onChange={changeRegion} options={REGIONS} />}
+      />
 
       <Tabs
         tabs={[
@@ -110,6 +90,9 @@ export default function GdpPage() {
         active={tab}
         onChange={setTab}
       />
+
+      {loading && <StateMessage kind="loading" />}
+      {error && <StateMessage kind="error">{error}</StateMessage>}
 
       {tab === "gdp" && real && (
         <>
@@ -123,169 +106,67 @@ export default function GdpPage() {
             />
           </Panel>
 
-          {nominal && (
-            <Panel title="Nominal GDP — YoY %">
-              <GdpHistogram dates={nominal.yoy_dates} values={nominal.yoy} />
+          {nominal ? (
+            <Panel title="Nominal GDP, YoY %">
+              <SignBars dates={nominal.yoy_dates} values={nominal.yoy} />
             </Panel>
-          )}
+          ) : null}
 
-          <Panel title="Real GDP — YoY %">
-            <GdpHistogram dates={real.yoy_dates} values={real.yoy} />
+          <Panel
+            title="Real GDP, YoY %"
+            titleExtra={!nominal && <InfoTip text="No nominal GDP chart for this region: the underlying quarterly series was discontinued by its source." />}
+          >
+            <SignBars dates={real.yoy_dates} values={real.yoy} />
           </Panel>
-
-          {!nominal && (
-            <div style={{ fontSize: 12, color: "#4b5563", marginTop: -16, marginBottom: 24 }}>
-              No nominal GDP chart for this region — the underlying quarterly series was discontinued by its source.
-            </div>
-          )}
         </>
       )}
 
-      {tab === "correlation" && correlation?.error && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
-          <div style={{ fontSize: 14, color: "#f87171" }}>{correlation.error}</div>
-        </div>
-      )}
+      {tab === "correlation" && correlation?.error && <StateMessage kind="error">{correlation.error}</StateMessage>}
 
       {tab === "correlation" && correlation && !correlation.error && (
         <>
-          <Panel title={`Real GDP YoY (right axis) vs. ${correlation.market_name} YoY (left axis)`}>
+          <Panel title={`Real GDP YoY (right axis) vs. ${market} YoY (left axis)`}>
             <LineChart
               dates={correlation.dates}
               datasets={[
-                { dates: correlation.dates, data: correlation.gdp_yoy,   borderColor: "#10b981", borderWidth: 2, label: "Real GDP YoY", priceScaleId: "right" },
-                { dates: correlation.dates, data: correlation.sp500_yoy, borderColor: "#3b82f6", borderWidth: 1.5, label: `${correlation.market_name} YoY`, priceScaleId: "left" },
+                { dates: correlation.dates, data: correlation.gdp_yoy,   borderColor: "var(--chart-2)", borderWidth: 2,   label: "Real GDP YoY",    priceScaleId: "right" },
+                { dates: correlation.dates, data: correlation.sp500_yoy, borderColor: "var(--chart-1)", borderWidth: 1.5, label: `${market} YoY`, priceScaleId: "left" },
               ]}
             />
           </Panel>
 
-          <Panel title={`Rolling ${correlation.window_quarters / 4}Y Correlation — Real GDP YoY vs. ${correlation.market_name} YoY (by lag)`}>
-            <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
-              Lag N = {correlation.market_name} YoY from N quarters earlier, correlated against the current quarter's GDP YoY
-              — tests whether the market leads GDP.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-              {Object.keys(LAG_LABELS).map((lag) => {
-                const on = activeLags.has(lag);
-                return (
-                  <button key={lag} onClick={() => toggleLag(lag)} style={{
-                    padding: "4px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-                    border: `1px solid ${on ? LAG_COLORS[lag] : "var(--border)"}`,
-                    background: on ? `${LAG_COLORS[lag]}22` : "transparent",
-                    color: on ? LAG_COLORS[lag] : "#6b7280",
-                    fontWeight: on ? 600 : 400,
-                  }}>
-                    {LAG_LABELS[lag]}
-                  </button>
-                );
-              })}
-            </div>
+          <Panel
+            title={`Rolling ${correlation.window_quarters / 4}Y Correlation, Real GDP YoY vs. ${market} YoY`}
+            titleExtra={
+              <>
+                <InfoTip text={`Lag N = ${market} YoY from N quarters earlier, correlated against the current quarter's GDP YoY. Tests whether the market leads GDP. The value next to each lag is its average correlation.`} />
+                {/* One entry per lag: average correlation, and the toggle for that lag's line */}
+                <SeriesLegend
+                  items={Object.entries(LAGS).map(([k, l]) => {
+                    const avg = mean(correlation.correlation[k] ?? []);
+                    return { key: k, label: l.label, color: l.color, value: <span style={{ color: signColor(avg) }}>{fmtPct(avg, 1, { sign: false })}</span> };
+                  })}
+                  active={activeLags}
+                  onToggle={(k) => setActiveLags((p) => toggleKeepOne(p, k))}
+                />
+              </>
+            }
+          >
             <LineChart
               dates={correlation.dates}
               datasets={Object.entries(correlation.correlation)
-                .filter(([lag]) => activeLags.has(lag))
-                .map(([lag, values]) => ({
+                .filter(([k]) => activeLags.has(k))
+                .map(([k, values]) => ({
                   dates: correlation.dates, data: values.map((v) => (v == null ? null : v * 100)),
-                  borderColor: LAG_COLORS[lag], borderWidth: lag === "lag0" ? 2 : 1.3,
-                  label: LAG_LABELS[lag],
+                  borderColor: LAGS[k]?.color, borderWidth: k === "lag0" ? 2 : 1.3, label: LAGS[k]?.label ?? k,
                 }))}
               referenceLine={0}
             />
           </Panel>
-
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {Object.keys(LAG_LABELS).map((lag) => (
-              <KpiCard
-                key={lag}
-                label={`Avg. Correlation — ${LAG_LABELS[lag]}`}
-                formatted={avgCorrelation[lag] != null ? `${(avgCorrelation[lag] * 100).toFixed(1)}%` : "—"}
-                valueColor={avgCorrelation[lag] == null ? undefined : avgCorrelation[lag] >= 0 ? "var(--positive)" : "var(--negative)"}
-                small
-              />
-            ))}
-          </div>
         </>
       )}
 
-      {tab === "deepdive" && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
-          <div style={{ fontSize: 14, color: "#6b7280" }}>Report Deep Dive — coming soon.</div>
-        </div>
-      )}
-    </PageShell>
-  );
-}
-
-function mean(values) {
-  const valid = values.filter((v) => v != null && !isNaN(v));
-  if (!valid.length) return null;
-  return valid.reduce((a, b) => a + b, 0) / valid.length;
-}
-
-// ── Histogram (bar-per-quarter, colored by sign) ────────────────────────────
-
-function GdpHistogram({ dates, values }) {
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el || !dates?.length) return;
-
-    const chart = createChart(el, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
-      grid: { vertLines: { color: "rgba(55,65,81,0.35)" }, horzLines: { color: "rgba(55,65,81,0.35)" } },
-      crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151" },
-      timeScale: { borderColor: "#374151", timeVisible: false },
-      width: el.clientWidth,
-      height: 220,
-    });
-
-    const hist = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: true, base: 0 });
-    hist.setData(
-      dates.map((d, i) => ({
-        time: d,
-        value: values[i],
-        color: values[i] == null ? "transparent" : values[i] >= 0 ? "rgba(52,211,153,0.75)" : "rgba(242,88,92,0.75)",
-      })).filter((p) => p.value != null)
-    );
-    chart.timeScale().fitContent();
-
-    const ro = new ResizeObserver(() => chart.applyOptions({ width: el.clientWidth }));
-    ro.observe(el);
-
-    return () => { ro.disconnect(); chart.remove(); };
-  }, [dates, values]);
-
-  return <div ref={containerRef} />;
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const SELECT_STYLE = {
-  background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-  color: "#e5e7eb", fontSize: 13, padding: "8px 12px", width: 320, cursor: "pointer",
-};
-
-function Panel({ title, children }) {
-  return (
-    <div style={{ marginBottom: 32 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb", marginBottom: 10 }}>{title}</div>
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 8px 8px" }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function PageShell({ children }) {
-  return (
-    <Page>
-      {children}
+      {tab === "deepdive" && <StateMessage>Report Deep Dive is coming soon.</StateMessage>}
     </Page>
   );
-}
-
-function LoadingState() {
-  return <div style={{ color: "#4b5563", fontSize: 14, padding: "40px 0" }}>Loading…</div>;
 }

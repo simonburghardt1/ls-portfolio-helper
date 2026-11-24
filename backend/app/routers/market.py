@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from app.db.session import get_db
 from sqlalchemy import func
 from app.models.market_data import MarketRegimeRow
 from app.services.market_regime import (
-    get_regime_from_db, seed_market_data, update_market_data, compare_regime_weights
+    get_regime_from_db, get_index_regime, seed_market_data, update_market_data, compare_regime_weights
 )
 
 
@@ -28,8 +29,10 @@ router = APIRouter()
 
 
 @router.get("/api/market/regime")
-def market_regime(db: Session = Depends(get_db)):
+def market_regime(index: Literal["SPY", "QQQ"] = "SPY", db: Session = Depends(get_db)):
     try:
+        if index != "SPY":
+            return get_index_regime(db, index)
         result = get_regime_from_db(db)
         if not result["dates"]:
             # First ever request — seed synchronously (one-time ~30s wait)

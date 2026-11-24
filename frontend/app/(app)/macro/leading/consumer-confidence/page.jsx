@@ -1,20 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import LineChart from "@/app/components/LineChart";
 import Page from "@/app/components/Page";
 import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
 import Button from "@/app/components/Button";
+import StateMessage from "@/app/components/StateMessage";
+import SeriesLegend from "@/app/components/SeriesLegend";
+import { toggleKeepOne } from "@/app/components/SeriesCards";
 import { authFetch } from "@/app/lib/api";
+import { MACRO_RANGES, rangeFrom, latestLegend } from "@/app/lib/macro";
 
 const API = "http://localhost:8000";
-
-const RANGES = [
-  { label: "5Y",  years: 5 },
-  { label: "10Y", years: 10 },
-  { label: "20Y", years: 20 },
-  { label: "All", years: null },
-];
 
 /** Linear regression trend line dataset for a single series. */
 function trendLine(dates, values, color) {
@@ -45,22 +44,13 @@ function trendLine(dates, values, color) {
   };
 }
 
-function rangeFrom(years) {
-  if (!years) return null;
-  const to = new Date();
-  const from = new Date();
-  from.setFullYear(from.getFullYear() - years);
-  return {
-    from: from.toISOString().slice(0, 10),
-    to:   to.toISOString().slice(0, 10),
-  };
-}
-
 export default function ConsumerConfidencePage() {
-  const [series, setSeries]         = useState({});
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-  const [range, setRange]           = useState("20Y");
+  const [series, setSeries]   = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [range, setRange]     = useState("20Y");
+  const [active, setActive]   = useState(null); // null = all series shown
+
   useEffect(() => {
     authFetch(`${API}/api/consumer-confidence/series`)
       .then((r) => r.json())
@@ -68,103 +58,39 @@ export default function ConsumerConfidencePage() {
       .catch((e) => { setError(e.message); setLoading(false); });
   }, []);
 
-  const seriesDatasets = Object.values(series).map((s) => ({
-    dates:       s.dates,
-    data:        s.values,
-    borderColor: s.color,
-    borderWidth: 2,
-    label:       s.label,
-  }));
-
-  const trendDatasets = Object.values(series)
-    .map((s) => trendLine(s.dates, s.values, s.color))
-    .filter(Boolean);
-
-  const datasets = [...seriesDatasets, ...trendDatasets];
-
-  const visibleRange = rangeFrom(RANGES.find((r) => r.label === range)?.years);
-  const hasData = datasets.length > 0;
+  const keys = Object.keys(series);
+  const shown = active ?? new Set(keys);
+  const visible = keys.filter((k) => shown.has(k)).map((k) => series[k]);
+  const datasets = [
+    ...visible.map((s) => ({ dates: s.dates, data: s.values, borderColor: s.color, borderWidth: 2, label: s.label })),
+    ...visible.map((s) => trendLine(s.dates, s.values, s.color)).filter(Boolean),
+  ];
 
   return (
     <Page>
       <PageHeader
         title="Consumer Confidence"
-        subtitle="University of Michigan Survey of Consumers — Index 1966:Q1=100"
+        subtitle="University of Michigan Survey of Consumers. Index 1966:Q1 = 100."
       />
 
-      {loading && <div style={{ color: "#4b5563", fontSize: 14 }}>Loading…</div>}
-      {error   && <div style={{ color: "#f87171", fontSize: 14 }}>Error: {error}</div>}
-
-      {!loading && !error && !hasData && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
-          <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 8 }}>No data available.</div>
-          <div style={{ fontSize: 13, color: "#4b5563" }}>
-            Current Conditions and Expectations data can be imported via{" "}
-            <span style={{ color: "#3b82f6" }}>Admin → Consumer Confidence Import</span>.
-          </div>
-        </div>
+      {loading && <StateMessage kind="loading" />}
+      {error && <StateMessage kind="error">{error}</StateMessage>}
+      {!loading && !error && keys.length === 0 && (
+        <StateMessage>
+          No data available. Current Conditions and Expectations can be imported under{" "}
+          <Link href="/admin/consumer-confidence" style={{ color: "var(--text-primary)" }}>Admin → Consumer Confidence</Link>.
+        </StateMessage>
       )}
 
-      {!loading && hasData && (
-        <>
-          {/* Legend + range */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 12 }}>
-            <div style={{ display: "flex", gap: 16 }}>
-              {Object.values(series).map((s) => (
-                <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 24, height: 3, background: s.color, borderRadius: 2 }} />
-                  <span style={{ fontSize: 12, color: "#9ca3af" }}>{s.label}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              {RANGES.map((r) => (
-                <Button
-                  key={r.label}
-                  variant="range-toggle"
-                  active={range === r.label}
-                  onClick={() => setRange(r.label)}
-                >
-                  {r.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* Chart */}
-          <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 8px 8px" }}>
-            <LineChart dates={null} datasets={datasets} visibleRange={visibleRange} referenceLine={85} />
-          </div>
-
-          {/* Latest values */}
-          <div style={{ display: "flex", gap: 16, marginTop: 16, flexWrap: "wrap" }}>
-            {Object.values(series).map((s) => {
-              const latest = s.values[s.values.length - 1];
-              const prev   = s.values[s.values.length - 2];
-              const diff   = latest != null && prev != null ? latest - prev : null;
-              return (
-                <div key={s.label} style={{
-                  background: "var(--bg-elevated)", border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-none)", padding: "12px 16px", flex: "1 1 160px",
-                  borderTop: `2px solid ${s.color}`,
-                }}>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>{s.label}</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: "#e5e7eb" }}>
-                    {latest?.toFixed(1) ?? "—"}
-                  </div>
-                  {diff != null && (
-                    <div style={{ fontSize: 12, color: diff >= 0 ? "#4ade80" : "#f87171", marginTop: 2 }}>
-                      {diff >= 0 ? "▲" : "▼"} {Math.abs(diff).toFixed(1)} MoM
-                    </div>
-                  )}
-                  <div style={{ fontSize: 10, color: "#374151", marginTop: 2 }}>
-                    {s.dates[s.dates.length - 1]}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
+      {keys.length > 0 && (
+        <Panel
+          titleExtra={<SeriesLegend {...latestLegend(keys.map((k) => [k, series[k]]), { dp: 1 })} active={shown} onToggle={(k) => setActive(toggleKeepOne(shown, k))} />}
+          actions={MACRO_RANGES.map((r) => (
+            <Button key={r.label} variant="range-toggle" active={range === r.label} onClick={() => setRange(r.label)}>{r.label}</Button>
+          ))}
+        >
+          <LineChart dates={null} datasets={datasets} visibleRange={rangeFrom(MACRO_RANGES.find((r) => r.label === range)?.years)} referenceLine={85} />
+        </Panel>
       )}
     </Page>
   );

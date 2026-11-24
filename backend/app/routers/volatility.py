@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services.auth import get_optional_user
 from app.services.asset_price_provider import ASSET_TYPES, ensure_asset_access
-from app.services.volatility import compute_atr_series, compute_return_distribution, WINDOW_WEEKS
+from app.services.volatility import compute_atr_series, compute_return_distribution, WINDOW_WEEKS, FREQS
 
 router = APIRouter(prefix="/api/volatility", tags=["volatility"])
 
@@ -86,6 +86,8 @@ class DistributionOut(BaseModel):
     percentiles: list[PercentileOut]
     breakdown: BreakdownOut
     prices: PriceSeriesOut = PriceSeriesOut(dates=[], values=[])
+    # The returns themselves (weekly: week-ending dates; daily: trading days) — the frontend histogram bins these
+    returns: PriceSeriesOut = PriceSeriesOut(dates=[], values=[])
 
 
 @router.get("/atr", response_model=AtrOut)
@@ -106,6 +108,7 @@ def get_distribution(
     asset_type: str,
     asset_id: str,
     window: str = "1y",
+    freq: str = "weekly",
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_optional_user),
 ):
@@ -113,5 +116,7 @@ def get_distribution(
         raise HTTPException(status_code=400, detail=f"asset_type must be one of {ASSET_TYPES}")
     if window not in WINDOW_WEEKS:
         raise HTTPException(status_code=400, detail=f"window must be one of {list(WINDOW_WEEKS)}")
+    if freq not in FREQS:
+        raise HTTPException(status_code=400, detail=f"freq must be one of {list(FREQS)}")
     ensure_asset_access(db, asset_type, asset_id, current_user)
-    return compute_return_distribution(db, asset_type, asset_id, window)
+    return compute_return_distribution(db, asset_type, asset_id, window, freq)

@@ -3,21 +3,28 @@
 import { useEffect, useState } from "react";
 import LineChart from "@/app/components/LineChart";
 import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
 import Tabs from "@/app/components/Tabs";
 import Button from "@/app/components/Button";
+import Select from "@/app/components/Select";
+import InfoTip from "@/app/components/InfoTip";
 import Page from "@/app/components/Page";
+import StateMessage from "@/app/components/StateMessage";
+import SeriesLegend from "@/app/components/SeriesLegend";
+import { toggleKeepOne } from "@/app/components/SeriesCards";
 import { authFetch } from "@/app/lib/api";
+import { MACRO_RANGES, rangeFrom, latestLegend } from "@/app/lib/macro";
+import { useAuthStore } from "@/app/store/authStore";
 
 const API = "http://localhost:8000";
 
 const TABS = ["Components", "Industries", "Regions"];
 
-const RANGES = [
-  { label: "5Y",  years: 5  },
-  { label: "10Y", years: 10 },
-  { label: "20Y", years: 20 },
-  { label: "All", years: null },
-];
+const LEADING_COLOR = "var(--chart-7)";
+const LEADING_INFO =
+  "Leading Indicator (dashed): z-score average of the five forward-looking components (good time to expand, " +
+  "hiring, inventory and sales plans, expected economy), scaled so its mean is 100 and one standard deviation is 10 points. " +
+  "Only months where all five are reported.";
 
 // OPT_INDEX lives on its own chart; everything else shares the components chart
 const INDEX_ID = "NFIB_OPT_INDEX";
@@ -70,85 +77,38 @@ function computeLeadingIndicator(series) {
   return { dates, values };
 }
 
-/** Returns a {from, to} date range object, or null for "All". */
-function rangeFrom(years) {
-  if (!years) return null;
-  const from = new Date();
-  from.setFullYear(from.getFullYear() - years);
-  return { from: from.toISOString().slice(0, 10), to: new Date().toISOString().slice(0, 10) };
-}
+// ── Shared UI ──────────────────────────────────────────────────────────────────
 
-// ── Shared UI primitives ───────────────────────────────────────────────────────
-
-/** Range selector buttons + refresh icon, right-aligned. */
-function RangeRefreshBar({ range, onRange, onRefresh, refreshing }) {
+/** Range buttons, plus the data refresh for admins (the refresh endpoints are admin-only). */
+function Toolbar({ range, onRange, onRefresh, refreshing }) {
+  const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
   return (
-    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginBottom: 14 }}>
-      {RANGES.map((r) => (
-        <Button
-          key={r.label}
-          variant="range-toggle"
-          active={range === r.label}
-          onClick={() => onRange(r.label)}
-        >
-          {r.label}
-        </Button>
+    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, marginBottom: "var(--space-4)" }}>
+      {MACRO_RANGES.map((r) => (
+        <Button key={r.label} variant="range-toggle" active={range === r.label} onClick={() => onRange(r.label)}>{r.label}</Button>
       ))}
-      <Button
-        variant="secondary"
-        onClick={onRefresh}
-        disabled={refreshing}
-        style={{ marginLeft: 8, padding: "3px 10px", fontSize: "var(--font-base)" }}
-      >
-        {refreshing ? "…" : "↻"}
-      </Button>
+      {isAdmin && (
+        <Button variant="secondary" onClick={onRefresh} disabled={refreshing} title="Fetch the latest data from NFIB" style={{ marginLeft: 8, padding: "3px 10px" }}>
+          {refreshing ? "…" : "↻"}
+        </Button>
+      )}
     </div>
   );
 }
 
-/** Dark card wrapper for chart areas. Accepts optional extra inline styles. */
-function ChartBox({ children, style }) {
-  return (
-    <div style={{
-      background: "var(--bg-surface)", border: "1px solid var(--border)",
-      borderRadius: "var(--radius-none)", padding: "16px 8px 8px",
-      ...style,
-    }}>
-      {children}
-    </div>
-  );
-}
-
-/** Colored pill toggle for a single series. */
-function SeriesToggle({ label, color, active, onClick }) {
-  return (
-    <button onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 5,
-      padding: "3px 10px", borderRadius: 5, fontSize: 11, cursor: "pointer", border: "1px solid",
-      borderColor: active ? color  : "var(--border)",
-      background:  active ? `${color}18` : "transparent",
-      color:       active ? color  : "#4b5563",
-    }}>
-      <div style={{ width: 8, height: 8, borderRadius: "50%", background: active ? color : "#374151" }} />
-      {label}
-    </button>
-  );
-}
-
-/** Empty state card shown before first fetch. */
+/** Empty state before the first fetch; the fetch button only for admins. */
 function EmptyState({ message, onFetch, fetching }) {
+  const isAdmin = useAuthStore((s) => !!s.user?.is_admin);
   return (
-    <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "32px 24px", textAlign: "center" }}>
-      <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 12 }}>{message}</div>
-      <button onClick={onFetch} disabled={fetching} style={{
-        background: "#2563eb", color: "white", border: "none",
-        borderRadius: 8, padding: "8px 20px", fontSize: 13, cursor: "pointer",
-      }}>
-        {fetching ? "Fetching…" : "Fetch from NFIB"}
-      </button>
-    </div>
+    <StateMessage>
+      <div style={{ marginBottom: isAdmin ? 12 : 0 }}>{message}</div>
+      {isAdmin && <Button variant="primary" onClick={onFetch} disabled={fetching}>{fetching ? "Fetching…" : "Fetch from NFIB"}</Button>}
+    </StateMessage>
   );
 }
+
+const toDatasets = (series, ids) =>
+  ids.map((id) => ({ dates: series[id].dates, data: series[id].values, borderColor: series[id].color, borderWidth: 2, label: series[id].label }));
 
 // ── Components tab ─────────────────────────────────────────────────────────────
 
@@ -157,22 +117,14 @@ function ComponentsTab() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState(null);
   const [range, setRange]             = useState("10Y");
-  const [visible, setVisible]         = useState({});
+  const [active, setActive]           = useState(null); // null = all components shown
   const [showLeading, setShowLeading] = useState(true);
   const [refreshing, setRefreshing]   = useState(false);
 
   function load() {
-    setLoading(true);
-    authFetch(`${API}/api/nfib/components`)
+    return authFetch(`${API}/api/nfib/components`)
       .then((r) => r.json())
-      .then((d) => {
-        const s = d.series ?? {};
-        setSeries(s);
-        setVisible(Object.fromEntries(
-          Object.keys(s).filter((k) => k !== INDEX_ID).map((k) => [k, true])
-        ));
-        setLoading(false);
-      })
+      .then((d) => { setSeries(d.series ?? {}); setActive(null); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
   }
 
@@ -183,7 +135,7 @@ function ComponentsTab() {
     try {
       const res = await authFetch(`${API}/api/nfib/refresh`, { method: "POST" });
       if (!res.ok) throw new Error("Refresh failed");
-      load();
+      await load();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -191,133 +143,59 @@ function ComponentsTab() {
     }
   }
 
-  if (loading) return <div style={{ color: "#4b5563", fontSize: 14 }}>Loading…</div>;
-  if (error)   return <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>;
-  if (!Object.keys(series).length)
-    return <EmptyState message="No data yet." onFetch={handleRefresh} fetching={refreshing} />;
+  if (loading) return <StateMessage kind="loading" />;
+  if (error)   return <StateMessage kind="error">{error}</StateMessage>;
+  if (!Object.keys(series).length) return <EmptyState message="No data yet." onFetch={handleRefresh} fetching={refreshing} />;
 
   const indexSeries   = series[INDEX_ID];
   const componentKeys = Object.keys(series).filter((k) => k !== INDEX_ID);
+  const shown         = active ?? new Set(componentKeys);
   const leading       = computeLeadingIndicator(series);
-  const visibleRange  = rangeFrom(RANGES.find((r) => r.label === range)?.years);
+  const visibleRange  = rangeFrom(MACRO_RANGES.find((r) => r.label === range)?.years);
 
   const indexDatasets = [
-    ...(indexSeries ? [{
-      dates: indexSeries.dates, data: indexSeries.values,
-      borderColor: indexSeries.color, borderWidth: 2, label: indexSeries.label,
-    }] : []),
+    ...(indexSeries ? toDatasets(series, [INDEX_ID]) : []),
     ...(leading && showLeading ? [{
-      dates: leading.dates, data: leading.values,
-      borderColor: "#f97316", borderWidth: 2, lineStyle: 2,
-      label: "NFIB Leading Indicator", lastValueVisible: true,
+      dates: leading.dates, data: leading.values, borderColor: LEADING_COLOR, borderWidth: 2, lineStyle: 2, label: "NFIB Leading Indicator",
     }] : []),
   ];
 
-  const componentDatasets = componentKeys
-    .filter((id) => visible[id])
-    .map((id) => ({
-      dates: series[id].dates, data: series[id].values,
-      borderColor: series[id].color, borderWidth: 2, label: series[id].label,
-    }));
-
   return (
-    <div>
-      <RangeRefreshBar range={range} onRange={setRange} onRefresh={handleRefresh} refreshing={refreshing} />
+    <>
+      <Toolbar range={range} onRange={setRange} onRefresh={handleRefresh} refreshing={refreshing} />
 
-      {/* ── Optimism Index chart ── */}
       {indexSeries && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <div style={{ width: 12, height: 12, borderRadius: "50%", background: indexSeries.color }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>{indexSeries.label}</span>
-            <span style={{ fontSize: 11, color: "#4b5563" }}>Index 1986=100</span>
-
-            {/* Leading Indicator toggle (dashed orange) */}
-            {leading && (
-              <button
-                onClick={() => setShowLeading((v) => !v)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "2px 9px", borderRadius: 5, fontSize: 11, cursor: "pointer", border: "1px solid",
-                  borderColor: showLeading ? "#f97316" : "var(--border)",
-                  background:  showLeading ? "#f9731618" : "transparent",
-                  color:       showLeading ? "#f97316" : "#4b5563",
-                }}
-              >
-                <div style={{ width: 8, height: 2, background: showLeading ? "#f97316" : "#374151", borderTop: "2px dashed" }} />
-                Leading Indicator
-              </button>
-            )}
-
-            {/* Latest value + MoM change */}
-            <span style={{ marginLeft: "auto", fontSize: 22, fontWeight: 700, color: "#e5e7eb" }}>
-              {indexSeries.values.at(-1)?.toFixed(1)}
-            </span>
-            {indexSeries.values.length > 1 && (() => {
-              const diff = indexSeries.values.at(-1) - indexSeries.values.at(-2);
-              return (
-                <span style={{ fontSize: 12, color: diff >= 0 ? "#4ade80" : "#f87171" }}>
-                  {diff >= 0 ? "▲" : "▼"} {Math.abs(diff).toFixed(1)}
-                </span>
-              );
-            })()}
-          </div>
-          <ChartBox>
-            <LineChart dates={null} datasets={indexDatasets} visibleRange={visibleRange} referenceLine={100} />
-          </ChartBox>
-        </div>
+        <Panel
+          titleExtra={
+            <>
+              <SeriesLegend
+                {...latestLegend([
+                  [INDEX_ID, indexSeries],
+                  ...(leading ? [["leading", { ...leading, label: "Leading Indicator", color: LEADING_COLOR }]] : []),
+                ], { dp: 1 })}
+                active={new Set([INDEX_ID, ...(showLeading ? ["leading"] : [])])}
+                onToggle={(k) => k === "leading" && setShowLeading((v) => !v)}
+              />
+              {leading && <InfoTip text={LEADING_INFO} />}
+            </>
+          }
+        >
+          <LineChart dates={null} datasets={indexDatasets} visibleRange={visibleRange} referenceLine={100} />
+        </Panel>
       )}
 
-      {/* ── Component series chart ── */}
-      <div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-          {componentKeys.map((id) => (
-            <SeriesToggle
-              key={id}
-              label={series[id].label}
-              color={series[id].color}
-              active={visible[id]}
-              onClick={() => setVisible((p) => ({ ...p, [id]: !p[id] }))}
-            />
-          ))}
-        </div>
-        <ChartBox>
-          {componentDatasets.length > 0
-            ? <LineChart dates={null} datasets={componentDatasets} visibleRange={visibleRange} />
-            : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>Select at least one series</div>
-          }
-        </ChartBox>
-      </div>
-
-      {/* ── Latest value cards ── */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 14 }}>
-        {componentKeys.map((id) => {
-          const s      = series[id];
-          const latest = s.values.at(-1);
-          const prev   = s.values.at(-2);
-          const diff   = latest != null && prev != null ? latest - prev : null;
-          return (
-            <div key={id} style={{
-              background: "var(--bg-elevated)", border: "1px solid var(--border)",
-              borderRadius: "var(--radius-none)", padding: "10px 14px", flex: "1 1 150px",
-              borderTop: `2px solid ${s.color}`,
-            }}>
-              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 3 }}>{s.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#e5e7eb" }}>
-                {latest?.toFixed(1) ?? "—"}
-                <span style={{ fontSize: 11, color: "#4b5563", marginLeft: 2 }}>%</span>
-              </div>
-              {diff != null && (
-                <div style={{ fontSize: 11, color: diff >= 0 ? "#4ade80" : "#f87171", marginTop: 1 }}>
-                  {diff >= 0 ? "▲" : "▼"} {Math.abs(diff).toFixed(1)}pp
-                </div>
-              )}
-              <div style={{ fontSize: 9, color: "#374151", marginTop: 2 }}>{s.dates.at(-1)}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+      <Panel
+        titleExtra={
+          <SeriesLegend
+            {...latestLegend(componentKeys.map((id) => [id, series[id]]), { dp: 1, unit: "%" })}
+            active={shown}
+            onToggle={(k) => setActive(toggleKeepOne(shown, k))}
+          />
+        }
+      >
+        <LineChart dates={null} datasets={toDatasets(series, componentKeys.filter((id) => shown.has(id)))} visibleRange={visibleRange} />
+      </Panel>
+    </>
   );
 }
 
@@ -328,30 +206,29 @@ function ComponentsTab() {
 //   componentsUrl – function(selectedId) → endpoint returning same shape
 //   refreshUrl    – POST endpoint to force re-fetch
 //   emptyMessage  – string shown before first fetch
-//   groupLabel    – label for the dropdown header, e.g. "industry" / "region"
+//   groupLabel    – "Industry" / "Region"
 
 function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, groupLabel }) {
   const [series, setSeries]         = useState({});
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
   const [range, setRange]           = useState("10Y");
-  const [visible, setVisible]       = useState({});
+  const [active, setActive]         = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [selected, setSelected]     = useState(null);
-  const [compSeries, setCompSeries] = useState({});
-  const [compVisible, setCompVisible] = useState({});
-  const [compLoading, setCompLoading] = useState(false);
-  const [compError, setCompError]   = useState(null);
+  const [selected, setSelected]       = useState(null);
+  const [compSeries, setCompSeries]   = useState({});
+  const [compActive, setCompActive]   = useState(null);
+  const [compLoading, setCompLoading] = useState(true);
+  const [compError, setCompError]     = useState(null);
 
   function load() {
-    setLoading(true);
-    authFetch(indexUrl)
+    return authFetch(indexUrl)
       .then((r) => r.json())
       .then((d) => {
         const s = d.series ?? {};
         setSeries(s);
-        setVisible(Object.fromEntries(Object.keys(s).map((k) => [k, true])));
+        setActive(null);
         setSelected((prev) => prev ?? Object.keys(s)[0] ?? null);
         setLoading(false);
       })
@@ -360,18 +237,17 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
 
   useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    if (!selected) return;
+  function select(id) {
+    setSelected(id);
     setCompLoading(true);
     setCompError(null);
+  }
+
+  useEffect(() => {
+    if (!selected) return;
     authFetch(componentsUrl(selected))
       .then((r) => r.json())
-      .then((d) => {
-        const s = d.series ?? {};
-        setCompSeries(s);
-        setCompVisible(Object.fromEntries(Object.keys(s).map((k) => [k, true])));
-        setCompLoading(false);
-      })
+      .then((d) => { setCompSeries(d.series ?? {}); setCompActive(null); setCompLoading(false); })
       .catch((e) => { setCompError(e.message); setCompLoading(false); });
   }, [selected]);
 
@@ -380,7 +256,7 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
     try {
       const res = await authFetch(refreshUrl, { method: "POST" });
       if (!res.ok) throw new Error("Refresh failed");
-      load();
+      await load();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -388,93 +264,57 @@ function GeoBreakdownTab({ indexUrl, componentsUrl, refreshUrl, emptyMessage, gr
     }
   }
 
-  if (loading) return <div style={{ color: "#4b5563", fontSize: 14 }}>Loading…</div>;
-  if (error)   return <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div>;
-  if (!Object.keys(series).length)
-    return <EmptyState message={emptyMessage} onFetch={handleRefresh} fetching={refreshing} />;
+  if (loading) return <StateMessage kind="loading" />;
+  if (error)   return <StateMessage kind="error">{error}</StateMessage>;
+  if (!Object.keys(series).length) return <EmptyState message={emptyMessage} onFetch={handleRefresh} fetching={refreshing} />;
 
-  const datasets = Object.entries(series)
-    .filter(([id]) => visible[id])
-    .map(([, s]) => ({ dates: s.dates, data: s.values, borderColor: s.color, borderWidth: 2, label: s.label }));
-
-  const compDatasets = Object.entries(compSeries)
-    .filter(([id]) => compVisible[id])
-    .map(([, s]) => ({ dates: s.dates, data: s.values, borderColor: s.color, borderWidth: 2, label: s.label }));
-
-  const visibleRange = rangeFrom(RANGES.find((r) => r.label === range)?.years);
+  const ids          = Object.keys(series);
+  const shown        = active ?? new Set(ids);
+  const compIds      = Object.keys(compSeries);
+  const compShown    = compActive ?? new Set(compIds);
+  const visibleRange = rangeFrom(MACRO_RANGES.find((r) => r.label === range)?.years);
 
   return (
-    <div>
-      <RangeRefreshBar range={range} onRange={setRange} onRefresh={handleRefresh} refreshing={refreshing} />
+    <>
+      <Toolbar range={range} onRange={setRange} onRefresh={handleRefresh} refreshing={refreshing} />
 
-      {/* ── OPT_INDEX comparison chart ── */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-        {Object.entries(series).map(([id, s]) => (
-          <SeriesToggle key={id} label={s.label} color={s.color} active={visible[id]}
-            onClick={() => setVisible((p) => ({ ...p, [id]: !p[id] }))} />
-        ))}
-      </div>
-      <ChartBox style={{ marginBottom: 20 }}>
-        {datasets.length > 0
-          ? <LineChart dates={null} datasets={datasets} visibleRange={visibleRange} referenceLine={100} />
-          : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>Select at least one {groupLabel}</div>
+      <Panel
+        titleExtra={
+          <SeriesLegend
+            {...latestLegend(ids.map((id) => [id, series[id]]), { dp: 1 })}
+            active={shown}
+            onToggle={(k) => setActive(toggleKeepOne(shown, k))}
+          />
         }
-      </ChartBox>
+      >
+        <LineChart dates={null} datasets={toDatasets(series, ids.filter((id) => shown.has(id)))} visibleRange={visibleRange} referenceLine={100} />
+      </Panel>
 
-      {/* Latest value cards */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 32 }}>
-        {Object.entries(series).map(([id, s]) => {
-          const latest = s.values.at(-1);
-          const prev   = s.values.at(-2);
-          const diff   = latest != null && prev != null ? latest - prev : null;
-          return (
-            <div key={id} style={{ background: "var(--bg-elevated)", border: `1px solid ${s.color}33`, borderRadius: "var(--radius-none)", padding: "12px 16px", minWidth: 140 }}>
-              <div style={{ fontSize: 10, color: s.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: "#e5e7eb" }}>{latest?.toFixed(1)}</div>
-              {diff != null && (
-                <div style={{ fontSize: 11, color: diff >= 0 ? "#4ade80" : "#f87171", marginTop: 1 }}>
-                  {diff >= 0 ? "▲" : "▼"} {Math.abs(diff).toFixed(1)} MoM
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── Component breakdown for selected group ── */}
-      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>Component Breakdown</span>
-          <select value={selected ?? ""} onChange={(e) => setSelected(e.target.value)} style={{
-            background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-            color: "#e5e7eb", fontSize: 12, padding: "4px 10px", cursor: "pointer",
-          }}>
-            {Object.entries(series).map(([id, s]) => (
-              <option key={id} value={id}>{s.label}</option>
-            ))}
-          </select>
-          {compLoading && <span style={{ fontSize: 12, color: "#4b5563" }}>Loading…</span>}
-          {compError   && <span style={{ fontSize: 12, color: "#f87171" }}>{compError}</span>}
-        </div>
-
-        {!compLoading && Object.keys(compSeries).length > 0 && (
+      <Panel
+        title="Component Breakdown"
+        actions={
+          <Select
+            ariaLabel={groupLabel}
+            value={selected}
+            onChange={select}
+            options={ids.map((id) => ({ value: id, label: series[id].label }))}
+          />
+        }
+      >
+        {compLoading ? <StateMessage kind="loading" /> : compError ? <StateMessage kind="error">{compError}</StateMessage> : compIds.length > 0 && (
           <>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-              {Object.entries(compSeries).map(([id, s]) => (
-                <SeriesToggle key={id} label={s.label} color={s.color} active={compVisible[id]}
-                  onClick={() => setCompVisible((p) => ({ ...p, [id]: !p[id] }))} />
-              ))}
+            <div style={{ marginBottom: "var(--space-3)" }}>
+              <SeriesLegend
+                {...latestLegend(compIds.map((id) => [id, compSeries[id]]), { dp: 1, unit: "%" })}
+                active={compShown}
+                onToggle={(k) => setCompActive(toggleKeepOne(compShown, k))}
+              />
             </div>
-            <ChartBox>
-              {compDatasets.length > 0
-                ? <LineChart dates={null} datasets={compDatasets} visibleRange={visibleRange} />
-                : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#374151", fontSize: 13 }}>Select at least one component</div>
-              }
-            </ChartBox>
+            <LineChart dates={null} datasets={toDatasets(compSeries, compIds.filter((id) => compShown.has(id)))} visibleRange={visibleRange} />
           </>
         )}
-      </div>
-    </div>
+      </Panel>
+    </>
   );
 }
 
@@ -487,7 +327,7 @@ function IndustriesTab() {
       componentsUrl={(id) => `${API}/api/nfib/industries/${id}/components`}
       refreshUrl={`${API}/api/nfib/refresh-industries`}
       emptyMessage="No industry data yet."
-      groupLabel="industry"
+      groupLabel="Industry"
     />
   );
 }
@@ -499,7 +339,7 @@ function RegionsTab() {
       componentsUrl={(id) => `${API}/api/nfib/regions/${id}/components`}
       refreshUrl={`${API}/api/nfib/refresh-regions`}
       emptyMessage="No regional data yet."
-      groupLabel="region"
+      groupLabel="Region"
     />
   );
 }
@@ -513,7 +353,7 @@ export default function NfibPage() {
     <Page>
       <PageHeader
         title="NFIB Small Business Confidence"
-        subtitle="National Federation of Independent Business — Survey of Small Business Economic Trends"
+        subtitle="National Federation of Independent Business, Survey of Small Business Economic Trends."
       />
 
       <Tabs

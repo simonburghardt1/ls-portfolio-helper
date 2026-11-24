@@ -2,8 +2,11 @@
 
 import { useState, useEffect, useMemo } from "react";
 import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
 import Button from "@/app/components/Button";
 import KpiCard from "@/app/components/KpiCard";
+import InfoTip from "@/app/components/InfoTip";
+import StateMessage from "@/app/components/StateMessage";
 import RegimeChart, { REGIME_CONFIG, REGIME_COLORS } from "@/app/components/RegimeChart";
 import { scoreToRegime, lastNonNull, getCurrentRegimeInfo } from "@/app/lib/regime";
 import Page from "@/app/components/Page";
@@ -13,20 +16,33 @@ const API = "http://localhost:8000";
 
 const DEFAULT_WEIGHTS = { bmsb: 0.30, breadth: 0.28, vix: 0.17, credit: 0.25 };
 
+// Each index is scored on its own instruments (backend services/market_regime.py): breadth =
+// equal-weight vs. cap-weight ETF, volatility = the index's own VIX. Credit is market-wide.
+const INDEXES = {
+  SPY: { vol: "VIX", breadth: "RSP/SPY", inception: "RSP before 2003, HYG/LQD before 2007" },
+  QQQ: { vol: "VXN", breadth: "QQEW/QQQ", inception: "VXN before 2001, QQEW before 2006, HYG/LQD before 2007" },
+};
+
 // Colors follow the app's standard chart-series order (--chart-1..4 in globals.css)
-const COMPONENT_META = [
-  { key: "bmsb",    label: "BMSB",           color: "#3b82f6" },
-  { key: "breadth", label: "Market Breadth",  color: "#10b981" },
-  { key: "vix",     label: "VIX",             color: "#f59e0b" },
-  { key: "credit",  label: "Credit",          color: "#8b5cf6" },
+const componentMeta = (index) => [
+  { key: "bmsb",    label: "BMSB",              color: "var(--chart-1)" },
+  { key: "breadth", label: "Market Breadth",    color: "var(--chart-2)" },
+  { key: "vix",     label: INDEXES[index].vol,  color: "var(--chart-3)" },
+  { key: "credit",  label: "Credit",            color: "var(--chart-4)" },
 ];
 
-const SCORE_LABELS = [
-  { key: "bmsb",    label: "BMSB"           },
-  { key: "breadth", label: "Market Breadth" },
-  { key: "vix",     label: "VIX"            },
-  { key: "credit",  label: "Credit"         },
-];
+const EMA_COLOR = "var(--chart-10)";
+const SMA_COLOR = "var(--chart-11)";
+
+function methodInfo(index) {
+  const { vol, breadth, inception } = INDEXES[index];
+  return (
+    `Composite of four signals on daily ${index} closes: BMSB (price vs. its bull market support band), Market Breadth (${breadth}), ` +
+    `${vol} (raw level within its 52-week range) and Credit Spread (HYG/LQD), smoothed with a 10-period EMA. ` +
+    "Composite above +0.2 = Uptrend, below −0.2 = Downtrend, else Ranging. " +
+    `Components without data yet (${inception}) are left out and the weights renormalized.`
+  );
+}
 
 const PERIODS = [
   { label: "1Y",  years: 1  },
@@ -94,6 +110,7 @@ function recomputeComposite(data, weights) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MarketRegimePage() {
+  const [index,    setIndex]    = useState("SPY");
   const [data,     setData]     = useState(null);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
@@ -109,12 +126,12 @@ export default function MarketRegimePage() {
   );
 
   useEffect(() => {
-    authFetch(`${API}/api/market/regime`)
+    authFetch(`${API}/api/market/regime?index=${index}`)
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [index]);
 
   const computedData = useMemo(() => {
     if (!data) return null;
@@ -128,18 +145,18 @@ export default function MarketRegimePage() {
     const { dates, prices, ema21, sma20, regimes, composite, scores } = computedData;
     return {
       dates,
-      price: { data: prices, label: "SPY", color: "#e5e7eb", formatValue: (v) => `$${v.toFixed(2)}` },
+      price: { data: prices, label: index, color: "var(--text-primary)", formatValue: (v) => `$${v.toFixed(2)}` },
       overlays: [
-        { key: "ema21", label: "EMA-21W", color: "#a78bfa", data: ema21 },
-        { key: "sma20", label: "SMA-20W", color: "#fb923c", data: sma20 },
+        { key: "ema21", label: "EMA-21W", color: EMA_COLOR, data: ema21 },
+        { key: "sma20", label: "SMA-20W", color: SMA_COLOR, data: sma20 },
       ],
       regimes,
       composite: { data: composite, domain: [-1, 1], thresholds: MARKET_THRESHOLDS },
-      components: COMPONENT_META.map(({ key, label, color }) => ({
+      components: componentMeta(index).map(({ key, label, color }) => ({
         key, label, color, weight: weights[key], data: scores?.[key],
       })),
     };
-  }, [computedData, weights]);
+  }, [computedData, weights, index]);
 
   // Period → visible range (drives RegimeChart's light-touch zoom effect)
   const visibleRange = useMemo(() => {
@@ -149,6 +166,13 @@ export default function MarketRegimePage() {
     from.setFullYear(from.getFullYear() - sel.years);
     return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
   }, [period]);
+
+  function changeIndex(k) {
+    if (k === index) return;
+    setIndex(k);
+    setLoading(true);
+    setError(null);
+  }
 
   function handleOpenWeights() {
     setPendingWeights(weights);
@@ -164,8 +188,24 @@ export default function MarketRegimePage() {
     setWeights(DEFAULT_WEIGHTS);
   }
 
-  if (loading) return <div style={{ padding: "40px 32px", color: "var(--text-secondary)", fontSize: 14 }}>Loading regime data…</div>;
-  if (error)   return <div style={{ padding: "40px 32px", color: "var(--negative)", fontSize: 13 }}>Error: {error}</div>;
+  // The header (with the SPY/QQQ switch) stays put while another index loads
+  const header = (
+    <PageHeader
+      title="Market Regime"
+      badges={<InfoTip text={methodInfo(index)} />}
+      subtitle={`Composite of BMSB, Market Breadth, ${INDEXES[index].vol} and Credit Spread.`}
+      actions={
+        <div style={{ display: "flex", gap: 4 }}>
+          {Object.keys(INDEXES).map((k) => (
+            <Button key={k} variant="range-toggle" active={index === k} onClick={() => changeIndex(k)}>{k}</Button>
+          ))}
+        </div>
+      }
+    />
+  );
+
+  if (loading) return <Page>{header}<StateMessage kind="loading" /></Page>;
+  if (error)   return <Page>{header}<StateMessage kind="error">{error}</StateMessage></Page>;
 
   const { dates, prices, regimes, composite, scores } = computedData;
   const currentInfo  = getCurrentRegimeInfo(regimes, dates);
@@ -173,11 +213,11 @@ export default function MarketRegimePage() {
   const ytdReturn     = getYtdReturn(dates, prices);
   const cfg           = currentInfo ? REGIME_CONFIG[currentInfo.regime] : null;
 
-  const componentKpis = SCORE_LABELS.map(({ key, label }) => {
+  const componentKpis = componentMeta(index).map(({ key, label }) => {
     const score   = lastNonNull(scores?.[key]);
     const regime  = scoreToRegime(score, MARKET_THRESHOLDS);
     const regCfg  = regime ? REGIME_CONFIG[regime] : null;
-    return { key, label, score, regime, color: regCfg?.color ?? "#6b7280", regLabel: regCfg?.label ?? "—" };
+    return { key, label, score, regime, color: regCfg?.color ?? "var(--text-secondary)", regLabel: regCfg?.label ?? "—" };
   });
 
   const pendingSum = Object.values(pendingWeights).reduce((a, b) => a + b, 0);
@@ -185,11 +225,7 @@ export default function MarketRegimePage() {
   return (
     <Page>
 
-      {/* Header */}
-      <PageHeader
-        title="Market Regime"
-        subtitle={<>Composite of <strong style={{ color: "#9ca3af" }}>BMSB · Market Breadth (RSP/SPY) · VIX (raw level, 52W range) · Credit Spread (HYG/LQD)</strong> — daily closes.</>}
-      />
+      {header}
 
       {/* KPI strip */}
       <div style={{ display: "flex", gap: 14, marginBottom: 28, flexWrap: "wrap", alignItems: "stretch" }}>
@@ -217,9 +253,9 @@ export default function MarketRegimePage() {
           />
         ))}
 
-        <KpiCard label="SPY Price" formatted={currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"} small />
+        <KpiCard label={`${index} Price`} formatted={currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"} small />
         <KpiCard
-          label="SPY YTD"
+          label={`${index} YTD`}
           formatted={ytdReturn != null ? `${ytdReturn >= 0 ? "+" : ""}${ytdReturn.toFixed(2)}%` : "—"}
           valueColor={ytdReturn == null ? undefined : ytdReturn >= 0 ? "var(--positive)" : "var(--negative)"}
           small
@@ -235,12 +271,11 @@ export default function MarketRegimePage() {
               <span style={{ color: c.color }}>{c.label}</span>
             </div>
           ))}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280" }}>
-            <div style={{ width: 18, height: 0, borderTop: "2px dashed #a78bfa" }} /><span>EMA-21W</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6b7280" }}>
-            <div style={{ width: 18, height: 0, borderTop: "2px dashed #fb923c" }} /><span>SMA-20W</span>
-          </div>
+          {[["EMA-21W", EMA_COLOR], ["SMA-20W", SMA_COLOR]].map(([label, color]) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-secondary)" }}>
+              <div style={{ width: 18, height: 0, borderTop: `2px dashed ${color}` }} /><span>{label}</span>
+            </div>
+          ))}
         </div>
 
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -263,31 +298,25 @@ export default function MarketRegimePage() {
             Log
           </Button>
           <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
-          <button
+          <Button
+            variant="range-toggle"
+            active={weightsOpen || !isDefaultWeights}
             onClick={weightsOpen ? () => setWeightsOpen(false) : handleOpenWeights}
-            style={{
-              background: !isDefaultWeights || weightsOpen ? "#1e3a5f" : "transparent",
-              border: `1px solid ${!isDefaultWeights || weightsOpen ? "#2d5a8e" : "var(--border)"}`,
-              borderRadius: 5, padding: "4px 10px", fontSize: 12,
-              color: !isDefaultWeights || weightsOpen ? "#93c5fd" : "var(--text-secondary)",
-              cursor: "pointer",
-            }}
           >
-            ⚙ Weights{!isDefaultWeights ? " •" : ""}
-          </button>
+            Weights{!isDefaultWeights ? " •" : ""}
+          </Button>
         </div>
       </div>
 
       {/* Weights settings panel */}
       {weightsOpen && (
-        <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 20px", marginBottom: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
-            Component Weights
-          </div>
+        <Panel title="Component weights" style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 12 }}>
-            {COMPONENT_META.map(({ key, label, color }) => (
+            {componentMeta(index).map(({ key, label, color }) => (
               <div key={key} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                <label style={{ fontSize: 12, color, fontWeight: 500 }}>{label}</label>
+                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 10, height: 2, background: color }} />{label}
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -295,14 +324,14 @@ export default function MarketRegimePage() {
                   max="1"
                   value={pendingWeights[key]}
                   onChange={(e) => setPendingWeights((prev) => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
-                  style={{ width: 72, padding: "4px 8px", background: "transparent", border: "1px solid var(--border)", borderRadius: 4, color: "var(--text-primary)", fontSize: 13, fontVariantNumeric: "tabular-nums" }}
+                  style={{ width: 72, padding: "4px 8px", background: "var(--bg-base)", border: "1px solid var(--border)", color: "var(--text-primary)", fontFamily: "var(--font-family-mono)", fontSize: 13 }}
                 />
               </div>
             ))}
           </div>
           {Math.abs(pendingSum - 1) > 0.001 && (
             <div style={{ fontSize: 11, color: "var(--caution)", marginBottom: 10 }}>
-              Sum: {pendingSum.toFixed(2)} — weights will be normalized to 1 on apply
+              Sum {pendingSum.toFixed(2)}: weights are normalized to 1 on apply.
             </div>
           )}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -312,13 +341,8 @@ export default function MarketRegimePage() {
             <Button variant="secondary" onClick={handleReset}>
               Reset to defaults
             </Button>
-            {!isDefaultWeights && (
-              <span style={{ fontSize: 11, color: "var(--caution)", marginLeft: 4 }}>
-                Custom weights active — composite is computed client-side
-              </span>
-            )}
           </div>
-        </div>
+        </Panel>
       )}
 
       <RegimeChart
@@ -332,18 +356,6 @@ export default function MarketRegimePage() {
         logScale={logScale}
       />
 
-      {/* Algorithm note */}
-      <div style={{ marginTop: 16, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.7 }}>
-        <strong style={{ color: "var(--text-secondary)" }}>Weights:</strong>{" "}
-        {COMPONENT_META.map(({ key, label }, i) => (
-          <span key={key}>
-            {label} {Math.round(weights[key] * 100)}%{i < COMPONENT_META.length - 1 ? " · " : ""}
-          </span>
-        ))}.{" "}
-        Regime thresholds: composite &gt; +0.2 → <span style={{ color: "var(--positive)" }}>Uptrend</span>,{" "}
-        &lt; −0.2 → <span style={{ color: "var(--negative)" }}>Downtrend</span>, else <span style={{ color: "var(--caution)" }}>Ranging</span>.{" "}
-        Components missing before their data inception (RSP 2003, HYG/LQD 2007) are excluded and weights renormalized.
-      </div>
     </Page>
   );
 }

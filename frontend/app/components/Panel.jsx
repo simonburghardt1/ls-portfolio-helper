@@ -49,7 +49,8 @@ export default function Panel({ title, titleExtra, actions, flush = false, child
             )}
             {titleExtra}
           </div>
-          {actions && <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>{actions}</div>}
+          {/* marginLeft auto: stays right-aligned when a long title/legend pushes it onto its own line */}
+          {actions && <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginLeft: "auto" }}>{actions}</div>}
         </div>
       )}
       {children}

@@ -12,17 +12,22 @@ import Button from "@/app/components/Button";
 import Tabs from "@/app/components/Tabs";
 import InfoTip from "@/app/components/InfoTip";
 import LineChart from "@/app/components/LineChart";
-import Histogram from "@/app/components/Histogram";
+import DistributionHistogram from "@/app/components/DistributionHistogram";
 import AssetSelector from "@/app/components/AssetSelector";
 import StateMessage from "@/app/components/StateMessage";
 import DataTable from "@/app/components/DataTable";
 
-// One shared timeframe drives both ATR and the distribution of weekly returns
+// One shared timeframe drives both ATR and the return distribution
 const PERIODS = [
   { key: "1y", label: "1Y", days: 365 },
   { key: "3y", label: "3Y", days: 1095 },
   { key: "5y", label: "5Y", days: 1825 },
   { key: "max", label: "Max", days: null },
+];
+
+const FREQS = [
+  { key: "daily", label: "Daily", unit: "day" },
+  { key: "weekly", label: "Weekly", unit: "week" },
 ];
 
 const STAT_TABS = [
@@ -37,11 +42,13 @@ const pct = (v, dp = 2) => fmtPct(v, dp, { sign: false });
 export default function VolatilityPage() {
   const [asset, setAsset] = useState({ type: "stock", id: "AAPL", label: "AAPL" });
   const [period, setPeriod] = useState("1y");
-  const [selectedBin, setSelectedBin] = useState(null);
+  const [freq, setFreq] = useState("weekly");
+  const unit = FREQS.find((f) => f.key === freq).unit;
+  const [selectedBin, setSelectedBin] = useState(null); // { lower, upper, count, dates } of the clicked bar
   const [statTab, setStatTab] = useState("summary");
 
-  // A bin selection means nothing once the asset/period changes — reset during render
-  const selectionKey = `${asset.type}:${asset.id}:${period}`;
+  // A bin selection means nothing once the asset/period/frequency changes — reset during render
+  const selectionKey = `${asset.type}:${asset.id}:${period}:${freq}`;
   const [prevSelectionKey, setPrevSelectionKey] = useState(selectionKey);
   if (selectionKey !== prevSelectionKey) {
     setPrevSelectionKey(selectionKey);
@@ -58,9 +65,10 @@ export default function VolatilityPage() {
   });
 
   const { data: dor, isLoading: dorLoading, isError: dorError } = useQuery({
-    queryKey: ["volatility-distribution", asset.type, asset.id, period],
-    queryFn: () => api.get(`/api/volatility/distribution?asset_type=${asset.type}&asset_id=${encodeURIComponent(asset.id)}&window=${period}`),
+    queryKey: ["volatility-distribution", asset.type, asset.id, period, freq],
+    queryFn: () => api.get(`/api/volatility/distribution?asset_type=${asset.type}&asset_id=${encodeURIComponent(asset.id)}&window=${period}&freq=${freq}`),
     enabled: ready,
+    placeholderData: (prev) => prev,
   });
 
   const atrSliced = useMemo(() => {
@@ -80,16 +88,16 @@ export default function VolatilityPage() {
   }, [atr, period]);
 
   const priceMarkers = useMemo(() => {
-    if (selectedBin == null || !dor?.bins?.[selectedBin]) return [];
-    return dor.bins[selectedBin].dates.map((d) => ({ time: d, position: "inBar", color: "#f59e0b", shape: "circle" }));
-  }, [selectedBin, dor]);
+    if (!selectedBin) return [];
+    return selectedBin.dates.map((d) => ({ time: d, position: "inBar", color: "var(--caution)", shape: "circle" }));
+  }, [selectedBin]);
 
   const hasDor = dor && dor.bins?.length > 0;
   const up = dor?.breakdown?.positive;
 
   return (
     <Page>
-      <PageHeader title="Volatility" subtitle="Average true range and weekly return distribution of an asset." actions={<AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />} />
+      <PageHeader title="Volatility" subtitle="Average true range and return distribution of an asset." actions={<AssetSelector label="Asset" baskets={baskets ?? []} selection={asset} onChange={setAsset} />} />
 
       <div style={{ display: "flex", gap: 4, marginBottom: "var(--space-5)" }}>
         {PERIODS.map((p) => (
@@ -104,10 +112,10 @@ export default function VolatilityPage() {
       {(atr || hasDor) && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-3)", marginBottom: "var(--space-5)" }}>
           <KpiCard label="ATR (14W)" formatted={pct(atr?.current)} caption="of price" />
-          <KpiCard label="Weekly σ" formatted={pct(dor?.stats?.stdev)} caption={dor?.stats?.count ? `${dor.stats.count} weeks` : undefined} />
-          <KpiCard label="Up weeks" formatted={pct(up?.freq_pct, 0)} caption={up && dor?.stats?.count ? `${up.count} of ${dor.stats.count}` : undefined} />
+          <KpiCard label={`${freq === "daily" ? "Daily" : "Weekly"} σ`} formatted={pct(dor?.stats?.stdev)} caption={dor?.stats?.count ? `${dor.stats.count} ${unit}s` : undefined} />
+          <KpiCard label={`Up ${unit}s`} formatted={pct(up?.freq_pct, 0)} caption={up && dor?.stats?.count ? `${up.count} of ${dor.stats.count}` : undefined} />
           <KpiCard
-            label="Worst / best week"
+            label={`Worst / best ${unit}`}
             formatted={`${fmtPct(dor?.stats?.min, 1)} / ${fmtPct(dor?.stats?.max, 1)}`}
           />
         </div>
@@ -126,14 +134,29 @@ export default function VolatilityPage() {
       {hasDor && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(460px, 1fr))", gap: "var(--space-5)" }}>
-            <Panel style={{ minWidth: 0 }} title="Weekly returns" titleExtra={<InfoTip text="Click a bar to mark the weeks with that return in the price chart." />}>
-              <Histogram bins={dor.bins} selectedIndex={selectedBin} onSelect={setSelectedBin} />
+            <Panel
+              style={{ minWidth: 0 }}
+              title={`${freq === "daily" ? "Daily" : "Weekly"} returns`}
+              titleExtra={<InfoTip text={`Click a bar to mark the ${unit}s with that return in the price chart.`} />}
+              actions={FREQS.map((f) => (
+                <Button key={f.key} variant="range-toggle" active={freq === f.key} onClick={() => setFreq(f.key)}>{f.label}</Button>
+              ))}
+            >
+              <DistributionHistogram
+                values={dor.returns?.values ?? []}
+                dates={dor.returns?.dates}
+                format={(v) => `${(v * 100).toFixed(0)}%`}
+                marker={dor.returns?.values?.length ? { value: dor.returns.values.at(-1), label: `Latest ${fmtPct(dor.returns.values.at(-1), 1)}` } : undefined}
+                selected={selectedBin}
+                onSelect={setSelectedBin}
+                height={250}
+              />
             </Panel>
             <Panel
               style={{ minWidth: 0 }}
               title="Price"
-              titleExtra={selectedBin != null && (
-                <span style={{ fontSize: 12, color: "var(--caution)" }}>{dor.bins[selectedBin].count} weeks marked</span>
+              titleExtra={selectedBin && (
+                <span style={{ fontSize: 12, color: "var(--caution)" }}>{selectedBin.count} {unit}{selectedBin.count === 1 ? "" : "s"} marked</span>
               )}
             >
               {dor.prices?.dates?.length > 0 ? (
@@ -151,7 +174,7 @@ export default function VolatilityPage() {
 
           <Panel title="Statistics">
             <Tabs tabs={STAT_TABS} active={statTab} onChange={setStatTab} />
-            {statTab === "summary" && <SummaryStats stats={dor.stats} />}
+            {statTab === "summary" && <SummaryStats stats={dor.stats} unit={unit} />}
             {statTab === "normal" && (
               <DataTable
                 autoWidth
@@ -174,7 +197,7 @@ export default function VolatilityPage() {
                 columns={[
                   { key: "label", label: "" },
                   { key: "avg", label: "Avg return", numeric: true, format: (v) => pct(v) },
-                  { key: "count", label: "Weeks", numeric: true },
+                  { key: "count", label: `${unit[0].toUpperCase()}${unit.slice(1)}s`, numeric: true },
                   { key: "freq_pct", label: "Share", numeric: true, format: (v) => pct(v) },
                   { key: "freq_adjusted", label: "Weighted", numeric: true, format: (v) => pct(v) },
                 ]}
@@ -191,16 +214,16 @@ export default function VolatilityPage() {
         </>
       )}
 
-      {dor && dor.bins?.length === 0 && !dorLoading && <StateMessage>Not enough weekly return history for this asset and timeframe.</StateMessage>}
+      {dor && dor.bins?.length === 0 && !dorLoading && <StateMessage>Not enough return history for this asset and timeframe.</StateMessage>}
     </Page>
   );
 }
 
-function SummaryStats({ stats: s }) {
+function SummaryStats({ stats: s, unit }) {
   const items = [
     ["Mean", pct(s.mean)], ["Median", pct(s.median)], ["Std dev", pct(s.stdev)], ["Std error", pct(s.std_error)],
     ["Skewness", fmtNum(s.skewness)], ["Kurtosis", fmtNum(s.kurtosis)], ["Min", pct(s.min)], ["Max", pct(s.max)],
-    ["Range", pct(s.range)], ["Sum", pct(s.sum)], ["Variance", fmtNum(s.variance, 5)], ["Weeks", s.count ?? "—"],
+    ["Range", pct(s.range)], ["Sum", pct(s.sum)], ["Variance", fmtNum(s.variance, 5)], [`${unit[0].toUpperCase()}${unit.slice(1)}s`, s.count ?? "—"],
   ];
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "var(--space-3) var(--space-5)" }}>
