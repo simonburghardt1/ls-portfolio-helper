@@ -28,6 +28,7 @@ from app.routers.correlation import router as correlation_router
 from app.routers.beta import router as beta_router
 from app.routers.volatility import router as volatility_router
 from app.routers.seasonality import router as seasonality_router
+from app.routers.stock_regime import router as stock_regime_router
 from app.scheduler import create_scheduler, start_scheduler
 from app.services.auth import get_current_user, require_admin_for_writes
 
@@ -69,7 +70,7 @@ for r in [
     macro_router, ism_router, ism_services_router, consumer_confidence_router, data_import_router,
     building_permits_router, nfib_router, market_router, cot_router, cpi_ppi_router,
     commodities_router, high_beta_momentum_router, gdp_router, debt_router,
-    correlation_router, beta_router, volatility_router, seasonality_router,
+    correlation_router, beta_router, volatility_router, seasonality_router, stock_regime_router,
 ]:
     app.include_router(r, dependencies=ADMIN_WRITES)
 

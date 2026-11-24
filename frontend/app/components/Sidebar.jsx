@@ -59,6 +59,7 @@ const NAV = [
       {
         label: "Single Stock Analysis",
         items: [
+          { label: "Regime",       href: "/portfolio/single-stock/regime" },
           { label: "Realized Vol", href: "/portfolio/single-stock/volatility" },
           { label: "Correlation",           href: "/portfolio/single-stock/correlation" },
           { label: "Beta",                  href: "/portfolio/single-stock/beta" },

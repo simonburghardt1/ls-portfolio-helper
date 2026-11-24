@@ -12,6 +12,7 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 |---|---|---|
 | Analysis tool | Seasonality | ✅ reference page (kit + Restraint) |
 | | Single-stock Volatility, Correlation, Beta | ✅ kit; Correlation/Beta share `RollingWindows` (KPI cards = line toggles) |
+| | Single-stock Regime | ✅ new (2026-11-24): Basket regime methodology on one stock, breadth replaced by Sector Strength (SPDR sector ETF/SPY vs. 10W MA); `RegimeChart` + Components table (score, re-weighted weight, contribution, inputs) + live IV snapshot; `GET /api/stocks/{ticker}/regime` (services/stock_regime.py, 6h in-memory cache, stocks only) |
 | | Portfolio Volatility & Correlation, Portfolio Beta | ✅ kit; shared `PortfolioPicker`, matrices/statistics behind tabs |
 | List / detail | Basket detail | ✅ header + menus, chart in Panel, StateMessage, shared format helpers; chart colours as CSS vars (LineChart/RegimeChart resolve them via lib/cssColor) |
 | | Track Record | ✅ split into tab components; DataTable with sorting + click-to-edit rows (`useRowEditor`), 5–6 KPIs per tab, IBKR import behind a header button |
@@ -77,8 +78,6 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 - ✅ **Fixed 2026-08-11:** `cot-data/page.jsx` and `track-record/page.jsx`'s primary single-line series — were `#60a5fa` (a different, lighter blue), now `--chart-1`'s literal hex. Their secondary/comparison lines (cot-data's price overlay, Track Record's SPX benchmark, both amber) and Track Record's separate Realized PnL pane (orange) were left untouched — already correct. `market-regime/page.jsx`'s 4 component-signal colors were reordered onto `--chart-1..4` (BMSB blue, Market Breadth green, VIX amber unchanged, Credit purple) instead of the previous ad hoc green/blue/amber/light-purple mix.
 
 ## Backlog
-
-- **Single-stock regime** (requested 2026-11-24): the same regime view as Market Regime and the Basket regime tab, for any single ticker (price + EMA-21W/SMA-20W, regime shading, composite score, component signals). Likely reuses `RegimeChart` and the Basket scoring in `backend/app/services/basket_regime.py` (`_regime_from_series` works on any price series). Not started.
 
 ## Open design decisions
 
