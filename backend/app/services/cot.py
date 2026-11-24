@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 DISAGG_URL = "https://publicreporting.cftc.gov/resource/72hh-3qpy.json"
 TFF_URL    = "https://publicreporting.cftc.gov/resource/gpe5-46if.json"
 
-# key → {label, cftc_name, asset_class, report_type, yf_ticker}
+# key → {label, cftc_name (one name, or a list when the CFTC renamed the market), asset_class, report_type, yf_ticker}
 CONTRACTS: dict[str, dict] = {
     # ── Energy ──────────────────────────────────────────────────────────────────
     "wti": {
@@ -133,7 +133,8 @@ CONTRACTS: dict[str, dict] = {
     },
     "gbp": {
         "label":      "British Pound",
-        "cftc_name":  "BRITISH POUND STERLING - CHICAGO MERCANTILE EXCHANGE",
+        # Renamed by CFTC on 2022-02-08; both names, so the history stays continuous
+        "cftc_name":  ["BRITISH POUND STERLING - CHICAGO MERCANTILE EXCHANGE", "BRITISH POUND - CHICAGO MERCANTILE EXCHANGE"],
         "asset_class": "currencies",
         "report_type": "tff",
         "yf_ticker":   "GBPUSD=X",
@@ -273,9 +274,11 @@ async def _fetch_contract(contract_key: str, start_date: str = "2009-01-01") -> 
             "market_and_exchange_names"
         )
 
+    names = meta["cftc_name"] if isinstance(meta["cftc_name"], list) else [meta["cftc_name"]]
+    name_list = ", ".join(f"'{n}'" for n in names)
     params = {
         "$select": select_cols,
-        "$where":  f"market_and_exchange_names='{meta['cftc_name']}' AND report_date_as_yyyy_mm_dd >= '{start_date}'",
+        "$where":  f"market_and_exchange_names in ({name_list}) AND report_date_as_yyyy_mm_dd >= '{start_date}'",
         "$order":  "report_date_as_yyyy_mm_dd ASC",
         "$limit":  "2000",
     }
@@ -387,39 +390,57 @@ def _compute_net(long_pos, short_pos, open_interest):
     return net_pos, net_pct
 
 
-def get_cot_overview(db) -> dict:
-    """Return latest row per contract, grouped by asset class."""
-    # Subquery: latest date per contract
-    subq = (
-        db.query(CotData.contract, func.max(CotData.date).label("max_date"))
-        .group_by(CotData.contract)
-        .subquery()
-    )
+COT_INDEX_WEEKS = 156  # the usual 3-year lookback for the COT index
+SPARK_WEEKS = 52
+
+
+def get_cot_overview(db) -> list[dict]:
+    """One row per contract (in CONTRACTS order) with its latest net %, the change vs. the
+    prior report, the COT index (where the latest net % sits in its 3-year range, 0-100)
+    and the last year of net % for a sparkline."""
+    since = datetime.date.today() - datetime.timedelta(weeks=COT_INDEX_WEEKS + 8)
     rows = (
         db.query(CotData)
-        .join(subq, (CotData.contract == subq.c.contract) & (CotData.date == subq.c.max_date))
+        .filter(CotData.date >= since)
+        .order_by(CotData.contract, CotData.date.asc())
         .all()
     )
-
-    by_class: dict[str, list] = {}
+    by_contract: dict[str, list] = {}
     for row in rows:
-        ac = row.asset_class or "other"
-        if ac not in by_class:
-            by_class[ac] = []
-        net_pos, net_pct = _compute_net(row.long_pos, row.short_pos, row.open_interest)
-        meta = CONTRACTS.get(row.contract, {})
-        by_class[ac].append({
-            "contract":      row.contract,
-            "label":         meta.get("label", row.contract),
-            "date":          row.date.isoformat(),
-            "long_pos":      row.long_pos,
-            "short_pos":     row.short_pos,
-            "open_interest": row.open_interest,
+        by_contract.setdefault(row.contract, []).append(row)
+
+    out = []
+    for key, meta in CONTRACTS.items():
+        hist = by_contract.get(key)
+        if not hist:
+            continue
+        nets = [_compute_net(r.long_pos, r.short_pos, r.open_interest)[1] for r in hist]
+        valid = [v for v in nets if v is not None]
+        latest = hist[-1]
+        net_pos, net_pct = _compute_net(latest.long_pos, latest.short_pos, latest.open_interest)
+        prev = nets[-2] if len(nets) > 1 else None
+
+        window = valid[-COT_INDEX_WEEKS:]
+        cot_index = None
+        if net_pct is not None and len(window) >= 26:
+            lo, hi = min(window), max(window)
+            cot_index = round((net_pct - lo) / (hi - lo) * 100, 1) if hi > lo else 50.0
+
+        out.append({
+            "contract":      key,
+            "label":         meta["label"],
+            "asset_class":   meta["asset_class"],
+            "date":          latest.date.isoformat(),
+            "long_pos":      latest.long_pos,
+            "short_pos":     latest.short_pos,
+            "open_interest": latest.open_interest,
             "net_pos":       net_pos,
             "net_pct":       net_pct,
+            "change_1w":     round(net_pct - prev, 2) if net_pct is not None and prev is not None else None,
+            "cot_index":     cot_index,
+            "spark":         valid[-SPARK_WEEKS:],
         })
-
-    return by_class
+    return out
 
 
 def get_cot_series(db, contract_key: str) -> dict:

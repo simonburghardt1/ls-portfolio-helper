@@ -1,482 +1,332 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import {
-  createChart,
-  ColorType,
-  CrosshairMode,
-  LineSeries,
-  HistogramSeries,
-} from "lightweight-charts";
-import PageHeader from "@/app/components/PageHeader";
-import Button from "@/app/components/Button";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/app/lib/api";
+import { signColor } from "@/app/lib/format";
+import { heatColor } from "@/app/lib/heat";
+import { rangeFrom } from "@/app/lib/macro";
 import Page from "@/app/components/Page";
-import { authFetch } from "@/app/lib/api";
+import PageHeader from "@/app/components/PageHeader";
+import Panel from "@/app/components/Panel";
+import Button from "@/app/components/Button";
+import Select from "@/app/components/Select";
+import InfoTip from "@/app/components/InfoTip";
+import DataTable from "@/app/components/DataTable";
+import LineChart from "@/app/components/LineChart";
+import SeriesLegend from "@/app/components/SeriesLegend";
+import Sparkline from "@/app/components/Sparkline";
+import StateMessage from "@/app/components/StateMessage";
 
-const API = "http://localhost:8000";
+const ASSET_CLASSES = [
+  ["energy", "Energy"],
+  ["precious_metals", "Precious Metals"],
+  ["commodities", "Agriculture"],
+  ["industrial_metals", "Industrial Metals"],
+  ["currencies", "Currencies"],
+  ["indices", "Indices"],
+  ["crypto", "Crypto"],
+];
+const CLASS_LABEL = Object.fromEntries(ASSET_CLASSES);
 
-const ASSET_CLASS_ORDER = [
-  "energy",
-  "precious_metals",
-  "commodities",
-  "industrial_metals",
-  "currencies",
-  "indices",
-  "crypto",
+const RANGES = [
+  { label: "1Y", years: 1 },
+  { label: "3Y", years: 3 },
+  { label: "5Y", years: 5 },
+  { label: "10Y", years: 10 },
+  { label: "All", years: null },
 ];
 
-const ASSET_CLASS_LABELS = {
-  energy:            "Energy",
-  precious_metals:   "Precious Metals",
-  commodities:       "Commodities",
-  industrial_metals: "Industrial Metals",
-  currencies:        "Currencies",
-  indices:           "Indices",
-  crypto:            "Crypto",
+const NET_COLOR = "var(--chart-1)";
+const PRICE_COLOR = "var(--caution)";
+const POSITION_SERIES = [
+  { key: "long_pos", label: "Long", color: "var(--positive)" },
+  { key: "short_pos", label: "Short", color: "var(--negative)" },
+  { key: "open_interest", label: "Open interest", color: "var(--chart-4)" },
+];
+
+const NET_INFO =
+  "Net position (long − short) as a share of total open interest. Managed Money (Disaggregated report) for commodities, Asset Managers (TFF report) for currencies, indices and crypto.";
+const INDEX_INFO =
+  "Where the latest net % sits in its own 3-year range: 0 = most short, 100 = most long of the last 156 reports.";
+
+const fmtSignedPct = (v, dp = 1) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(dp)}%`);
+const fmtPp = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(1)} pp`);
+const fmtK = (v) => {
+  if (v == null) return "—";
+  return Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}K` : v.toLocaleString("en-US");
+};
+/** Axis labels for contract counts: 1250000 → "1.25M", 750000 → "750K" */
+const fmtAxisCount = (v) => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${+(v / 1e6).toFixed(2)}M`;
+  if (a >= 1e3) return `${+(v / 1e3).toFixed(0)}K`;
+  return `${+v.toFixed(0)}`;
+};
+const fmtSignedK = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${fmtK(v)}`);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-11-03" → "3 Nov 2026" */
+const fmtDate = (d) => {
+  if (!d) return "";
+  const [y, m, day] = d.split("-");
+  return `${Number(day)} ${MONTHS[Number(m) - 1]} ${y}`;
 };
 
-const PERIODS = [
-  { label: "1Y",  years: 1  },
-  { label: "3Y",  years: 3  },
-  { label: "5Y",  years: 5  },
-  { label: "10Y", years: 10 },
-  { label: "20Y", years: 20 },
-  { label: "MAX", years: null },
-];
+export default function CotDataPage() {
+  const [selected, setSelected] = useState("gold");
+  const [range, setRange] = useState("5Y");
+  const [showPrice, setShowPrice] = useState(false);
+  const [hiddenPositions, setHiddenPositions] = useState(() => new Set());
 
-function fmtK(val) {
-  if (val == null) return "—";
-  const abs = Math.abs(val);
-  if (abs >= 1000) return (val / 1000).toFixed(1) + "K";
-  return val.toLocaleString();
-}
+  const { data: overview, isError: ovError } = useQuery({ queryKey: ["cot-overview"], queryFn: () => api.get("/api/cot/overview") });
+  const { data: contracts } = useQuery({ queryKey: ["cot-contracts"], queryFn: () => api.get("/api/cot/contracts") });
+  const { data: series, isError: serError } = useQuery({
+    queryKey: ["cot-series", selected],
+    queryFn: () => api.get(`/api/cot/series/${selected}`),
+    placeholderData: (prev) => prev,
+  });
+  const { data: price, isFetching: priceLoading } = useQuery({
+    queryKey: ["cot-price", selected],
+    queryFn: () => api.get(`/api/cot/price/${selected}`),
+    enabled: showPrice,
+    staleTime: 60 * 60 * 1000,
+  });
 
-function netColor(pct) {
-  if (pct == null) return "#6b7280";
-  if (pct > 10)  return "#22c55e";
-  if (pct < -10) return "#ef4444";
-  return "#9ca3af";
-}
+  const current = series?.contract === selected ? series : null;
+  const visibleRange = useMemo(() => rangeFrom(RANGES.find((r) => r.label === range)?.years), [range]);
+  const reportDate = overview?.length ? overview.reduce((m, r) => (r.date > m ? r.date : m), "") : null;
 
-// ── Net % bar — centered at 0, green right / red left ────────────────────────
-function NetBar({ pct }) {
-  if (pct == null) return <div style={{ height: 6, background: "#111827", borderRadius: 3 }} />;
-  const clamped = Math.max(-100, Math.min(100, pct));
-  const isPos   = clamped >= 0;
-  const fill    = Math.abs(clamped) / 2; // max 50% of total width
+  // ── Net % chart (+ optional price on the left axis) ──────────────────────────
+  const hasPrice = showPrice && price?.dates?.length > 0;
+  const netDatasets = useMemo(() => {
+    if (!current?.dates?.length) return null;
+    const ds = [{ dates: current.dates, data: current.net_pct, borderColor: NET_COLOR, borderWidth: 2, label: "Net %" }];
+    if (hasPrice) {
+      ds.push({ dates: price.dates, data: price.prices, borderColor: PRICE_COLOR, borderWidth: 1.5, label: price.ticker ?? "Price", priceScaleId: "left" });
+    }
+    return ds;
+  }, [current, hasPrice, price]);
+
+  const positionDatasets = useMemo(() => {
+    if (!current?.dates?.length) return null;
+    const showOi = !hiddenPositions.has("open_interest");
+    return POSITION_SERIES.filter((s) => !hiddenPositions.has(s.key)).map((s) =>
+      s.key === "open_interest"
+        ? { dates: current.dates, data: current[s.key], borderColor: s.color, opacity: 0.4, label: "", type: "histogram", priceScaleId: "oi", scaleMargins: { top: 0.7, bottom: 0 } }
+        : { dates: current.dates, data: current[s.key], borderColor: s.color, borderWidth: 1.5, label: s.label, scaleMargins: { top: 0.05, bottom: showOi ? 0.34 : 0.05 } },
+    );
+  }, [current, hiddenPositions]);
+
+  // Weekly table, newest first, with the change in net % vs. the prior report
+  const weeklyRows = useMemo(() => {
+    if (!current?.dates?.length) return [];
+    return current.dates
+      .map((date, i) => ({
+        date,
+        long_pos: current.long_pos[i],
+        short_pos: current.short_pos[i],
+        net_pos: current.net_pos[i],
+        open_interest: current.open_interest[i],
+        net_pct: current.net_pct[i],
+        change: i > 0 && current.net_pct[i] != null && current.net_pct[i - 1] != null ? current.net_pct[i] - current.net_pct[i - 1] : null,
+      }))
+      .reverse();
+  }, [current]);
+
+  const latest = weeklyRows[0];
+  const posLatest = (key) => latest?.[key];
+
+  const togglePosition = (key) =>
+    setHiddenPositions((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else if (POSITION_SERIES.length - next.size > 1) next.add(key); // keep one line visible
+      return next;
+    });
+
+  const rangeButtons = RANGES.map((r) => (
+    <Button key={r.label} variant="range-toggle" active={range === r.label} onClick={() => setRange(r.label)}>{r.label}</Button>
+  ));
+
+  const contractSelect = (
+    <Select ariaLabel="Contract" value={selected} onChange={setSelected} width={200} style={{ marginRight: "var(--space-3)" }}>
+      {ASSET_CLASSES.map(([ac, label]) => {
+        const items = Object.entries(contracts ?? {}).filter(([, m]) => m.asset_class === ac);
+        if (!items.length) return null;
+        return (
+          <optgroup key={ac} label={label}>
+            {items.map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}
+          </optgroup>
+        );
+      })}
+    </Select>
+  );
+
   return (
-    <div style={{ height: 6, background: "#111827", borderRadius: 3, display: "flex", position: "relative" }}>
-      {/* negative half (right→center) */}
-      <div style={{ flex: 1, display: "flex", justifyContent: "flex-end" }}>
-        {!isPos && (
-          <div style={{ width: `${fill * 2}%`, background: "#ef4444", borderRadius: "3px 0 0 3px" }} />
+    <Page>
+      <PageHeader
+        title="COT Positioning"
+        subtitle="CFTC Commitments of Traders, weekly. Managed Money for commodities, Asset Managers for financial futures."
+      />
+
+      {ovError && <StateMessage kind="error">Could not load the COT overview.</StateMessage>}
+
+      {/* ── Overview: every contract, latest report ───────────────────────────── */}
+      <Panel
+        title="Positioning"
+        titleExtra={reportDate && <span style={{ fontSize: 12, color: "var(--text-disabled)" }}>Report of {fmtDate(reportDate)}</span>}
+        flush
+      >
+        {!overview ? (
+          !ovError && <StateMessage kind="loading" />
+        ) : (
+          <DataTable
+            inset
+            rowKey="contract"
+            rows={overview}
+            groupBy={(r) => r.asset_class}
+            groupHeader={(ac, rows) => (
+              <>
+                {CLASS_LABEL[ac] ?? ac}
+                <span style={{ marginLeft: 8, fontWeight: 400, letterSpacing: 0, color: "var(--text-disabled)" }}>{rows.length}</span>
+              </>
+            )}
+            onRowClick={(r) => setSelected(r.contract)}
+            isRowSelected={(r) => r.contract === selected}
+            columns={[
+              { key: "label", label: "Contract", sortable: true },
+              {
+                key: "net_pct", label: <>Net % of OI <InfoTip text={NET_INFO} /></>, sortable: true, numeric: true, width: 240,
+                render: (r) => <NetBar value={r.net_pct} />,
+              },
+              { key: "change_1w", label: "1W change", sortable: true, numeric: true, format: fmtPp, color: signColor },
+              {
+                key: "cot_index", label: <>COT index 3Y <InfoTip text={INDEX_INFO} /></>, sortable: true, numeric: true, width: 150,
+                render: (r) => <IndexGauge value={r.cot_index} />,
+              },
+              {
+                key: "spark", label: "Net %, 1Y", width: 140,
+                render: (r) => (r.spark?.length > 1 ? <div style={{ height: 24, width: 120 }}><Sparkline values={r.spark} color={NET_COLOR} /></div> : "—"),
+              },
+              {
+                key: "date", label: "Report", numeric: true,
+                format: (v) => fmtDate(v),
+                color: (v) => (v === reportDate ? "var(--text-disabled)" : "var(--caution)"),
+              },
+            ]}
+          />
         )}
+      </Panel>
+
+      {serError && <StateMessage kind="error">Could not load this contract.</StateMessage>}
+
+      {/* ── Selected contract ─────────────────────────────────────────────────── */}
+      {!current ? (
+        !serError && <StateMessage kind="loading" />
+      ) : !current.dates?.length ? (
+        <StateMessage>No COT data for {current.label}.</StateMessage>
+      ) : (
+        <>
+          <Panel
+            title="Net % of open interest"
+            titleExtra={
+              <SeriesLegend
+                items={[
+                  { key: "net", label: "Net %", color: NET_COLOR, value: <span style={{ color: signColor(latest?.net_pct) }}>{fmtSignedPct(latest?.net_pct, 2)}</span> },
+                  { key: "price", label: priceLoading && showPrice ? "Price (loading…)" : price?.ticker ? `Price ${price.ticker}` : "Price", color: PRICE_COLOR },
+                ]}
+                active={new Set(showPrice ? ["net", "price"] : ["net"])}
+                onToggle={(k) => k === "price" && setShowPrice((v) => !v)}
+                asOf={fmtDate(latest?.date)}
+              />
+            }
+            actions={<>{contractSelect}{rangeButtons}</>}
+          >
+            <LineChart dates={current.dates} datasets={netDatasets} visibleRange={visibleRange} referenceLine={0} height={360} />
+          </Panel>
+
+          <Panel
+            title={`${current.label} positions, contracts`}
+            titleExtra={
+              <SeriesLegend
+                items={POSITION_SERIES.map((s) => ({ key: s.key, label: s.label, color: s.color, value: fmtK(posLatest(s.key)) }))}
+                active={new Set(POSITION_SERIES.map((s) => s.key).filter((k) => !hiddenPositions.has(k)))}
+                onToggle={togglePosition}
+              />
+            }
+          >
+            <LineChart dates={current.dates} datasets={positionDatasets} visibleRange={visibleRange} priceFormatter={fmtAxisCount} height={300} />
+          </Panel>
+
+          <Panel title="Weekly reports" flush>
+            <DataTable
+              inset
+              stickyHeader
+              maxHeight={440}
+              rowKey="date"
+              rows={weeklyRows}
+              columns={[
+                { key: "date", label: "Report", format: fmtDate },
+                { key: "long_pos", label: "Long", numeric: true, format: fmtK },
+                { key: "short_pos", label: "Short", numeric: true, format: fmtK },
+                { key: "net_pos", label: "Net", numeric: true, format: fmtSignedK, color: signColor },
+                { key: "open_interest", label: "Open interest", numeric: true, format: fmtK },
+                { key: "net_pct", label: "Net %", numeric: true, format: (v) => fmtSignedPct(v, 2), color: signColor },
+                { key: "change", label: "1W change", numeric: true, format: fmtPp, color: signColor },
+              ]}
+            />
+          </Panel>
+        </>
+      )}
+    </Page>
+  );
+}
+
+/**
+ * COT index 0–100 as a tick on a track. The outer fifths (≤20 most short, ≥80 most long of
+ * the 3 years) are shaded, and a value inside them gets the diverging heat colour.
+ */
+function IndexGauge({ value }) {
+  if (value == null) return "—";
+  const extreme = value <= 20 || value >= 80;
+  const tone = heatColor(value - 50, 50, "diverging");
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+      <div style={{ position: "relative", width: 80, height: 8, background: "var(--bg-elevated)" }}>
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "20%", background: "rgba(37,99,235,0.18)" }} />
+        <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "20%", background: "rgba(234,88,12,0.18)" }} />
+        <div
+          style={{
+            position: "absolute", top: -3, bottom: -3, width: 3, left: `calc(${value}% - 1.5px)`,
+            background: extreme ? tone.replace(/,[\d.]+\)$/, ",1)") : "var(--text-secondary)",
+          }}
+        />
       </div>
-      {/* center divider */}
-      <div style={{ width: 1, background: "#374151", flexShrink: 0 }} />
-      {/* positive half (center→right) */}
-      <div style={{ flex: 1 }}>
-        {isPos && (
-          <div style={{ width: `${fill * 2}%`, background: "#22c55e", borderRadius: "0 3px 3px 0" }} />
-        )}
-      </div>
+      <span style={{ width: 24, textAlign: "right", fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums", color: "var(--text-primary)" }}>
+        {value.toFixed(0)}
+      </span>
     </div>
   );
 }
 
-export default function CotDataPage() {
-  const [overview,   setOverview]   = useState(null);
-  const [contracts,  setContracts]  = useState({});
-  const [selected,   setSelected]   = useState("gold");
-  const [series,     setSeries]     = useState(null);
-  const [period,     setPeriod]     = useState("5Y");
-  const [loadingOv,  setLoadingOv]  = useState(true);
-  const [loadingSer, setLoadingSer] = useState(false);
-  const [showAll,    setShowAll]    = useState(false);
-  const [showPrice,  setShowPrice]  = useState(false);
-  const [priceData,  setPriceData]  = useState(null);
-  const [loadingPx,  setLoadingPx]  = useState(false);
-  const [error,      setError]      = useState(null);
-
-  const mainRef  = useRef(null);
-  const subRef   = useRef(null);
-  const mainChart = useRef(null);
-  const subChart  = useRef(null);
-  const syncing   = useRef(false);
-
-  // Load overview + contracts on mount
-  useEffect(() => {
-    async function load() {
-      try {
-        const [ovRes, conRes] = await Promise.all([
-          authFetch(`${API}/api/cot/overview`),
-          authFetch(`${API}/api/cot/contracts`),
-        ]);
-        setOverview(await ovRes.json());
-        setContracts(await conRes.json());
-      } catch (e) {
-        setError(e.message);
-      } finally {
-        setLoadingOv(false);
-      }
-    }
-    load();
-  }, []);
-
-  // Load series when selected changes
-  useEffect(() => {
-    async function load() {
-      setLoadingSer(true);
-      setSeries(null);
-      try {
-        const res = await authFetch(`${API}/api/cot/series/${selected}`);
-        setSeries(await res.json());
-      } catch (e) {
-        setError(e.message);
-      } finally {
-        setLoadingSer(false);
-      }
-    }
-    load();
-  }, [selected]);
-
-  // Fetch price when selected changes (reset) or showPrice toggled on
-  useEffect(() => {
-    setPriceData(null);
-    if (!showPrice) return;
-    setLoadingPx(true);
-    authFetch(`${API}/api/cot/price/${selected}`)
-      .then(r => r.json())
-      .then(d => setPriceData(d))
-      .catch(() => {})
-      .finally(() => setLoadingPx(false));
-  }, [selected, showPrice]);
-
-  // Build / rebuild charts when series, price overlay, or scale mode changes
-  useEffect(() => {
-    if (!series || !mainRef.current || !subRef.current) return;
-
-    mainChart.current?.remove();
-    subChart.current?.remove();
-
-    const hasPriceOverlay = showPrice && priceData?.dates?.length > 0;
-    const mc = createChart(mainRef.current, {
-      layout:          { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
-      grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { color: "rgba(31,41,55,0.5)" } },
-      crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151" },
-      leftPriceScale:  { visible: hasPriceOverlay, borderColor: "#374151" },
-      timeScale:       { borderColor: "#374151", timeVisible: false },
-      width:           mainRef.current.clientWidth,
-      height:          360,
-    });
-    mainChart.current = mc;
-
-    // Net % line (right scale)
-    const netSeries = mc.addSeries(LineSeries, {
-      color:            "#3b82f6", // --chart-1
-      lineWidth:        2,
-      priceScaleId:     "right",
-      priceLineVisible: false,
-      lastValueVisible: true,
-      title:            "Net %",
-    });
-    netSeries.setData(
-      series.dates
-        .map((d, i) => ({ time: d, value: series.net_pct[i] }))
-        .filter(p => p.value != null)
-    );
-
-    // Zero line (right scale)
-    const zeroSeries = mc.addSeries(LineSeries, {
-      color:            "rgba(107,114,128,0.5)",
-      lineWidth:        1,
-      lineStyle:        2,
-      priceScaleId:     "right",
-      priceLineVisible: false,
-      lastValueVisible: false,
-    });
-    const validDates = series.dates.filter((_, i) => series.net_pct[i] != null);
-    if (validDates.length >= 2) {
-      zeroSeries.setData([
-        { time: validDates[0],                        value: 0 },
-        { time: validDates[validDates.length - 1],    value: 0 },
-      ]);
-    }
-
-    // Price overlay line (left scale)
-    if (hasPriceOverlay) {
-      const pxSeries = mc.addSeries(LineSeries, {
-        color:            "#f59e0b",
-        lineWidth:        1.5,
-        priceScaleId:     "left",
-        priceLineVisible: false,
-        lastValueVisible: true,
-        title:            priceData.ticker || "Price",
-      });
-      pxSeries.setData(
-        priceData.dates.map((d, i) => ({ time: d, value: priceData.prices[i] }))
-      );
-    }
-
-    mc.timeScale().fitContent();
-
-    // Sub chart — Open Interest histogram
-    const sc = createChart(subRef.current, {
-      layout:          { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#9ca3af" },
-      grid:            { vertLines: { color: "rgba(31,41,55,0.5)" }, horzLines: { visible: false } },
-      crosshair:       { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#374151", scaleMargins: { top: 0.05, bottom: 0.05 } },
-      timeScale:       { borderColor: "#374151", timeVisible: true },
-      width:           subRef.current.clientWidth,
-      height:          120,
-    });
-    subChart.current = sc;
-
-    const oiSeries = sc.addSeries(HistogramSeries, {
-      color:            "rgba(100,150,255,0.5)",
-      priceLineVisible: false,
-      lastValueVisible: false,
-      base:             0,
-    });
-    oiSeries.setData(
-      series.dates
-        .map((d, i) => ({ time: d, value: series.open_interest[i] }))
-        .filter(p => p.value != null)
-    );
-
-    sc.timeScale().fitContent();
-
-    // Sync time scales
-    mc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      sc.timeScale().setVisibleRange(range);
-      syncing.current = false;
-    });
-    sc.timeScale().subscribeVisibleTimeRangeChange((range) => {
-      if (syncing.current || !range) return;
-      syncing.current = true;
-      mc.timeScale().setVisibleRange(range);
-      syncing.current = false;
-    });
-
-    // Resize
-    const ro = new ResizeObserver(() => {
-      mc.applyOptions({ width: mainRef.current?.clientWidth ?? 600 });
-      sc.applyOptions({ width: subRef.current?.clientWidth ?? 600 });
-    });
-    ro.observe(mainRef.current);
-
-    return () => {
-      ro.disconnect();
-      mc.remove(); mainChart.current = null;
-      sc.remove(); subChart.current  = null;
-    };
-  }, [series, showPrice, priceData]);
-
-  // Apply period to main chart (sub syncs automatically)
-  useEffect(() => {
-    if (!mainChart.current) return;
-    const sel = PERIODS.find(p => p.label === period);
-    if (!sel?.years) {
-      mainChart.current.timeScale().fitContent();
-    } else {
-      const to = new Date(), from = new Date();
-      from.setFullYear(from.getFullYear() - sel.years);
-      try {
-        mainChart.current.timeScale().setVisibleRange({
-          from: from.toISOString().slice(0, 10),
-          to:   to.toISOString().slice(0, 10),
-        });
-      } catch {
-        mainChart.current.timeScale().fitContent();
-      }
-    }
-  }, [period, series]);
-
-  // Table rows — most recent 52 or all
-  const tableRows = series
-    ? [...series.dates.map((d, i) => ({
-        date: d,
-        long_pos: series.long_pos[i],
-        short_pos: series.short_pos[i],
-        net_pos: series.net_pos[i],
-        open_interest: series.open_interest[i],
-        net_pct: series.net_pct[i],
-      }))]
-        .reverse()
-        .slice(0, showAll ? undefined : 52)
-    : [];
-
-  if (error) return <div style={{ padding: "40px 32px", color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
-
+/** Net % as a bar centred on zero (±100% at the ends) with the value beside it. */
+function NetBar({ value }) {
+  const w = value == null ? 0 : Math.min(Math.abs(value), 100) / 2; // % of the full track
   return (
-    <Page>
-
-      {/* Header */}
-      <PageHeader
-        title="COT Data"
-        subtitle="Commitments of Traders — Asset Manager / Managed Money positioning. Source: CFTC (weekly, updated Fridays)."
-      />
-
-      {/* ── Overview grid ─────────────────────────────────────────────────────── */}
-      {loadingOv ? (
-        <div style={{ color: "#4b5563", fontSize: 13, marginBottom: 36 }}>Loading overview…</div>
-      ) : overview && (
-        <div style={{ marginBottom: 40 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
-            Net Positioning Overview
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
-            {ASSET_CLASS_ORDER.filter(ac => overview[ac]).map(ac => (
-              <div key={ac} style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "16px 18px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#9ca3af" }}>{ASSET_CLASS_LABELS[ac]}</span>
-                  <span style={{ fontSize: 10, color: "#374151" }}>{overview[ac].length} contracts</span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {overview[ac].map(item => (
-                    <div key={item.contract}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => setSelected(item.contract)}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                        <span style={{
-                          fontSize: 12, color: selected === item.contract ? "#3b82f6" : "#d1d5db",
-                          fontWeight: selected === item.contract ? 600 : 400,
-                        }}>
-                          {item.label}
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: netColor(item.net_pct), fontVariantNumeric: "tabular-nums" }}>
-                          {item.net_pct != null ? (item.net_pct > 0 ? "+" : "") + item.net_pct.toFixed(1) + "%" : "—"}
-                        </span>
-                      </div>
-                      <NetBar pct={item.net_pct} />
-                      <div style={{ fontSize: 10, color: "#374151", marginTop: 2 }}>{item.date}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Detail section ────────────────────────────────────────────────────── */}
-      <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-none)", padding: "24px 28px" }}>
-
-        {/* Controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-          <select
-            value={selected}
-            onChange={e => setSelected(e.target.value)}
+    <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "flex-end" }}>
+      <div style={{ position: "relative", width: 140, height: 8, background: "var(--bg-elevated)" }}>
+        <div style={{ position: "absolute", left: "50%", top: -2, bottom: -2, width: 1, background: "var(--border)" }} />
+        {value != null && (
+          <div
             style={{
-              background: "#0a1628", border: "1px solid var(--border)", borderRadius: "var(--radius-none)",
-              color: "#e5e7eb", fontSize: 13, padding: "6px 10px", cursor: "pointer",
+              position: "absolute", top: 0, bottom: 0, width: `${w}%`,
+              ...(value >= 0 ? { left: "50%" } : { right: "50%" }),
+              background: value >= 0 ? "var(--positive)" : "var(--negative)", opacity: 0.8,
             }}
-          >
-            {ASSET_CLASS_ORDER.map(ac => {
-              const items = Object.entries(contracts).filter(([, m]) => m.asset_class === ac);
-              if (!items.length) return null;
-              return (
-                <optgroup key={ac} label={ASSET_CLASS_LABELS[ac]}>
-                  {items.map(([key, meta]) => (
-                    <option key={key} value={key}>{meta.label}</option>
-                  ))}
-                </optgroup>
-              );
-            })}
-          </select>
-
-          <div style={{ display: "flex", gap: 4 }}>
-            {PERIODS.map(p => (
-              <Button key={p.label} variant="range-toggle" active={period === p.label} onClick={() => setPeriod(p.label)}>
-                {p.label}
-              </Button>
-            ))}
-          </div>
-
-          <button
-            onClick={() => setShowPrice(p => !p)}
-            style={{
-              padding: "5px 12px", fontSize: 12, borderRadius: 5,
-              background: showPrice ? "rgba(245,158,11,0.15)" : "transparent",
-              border: showPrice ? "1px solid rgba(245,158,11,0.5)" : "1px solid var(--border)",
-              color: showPrice ? "#f59e0b" : "#6b7280",
-              cursor: "pointer",
-            }}
-          >
-            {loadingPx ? "Loading…" : "Price Overlay"}
-          </button>
-        </div>
-
-        {/* Chart title */}
-        {series && (
-          <div style={{ fontSize: 13, color: "#9ca3af", marginBottom: 12 }}>
-            <span style={{ fontWeight: 600, color: "#e5e7eb" }}>{series.label}</span>
-            {" "}— Net Long/Short % of Open Interest · {ASSET_CLASS_LABELS[series.asset_class] ?? series.asset_class}
-          </div>
-        )}
-
-        {loadingSer && <div style={{ color: "#4b5563", fontSize: 13, padding: "40px 0" }}>Loading series…</div>}
-
-        {/* Main chart */}
-        <div ref={mainRef} style={{ width: "100%", display: loadingSer ? "none" : "block" }} />
-
-        {/* Sub chart label */}
-        {!loadingSer && series && (
-          <div style={{ fontSize: 10, color: "#374151", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4, marginBottom: 2 }}>
-            Open Interest
-          </div>
-        )}
-
-        {/* Sub chart */}
-        <div ref={subRef} style={{ width: "100%", display: loadingSer ? "none" : "block" }} />
-
-        {/* ── Data table ──────────────────────────────────────────────────────── */}
-        {series && series.dates.length > 0 && (
-          <div style={{ marginTop: 28 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-              Data
-            </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
-                <thead>
-                  <tr>
-                    {["Date", "Long", "Short", "Net", "Open Interest", "Net %"].map(h => (
-                      <th key={h} style={{ textAlign: h === "Date" ? "left" : "right", padding: "6px 10px", color: "#4b5563", fontWeight: 600, borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRows.map((row, i) => (
-                    <tr key={row.date} style={{ background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)" }}>
-                      <td style={{ padding: "5px 10px", color: "#6b7280" }}>{row.date}</td>
-                      <td style={{ padding: "5px 10px", color: "#9ca3af", textAlign: "right" }}>{fmtK(row.long_pos)}</td>
-                      <td style={{ padding: "5px 10px", color: "#9ca3af", textAlign: "right" }}>{fmtK(row.short_pos)}</td>
-                      <td style={{ padding: "5px 10px", color: netColor(row.net_pct), textAlign: "right" }}>
-                        {row.net_pos != null ? (row.net_pos > 0 ? "+" : "") + fmtK(row.net_pos) : "—"}
-                      </td>
-                      <td style={{ padding: "5px 10px", color: "#6b7280", textAlign: "right" }}>{fmtK(row.open_interest)}</td>
-                      <td style={{ padding: "5px 10px", fontWeight: 600, color: netColor(row.net_pct), textAlign: "right" }}>
-                        {row.net_pct != null ? (row.net_pct > 0 ? "+" : "") + row.net_pct.toFixed(2) + "%" : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {series.dates.length > 52 && (
-              <Button variant="secondary" style={{ marginTop: 10 }} onClick={() => setShowAll(p => !p)}>
-                {showAll ? "Show less" : `Show all ${series.dates.length} rows`}
-              </Button>
-            )}
-          </div>
+          />
         )}
       </div>
-    </Page>
+      <span style={{ width: 56, textAlign: "right", fontFamily: "var(--font-family-mono)", fontVariantNumeric: "tabular-nums", color: signColor(value) }}>{fmtSignedPct(value)}</span>
+    </div>
   );
 }

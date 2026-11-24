@@ -37,11 +37,14 @@ import styles from "./DataTable.module.css";
  * inset:         16px padding on the outer columns — for a table in a `flush` Panel
  * empty:         message when rows is empty (default "No rows.")
  * defaultSort:   { key, dir: "asc" | "desc" }
+ * groupBy:       (row) => group key — rows are shown in groups (in order of first appearance),
+ *                each under a full-width header row; sorting applies within each group
+ * groupHeader:   (key, rows) => node for a group's header row (default: the key)
  */
 export default function DataTable({
   columns, rows, rowKey = "id", footerRows, onRowClick, isRowClickable, isRowSelected,
   inset = false, dense = false, stickyHeader = false, stickyFirstColumn = false, maxHeight, autoWidth = false,
-  empty = "No rows.", defaultSort = null,
+  empty = "No rows.", defaultSort = null, groupBy, groupHeader,
 }) {
   const [sort, setSort] = useState(defaultSort);
 
@@ -82,6 +85,19 @@ export default function DataTable({
     return <td key={col.key} className={cls} style={style}>{content}</td>;
   }
 
+  function bodyRow(row, i) {
+    const clickable = onRowClick && (!isRowClickable || isRowClickable(row));
+    return (
+      <tr
+        key={keyOf(row, i)}
+        onClick={clickable ? () => onRowClick(row) : undefined}
+        className={[styles.row, clickable ? styles.clickable : "", isRowSelected?.(row) ? styles.selected : ""].join(" ")}
+      >
+        {columns.map((col) => cell(col, row, i))}
+      </tr>
+    );
+  }
+
   const tableClass = [
     styles.table, autoWidth ? styles.auto : "", dense ? styles.dense : "",
     stickyHeader ? styles.stickyHead : "", stickyFirstColumn ? styles.stickyCol : "", inset ? styles.inset : "",
@@ -113,18 +129,14 @@ export default function DataTable({
           </tr>
         </thead>
         <tbody>
-          {body.map((row, i) => {
-            const clickable = onRowClick && (!isRowClickable || isRowClickable(row));
-            return (
-              <tr
-                key={keyOf(row, i)}
-                onClick={clickable ? () => onRowClick(row) : undefined}
-                className={[styles.row, clickable ? styles.clickable : "", isRowSelected?.(row) ? styles.selected : ""].join(" ")}
-              >
-                {columns.map((col) => cell(col, row, i))}
-              </tr>
-            );
-          })}
+          {groupBy
+            ? groupsOf(rows ?? [], body, groupBy).flatMap(([key, groupRows]) => [
+                <tr key={`group:${key}`} className={styles.groupHead}>
+                  <td colSpan={columns.length}>{groupHeader ? groupHeader(key, groupRows) : key}</td>
+                </tr>,
+                ...groupRows.map(bodyRow),
+              ])
+            : body.map(bodyRow)}
         </tbody>
         {footerRows?.length > 0 && (
           <tfoot>
@@ -138,4 +150,15 @@ export default function DataTable({
       </table>
     </div>
   );
+}
+
+/** [[groupKey, rows]] in the order groups first appear in `original`, rows in `sorted` order. */
+function groupsOf(original, sorted, groupBy) {
+  const order = [];
+  const seen = new Set();
+  for (const row of original) {
+    const k = groupBy(row);
+    if (!seen.has(k)) { seen.add(k); order.push(k); }
+  }
+  return order.map((k) => [k, sorted.filter((row) => groupBy(row) === k)]);
 }

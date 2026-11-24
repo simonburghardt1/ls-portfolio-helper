@@ -23,12 +23,12 @@ Plan: kit first → one template per page type → roll out in batches by type, 
 | | CPI/PPI (rework 2026-11-24) | ✅ one colour rule for the page: amber above the 2% target pace, blue below; distribution panel = `DistributionHistogram` + `DistributionStats` (MoM/YoY switch) |
 | | Commodities | ✅ kit header/Select, price Panel, distribution panel like CPI (daily/weekly) |
 | | Market Regime | ✅ SPY/QQQ switch; QQQ scored on its own instruments (QQEW/QQQ breadth, VXN), computed on request and cached 6h (`market_regime.get_index_regime`) |
-| | COT | ⬜ larger rework planned |
+| | COT | ✅ reworked: Positioning DataTable of all contracts grouped by asset class (`groupBy`; net % bar, 1W change, 3Y COT index gauge, 1Y sparkline; row click selects), net % chart with optional price and the contract Select in its panel, positions chart (long/short lines, open interest as bars via LineChart `type: "histogram"`), weekly reports table; GBP covers both CFTC names (renamed 2022-02-08); `/api/cot/overview` now a flat list with `change_1w`, `cot_index`, `spark` |
 | Admin / forms | Data import, ISM imports, HBM admin, Indicators, Consumer Confidence admin, Basket new/edit, login/register | ⬜ |
 
 **Histograms (2026-11-24):** `DistributionHistogram` (bars split at a pivot, normal fit, mean, current-value marker, log y, clickable bins) + `DistributionStats` (lib/stats.js) on CPI, Commodities and Volatility (daily/weekly toggle, `freq` on `/api/volatility/distribution`); the old `Histogram.jsx` is gone. Macro legend values are coloured by their MoM change.
 
-**DataTable (2026-11-16):** shared table component; Seasonality heatmap, portfolio correlation/covariance/Sharpe, Volatility statistics, Portfolio Beta and Basket holdings migrated. Still hand-rolled: COT, admin indicators. CPI components and ISM industry comments now on DataTable.
+**DataTable (2026-11-16):** shared table component; Seasonality heatmap, portfolio correlation/covariance/Sharpe, Volatility statistics, Portfolio Beta and Basket holdings migrated. Still hand-rolled: admin indicators. COT now on DataTable. CPI components and ISM industry comments now on DataTable.
 
 **Page frame (2026-11-16):** every page now renders inside the shared `Page` component (full width, `--page-margin` side padding); no page has its own outer wrapper or `maxWidth` column any more, admin forms included.
 
